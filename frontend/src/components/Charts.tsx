@@ -1,4 +1,5 @@
 import React from 'react';
+import Image from 'next/image';
 import { 
   BarChart, 
   Bar, 
@@ -44,6 +45,28 @@ export function MetricTile({ label, value, change }: KpiProps) {
   );
 }
 
+export function PythonPlot({ url }: { url: string | null }) {
+  if (!url) return null;
+  return (
+    <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4">
+      <div className="flex items-center justify-between">
+        <strong className="text-sm font-semibold text-slate-800">AI Generated Visualization</strong>
+        <span className="text-xs text-slate-400">Python (Matplotlib/Seaborn)</span>
+      </div>
+      <div className="flex justify-center bg-slate-50 rounded-xl overflow-hidden border border-slate-100">
+        <Image 
+          src={`http://127.0.0.1:3000${url}`} 
+          alt="AI Visualization" 
+          width={600}
+          height={400}
+          className="max-w-full h-auto object-contain"
+          unoptimized
+        />
+      </div>
+    </div>
+  );
+}
+
 export function TrendChart({ data }: TrendChartProps) {
   return (
     <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4">
@@ -71,7 +94,6 @@ export function TrendChart({ data }: TrendChartProps) {
 
 export function SegmentChart({ data, recommendations }: SegmentChartProps) {
   const COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f97316', '#ef4444'];
-
   return (
     <div className="grid grid-cols-2 gap-6">
       <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4">
@@ -89,7 +111,7 @@ export function SegmentChart({ data, recommendations }: SegmentChartProps) {
                 dataKey="value"
               >
                 {data.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  <Cell key={`cell-` + index} fill={COLORS[index % COLORS.length]} />
                 ))}
               </Pie>
               <Tooltip />
@@ -98,8 +120,8 @@ export function SegmentChart({ data, recommendations }: SegmentChartProps) {
         </div>
         <div className="flex flex-wrap gap-3 justify-center">
           {data.map((entry, index) => (
-            <div key={entry.label} className="flex items-center gap-1.5">
-              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }} />
+            <div key={`${entry.label}-${index}`} className="flex items-center gap-1.5">
+              <div className={`w-2 h-2 rounded-full`} style={{ backgroundColor: COLORS[index % COLORS.length] }} />
               <span className="text-[10px] text-slate-500 font-medium">{entry.label}</span>
             </div>
           ))}

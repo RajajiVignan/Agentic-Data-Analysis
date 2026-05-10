@@ -1,4 +1,7 @@
 
+const { exec } = require("child_process");
+const { promisify } = require("util");
+const execPromise = promisify(exec);
 const { 
   parseRows, parseJsonRows, profileRows, buildKpis, buildTrend, buildSegments, buildSql, makeNarrative, makeDashboardTitle, makeRecommendations 
 } = require("../utils/data-processor");
@@ -123,24 +126,28 @@ async function runAgentAnalysis(dataset, prompt) {
   let metricColumn = null;
   let sql = "";
   let narrative = "";
-  let aiTrend = null;
+  let aiPythonCode = null;
   let aiSegments = null;
 
   if (process.env.NVIDIA_API_KEY && openai) {
     try {
-      const systemPrompt = "You are a BI Analyst Agent. \n" +
-        "Dataset: " + dataset.filename + "\n" +
-        "Columns: " + JSON.stringify(columns) + "\n" +
-        "Dataset Rows: " + dataset.profile.rowCount + "\n" +
-        "Sample Data: " + JSON.stringify(dataset.rows.slice(0, 10)) + "\n" +
-        "\n" +
-        "Your goal is to analyze the dataset based on the user's prompt.\n" +
-        "You must return a JSON response with:\n" +
-        "1. \"metricColumn\": The name of the most relevant numeric column for the prompt.\n" +
-        "2. \"sql\": A valid SQL query to extract the trend (group by month).\n" +
-        "3. \"narrative\": A brief, professional business insight based on the user prompt.\n" +
-        "4. \"trendData\": An array of objects [{label: \"YYYY-MM\", value: number}] representing the trend.\n" +
-        "5. \"segmentData\": An array of objects [{label: \"segment name\", value: number}] for the top 5 segments.";
+      const plotPath = path.join(UPLOAD_DIR, "plots", dataset.id + "_plot.png");
+      const systemPrompt = "You are a BI Analyst Agent. \\n" +
+        "Dataset: " + dataset.filename + "\\n" +
+        "Columns: " + JSON.stringify(columns) + "\\n" +
+        "Dataset Rows: " + dataset.profile.rowCount + "\\n" +
+        "Sample Data: " + JSON.stringify(dataset.rows.slice(0, 10)) + "\\n" +
+        "\\n" +
+        "Your goal is to analyze the dataset based on the user's prompt.\\n" +
+        "You must return a JSON response with:\\n" +
+        "1. \\\"metricColumn\\\": The name of the most relevant numeric column for the prompt.\\n" +
+        "2. \\\"sql\\\": A valid SQL query to extract the trend (group by month).\\n" +
+        "3. \\\"narrative\\\": A brief, professional business insight based on the user prompt.\\n" +
+        "4. \\\"python_code\\\": A complete Python script using pandas and matplotlib/seaborn to create a visualization. \\n" +
+        "   - The script must read data from: " + dataset.filePath + "\\n" +
+        "   - It must save the resulting plot as: " + plotPath + "\\n" +
+        "   - Ensure the script handles CSV/JSON format correctly based on filename extension.\\n" +
+        "5. \\\"segmentData\\\": An array of objects [{label: \\\"segment name\\\", value: number}] for the top 5 segments.";
 
       const completion = await openai.chat.completions.create({
         model: "meta/llama-3.1-70b-instruct",
@@ -155,7 +162,7 @@ async function runAgentAnalysis(dataset, prompt) {
       metricColumn = columns.find(col => col.name === aiResult.metricColumn);
       sql = aiResult.sql;
       narrative = aiResult.narrative;
-      aiTrend = aiResult.trendData;
+      aiPythonCode = aiResult.python_code;
       aiSegments = aiResult.segmentData;
     } catch (e) {
       console.error("AI call failed, falling back to deterministic logic:", e);
@@ -173,8 +180,24 @@ async function runAgentAnalysis(dataset, prompt) {
   }
 
   const kpis = buildKpis(dataset.rows, metricColumn, categoryColumn);
-  const trend = aiTrend || buildTrend(dataset.rows, dateColumn, metricColumn);
   const segments = aiSegments || buildSegments(dataset.rows, categoryColumn, metricColumn);
+
+  let plotUrl = null;
+  if (aiPythonCode) {
+    try {
+      const pyFile = path.join(UPLOAD_DIR, "plots", dataset.id + ".py");
+      await fs.mkdir(path.join(UPLOAD_DIR, "plots"), { recursive: true });
+      await fs.writeFile(pyFile, aiPythonCode);
+      
+      await execPromise(`python3 ${pyFile}`);
+      
+      const plotFileName = dataset.id + "_plot.png";
+      plotUrl = "/plots/" + plotFileName;
+    } catch (err) {
+      console.error("Python execution failed:", err);
+      plotUrl = null;
+    }
+  }
 
   return {
     question: prompt,
@@ -201,7 +224,7 @@ async function runAgentAnalysis(dataset, prompt) {
     dashboard: {
       title: makeDashboardTitle(prompt),
       kpis,
-      trend,
+      plotUrl, 
       segments,
       recommendations: makeRecommendations(metricColumn, categoryColumn, kpis),
     },
@@ -220,7 +243,21 @@ function pickMetricColumn(prompt, numericColumns) {
 
 async function serveStatic(req, res) {
   const ROOT = __dirname + '/..'; 
-  const url = req.url === "/" ? "/index.html" : req.url;
+  let url = req.url === "/" ? "/index.html" : req.url;
+  
+  // Handle plots directory specifically
+  if (url.startsWith("/plots/")) {
+    const plotPath = path.join(ROOT, "uploads", "plots", url.replace("/plots/", ""));
+    try {
+      const content = await fs.readFile(plotPath);
+      res.writeHead(200, { "Content-Type": "image/png" });
+      res.end(content);
+      return;
+    } catch (e) {
+      return sendJson(res, 404, { error: "Plot not found" });
+    }
+  }
+
   const filePath = path.normalize(path.join(ROOT, decodeURIComponent(url)));
   if (!filePath.startsWith(ROOT)) return sendJson(res, 403, { error: "Forbidden" });
 

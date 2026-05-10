@@ -6,7 +6,7 @@ import {
   Loader2, 
 } from 'lucide-react';
 import { Sidebar } from '../components/Sidebar';
-import { MetricTile, TrendChart, SegmentChart } from '../components/Charts';
+import { MetricTile, TrendChart, SegmentChart, PythonPlot } from '../components/Charts';
 
 const API_BASE = "http://127.0.0.1:3000/api";
 
@@ -34,6 +34,7 @@ type AnalysisResult = {
     trend: ChartPoint[];
     segments: ChartPoint[];
     recommendations: string[];
+    plotUrl?: string | null;
   };
 };
 
@@ -155,7 +156,7 @@ export default function Workspace() {
               </p>
             )}
           </div>
-
+          
           {/* Upload Area */}
           {!activeDatasetId && (
             <div className="flex flex-col items-center justify-center py-20 border-2 border-dashed border-slate-200 rounded-3xl bg-white text-center space-y-4">
@@ -205,6 +206,7 @@ export default function Workspace() {
                   ))}
                 </div>
                 
+                <PythonPlot url={result.dashboard.plotUrl} />
                 <TrendChart data={result.dashboard.trend} />
                 <SegmentChart 
                   data={result.dashboard.segments} 
