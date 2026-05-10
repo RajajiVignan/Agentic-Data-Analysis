@@ -1,0 +1,11 @@
+[
+  { "month": "2026-01", "segment": "Enterprise", "revenue": 124000, "customers": 42, "churn_risk": 3.2 },
+  { "month": "2026-01", "segment": "Mid-market", "revenue": 86000, "customers": 118, "churn_risk": 5.1 },
+  { "month": "2026-01", "segment": "SMB", "revenue": 39000, "customers": 314, "churn_risk": 8.4 },
+  { "month": "2026-02", "segment": "Enterprise", "revenue": 138500, "customers": 45, "churn_risk": 2.8 },
+  { "month": "2026-02", "segment": "Mid-market", "revenue": 91000, "customers": 124, "churn_risk": 4.9 },
+  { "month": "2026-02", "segment": "SMB", "revenue": 41000, "customers": 329, "churn_risk": 8.9 },
+  { "month": "2026-03", "segment": "Enterprise", "revenue": 151200, "customers": 49, "churn_risk": 2.6 },
+  { "month": "2026-03", "segment": "Mid-market", "revenue": 97000, "customers": 131, "churn_risk": 4.6 },
+  { "month": "2026-03", "segment": "SMB", "revenue": 40500, "customers": 337, "churn_risk": 9.3 }
+]
