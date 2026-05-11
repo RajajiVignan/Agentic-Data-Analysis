@@ -44,6 +44,22 @@ describe('InsightPilot API', () => {
     expect(res.body).toHaveProperty('dashboard');
   });
 
+  test('GET /api/export/cleaned-csv exports selected dataset rows', async () => {
+    const setupRes = await request(server)
+      .post('/api/connect-source')
+      .send({ source: 'Export Test' });
+
+    const datasetId = setupRes.body.datasetId;
+
+    const res = await request(server)
+      .get(`/api/export/cleaned-csv?datasetIds=${datasetId}`);
+
+    expect(res.statusCode).toEqual(200);
+    expect(res.headers['content-type']).toContain('text/csv');
+    expect(res.text).toContain('source_dataset,month,segment,revenue,customers,churn_risk');
+    expect(res.text).toContain('export_test_sample');
+  });
+
   test('POST /api/analyze returns 404 for missing dataset', async () => {
     const res = await request(server)
       .post('/api/analyze')

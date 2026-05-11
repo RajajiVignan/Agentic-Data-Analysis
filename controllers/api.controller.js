@@ -3,23 +3,33 @@ const { exec } = require("child_process");
 const { promisify } = require("util");
 const execPromise = promisify(exec);
 const { 
-  parseRows, parseJsonRows, profileRows, buildKpis, buildTrend, buildSegments, buildSql, makeNarrative, makeDashboardTitle, makeRecommendations 
+  parseRows, parseJsonRows, profileRows, buildKpis, buildTrend, buildSegments, buildSql, makeNarrative, makeDashboardTitle, makeRecommendations, parseUpload, objectRowsToCsv
 } = require("../utils/data-processor");
 
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const crypto = require("node:crypto");
 
+function rowToObject(columns, row) {
+  const obj = {};
+  for (let i = 0; i < columns.length; i++) {
+    obj[columns[i].name] = row[i] || "";
+  }
+  return obj;
+}
+
 let datasets = new Map();
 let connections = new Map();
 let UPLOAD_DIR = "";
 let openai = null;
+let mimeTypes = {};
 
 function setDependencies(deps) {
   datasets = deps.datasets;
   connections = deps.connections;
   UPLOAD_DIR = deps.UPLOAD_DIR;
   openai = deps.openai;
+  mimeTypes = deps.mimeTypes || {};
 }
 
 async function handleUpload(req, res) {
@@ -53,27 +63,47 @@ async function handleUpload(req, res) {
     filename: upload.filename,
     filePath,
     profile,
-    rows: rows.slice(1).map((row) => Object.fromEntries(profile.columns.map((col, idx) => [col.name, row[idx] || ""]))),
+    rows: rows.slice(1).map((row) => rowToObject(profile.columns, row)),
   };
+  datasets.set(id, dataset);
+
+  // Run automated health check
+  let healthCheck = null;
+  try {
+    healthCheck = await runAgentAnalysis([dataset], "Perform a comprehensive health check on this dataset. Look for anomalies, outliers, missing values, surprising correlations, and any data quality issues. Provide insights in a structured format.");
+  } catch (error) {
+    console.error("Health check failed:", error);
+    // Optionally, we can set healthCheck to an error object
+    healthCheck = { error: "Health check failed: " + error.message };
+  }
+  // Update dataset with healthCheck
+  dataset.healthCheck = healthCheck;
   datasets.set(id, dataset);
 
   sendJson(res, 201, {
     datasetId: id,
     filename: upload.filename,
     profile,
+    healthCheck, // Include in response
   });
 }
 
 async function handleAnalyze(req, res) {
   const body = await readJson(req);
-  const dataset = datasets.get(body.datasetId);
+  const datasetIds = Array.isArray(body.datasetIds) ? body.datasetIds : (body.datasetId ? [body.datasetId] : []);
+  
+  if (datasetIds.length === 0) {
+    return sendJson(res, 400, { error: "No dataset IDs provided for analysis." });
+  }
 
-  if (!dataset) {
-    return sendJson(res, 404, { error: "Upload a dataset before running analysis." });
+  const datasetsToAnalyze = datasetIds.map(id => datasets.get(id)).filter(Boolean);
+
+  if (datasetsToAnalyze.length === 0) {
+    return sendJson(res, 404, { error: "One or more requested datasets were not found." });
   }
 
   try {
-    const answer = await runAgentAnalysis(dataset, body.prompt || "");
+    const answer = await runAgentAnalysis(datasetsToAnalyze, body.prompt || "");
     sendJson(res, 200, answer);
   } catch (error) {
     console.error("Analysis error:", error);
@@ -104,7 +134,7 @@ async function handleConnectSource(req, res) {
     filename,
     filePath: null,
     profile,
-    rows: rows.slice(1).map((row) => Object.fromEntries(profile.columns.map((col, idx) => [col.name, row[idx] || ""]))),
+    rows: rows.slice(1).map((row) => rowToObject(profile.columns, row)),
   };
   datasets.set(id, dataset);
   connections.set(id, { source, connectedAt: new Date().toISOString() });
@@ -117,8 +147,45 @@ async function handleConnectSource(req, res) {
   });
 }
 
-async function runAgentAnalysis(dataset, prompt) {
-  const columns = dataset.profile.columns;
+async function handleExportCsv(req, res) {
+  const url = new URL(req.url, "http://localhost");
+  const ids = (url.searchParams.get("datasetIds") || url.searchParams.get("datasetId") || "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+
+  if (ids.length === 0) {
+    return sendJson(res, 400, { error: "Provide datasetIds to export." });
+  }
+
+  const datasetsToExport = ids.map((id) => datasets.get(id)).filter(Boolean);
+  if (datasetsToExport.length === 0) {
+    return sendJson(res, 404, { error: "No matching datasets found for export." });
+  }
+
+  const csv = objectRowsToCsv(datasetsToExport);
+  const filename = datasetsToExport.length === 1
+    ? `${safeDownloadName(datasetsToExport[0].filename)}-cleaned.csv`
+    : "insightpilot-cleaned-data.csv";
+
+  res.writeHead(200, {
+    "Content-Type": "text/csv; charset=utf-8",
+    "Content-Disposition": `attachment; filename="${filename}"`,
+  });
+  res.end(csv);
+}
+
+function safeDownloadName(value) {
+  return String(value)
+    .replace(/\.[^.]+$/, "")
+    .replace(/[^a-z0-9._-]+/gi, "_")
+    .replace(/^_+|_+$/g, "") || "dataset";
+}
+
+async function runAgentAnalysis(datasetsList, prompt) {
+  // We use the first dataset as the primary for basic KPI/Notebook metadata
+  const primary = datasetsList[0];
+  const columns = primary.profile.columns;
   const numericColumns = columns.filter((column) => column.type === "number");
   const dateColumn = columns.find((column) => column.type === "date");
   const categoryColumn = columns.find((column) => column.type === "text");
@@ -129,31 +196,39 @@ async function runAgentAnalysis(dataset, prompt) {
   let aiPythonCode = null;
   let aiSegments = null;
 
-  if (process.env.NVIDIA_API_KEY && openai) {
+  // Prepare Dataset Context for AI
+  const datasetsContext = datasetsList.map(d => ({
+    filename: d.filename,
+    filePath: d.filePath,
+    columns: d.profile.columns,
+    rowCount: d.profile.rowCount,
+    sample: d.rows.slice(0, 5)
+  }));
+
+  if (process.env.NODE_ENV !== "test" && process.env.NVIDIA_API_KEY && openai) {
     try {
-      const plotPath = path.join(UPLOAD_DIR, "plots", dataset.id + "_plot.png");
-      const systemPrompt = "You are a BI Analyst Agent. \\n" +
-        "Dataset: " + dataset.filename + "\\n" +
-        "Columns: " + JSON.stringify(columns) + "\\n" +
-        "Dataset Rows: " + dataset.profile.rowCount + "\\n" +
-        "Sample Data: " + JSON.stringify(dataset.rows.slice(0, 10)) + "\\n" +
+      // Visualizations are saved using the ID of the first dataset in the group
+      const plotPath = path.join(UPLOAD_DIR, "plots", primary.id + "_plot.png");
+      const systemPrompt = "You are a BI Analyst Agent specializing in Comparative Analysis. \\n" +
+        "Available Datasets: " + JSON.stringify(datasetsContext, null, 2) + "\\n" +
         "\\n" +
-        "Your goal is to analyze the dataset based on the user's prompt.\\n" +
+        "Your goal is to analyze the dataset(s) based on the user's prompt.\\n" +
+        "If multiple datasets are provided, you should look for common keys (like date, id, or category) to merge them and calculate la growth rates, deltas, or shifts.\\n" +
         "You must return a JSON response with:\\n" +
-        "1. \\\"metricColumn\\\": The name of the most relevant numeric column for the prompt.\\n" +
+        "1. \\\"metricColumn\\\": The most relevant numeric column for the primary dataset.\\n" +
         "2. \\\"sql\\\": A valid SQL query to extract the trend (group by month).\\n" +
-        "3. \\\"narrative\\\": A brief, professional business insight based on the user prompt.\\n" +
-        "4. \\\"python_code\\\": A complete Python script using pandas and matplotlib/seaborn to create a visualization. \\n" +
-        "   - The script must read data from: " + dataset.filePath + "\\n" +
-        "   - It must save the resulting plot as: " + plotPath + "\\n" +
-        "   - Ensure the script handles CSV/JSON format correctly based on filename extension.\\n" +
+        "3. \\\"narrative\\\": A brief, professional business insight. If comparing, explicitly mention the difference/growth between files.\\n" +
+        "4. \\\"python_code\\\": A complete Python script using pandas and matplotlib/seaborn. \\n" +
+        "   - YOU MUST LOAD ALL DATASETS using the paths provided in the Available Datasets section.\\n" +
+        "   - SAVE the resulting plot as: " + plotPath + "\\n" +
+        "   - Use a high-contrast style (e.g., seaborn-v0_8) and ensure labels are clear.\\n" +
         "5. \\\"segmentData\\\": An array of objects [{label: \\\"segment name\\\", value: number}] for the top 5 segments.";
 
       const completion = await openai.chat.completions.create({
         model: "meta/llama-3.1-70b-instruct",
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: prompt || "Summarize this dataset." },
+          { role: "user", content: prompt || "Compare these datasets and summarize findings." },
         ],
         response_format: { type: "json_object" },
       });
@@ -173,25 +248,26 @@ async function runAgentAnalysis(dataset, prompt) {
     metricColumn = pickMetricColumn(prompt, numericColumns);
   }
   if (!sql) {
-    sql = buildSql(dataset.filename, dateColumn, metricColumn, categoryColumn);
+    sql = buildSql(primary.filename, dateColumn, metricColumn, categoryColumn);
   }
   if (!narrative) {
-    narrative = makeNarrative(prompt, metricColumn, dateColumn, categoryColumn, buildKpis(dataset.rows, metricColumn, categoryColumn));
+    narrative = makeNarrative(prompt, metricColumn, dateColumn, categoryColumn, buildKpis(primary.rows, metricColumn, categoryColumn));
   }
 
-  const kpis = buildKpis(dataset.rows, metricColumn, categoryColumn);
-  const segments = aiSegments || buildSegments(dataset.rows, categoryColumn, metricColumn);
+  const kpis = buildKpis(primary.rows, metricColumn, categoryColumn);
+  const trend = buildTrend(primary.rows, dateColumn, metricColumn);
+  const segments = aiSegments || buildSegments(primary.rows, categoryColumn, metricColumn);
 
   let plotUrl = null;
   if (aiPythonCode) {
     try {
-      const pyFile = path.join(UPLOAD_DIR, "plots", dataset.id + ".py");
+      const pyFile = path.join(UPLOAD_DIR, "plots", primary.id + ".py");
       await fs.mkdir(path.join(UPLOAD_DIR, "plots"), { recursive: true });
       await fs.writeFile(pyFile, aiPythonCode);
       
       await execPromise(`python3 ${pyFile}`);
       
-      const plotFileName = dataset.id + "_plot.png";
+      const plotFileName = primary.id + "_plot.png";
       plotUrl = "/plots/" + plotFileName;
     } catch (err) {
       console.error("Python execution failed:", err);
@@ -202,15 +278,15 @@ async function runAgentAnalysis(dataset, prompt) {
   return {
     question: prompt,
     dataset: {
-      id: dataset.id,
-      filename: dataset.filename,
-      rowCount: dataset.profile.rowCount,
+      id: primary.id,
+      filename: primary.filename,
+      rowCount: primary.profile.rowCount,
       columns,
     },
     notebook: [
       {
         title: "Data understanding",
-        body: "Profiled " + dataset.profile.rowCount + " rows across " + columns.length + " columns. The agent selected " + (metricColumn ? metricColumn.name : "row count") + " as the main measure.",
+        body: `Analyzing ${datasetsList.length} dataset(s). Primary: ${primary.filename} (${primary.profile.rowCount} rows). Agent selected ${metricColumn ? metricColumn.name : "row count"} as the main measure.`,
       },
       {
         title: "Generated SQL",
@@ -224,6 +300,7 @@ async function runAgentAnalysis(dataset, prompt) {
     dashboard: {
       title: makeDashboardTitle(prompt),
       kpis,
+      trend,
       plotUrl, 
       segments,
       recommendations: makeRecommendations(metricColumn, categoryColumn, kpis),
@@ -236,7 +313,7 @@ function pickMetricColumn(prompt, numericColumns) {
   const lowerPrompt = prompt.toLowerCase();
   return (
     numericColumns.find((column) => lowerPrompt.includes(column.name.toLowerCase())) ||
-    numericColumns.find((column) => /revenue|sales|amount|price|total|arr|mrr/i.test(column.name)) ||
+    numericColumns.find((column) => /revenue|sales/i.test(column.name)) ||
     numericColumns[0]
   );
 }
@@ -245,7 +322,6 @@ async function serveStatic(req, res) {
   const ROOT = __dirname + '/..'; 
   let url = req.url === "/" ? "/index.html" : req.url;
   
-  // Handle plots directory specifically
   if (url.startsWith("/plots/")) {
     const plotPath = path.join(ROOT, "uploads", "plots", url.replace("/plots/", ""));
     try {
@@ -263,7 +339,9 @@ async function serveStatic(req, res) {
 
   try {
     const content = await fs.readFile(filePath);
-    res.writeHead(200, { "Content-Type": "application/octet-stream" });
+    const ext = path.extname(filePath).toLowerCase();
+    const contentType = mimeTypes[ext] || "application/octet-stream";
+    res.writeHead(200, { "Content-Type": contentType });
     res.end(content);
   } catch {
     sendJson(res, 404, { error: "Not found" });
@@ -281,7 +359,8 @@ async function readBody(req) {
 
 async function readJson(req) {
   const body = await readBody(req);
-  return JSON.parse(body.toString("utf8") || "{}");
+  const text = body.toString("utf8").trim();
+  return JSON.parse(text || "{}");
 }
 
 function sendJson(res, status, data) {
@@ -289,26 +368,6 @@ function sendJson(res, status, data) {
   res.end(JSON.stringify(data));
 }
 
-function parseUpload(body, contentType) {
-  const boundary = contentType.match(/boundary=(.+)$/)?.[1];
-  if (!boundary) return null;
-
-  const parts = body.toString("binary").split(`--${boundary}`);
-  for (const part of parts) {
-    if (!part.includes('name="file"')) continue;
-    const filename = part.match(/filename="([^"]+)"/)?.[1];
-    const start = part.indexOf("\r\n\r\n");
-    if (!filename || start === -1) return null;
-    const raw = part.slice(start + 4).replace(/\r\n--$/, "").replace(/\r\n$/, "");
-    return {
-      filename,
-      content: Buffer.from(raw, "binary"),
-    };
-  }
-
-  return null;
-}
-
 module.exports = {
-  setDependencies, handleUpload, handleAnalyze, handleConnectSource, serveStatic, sendJson, readJson
+  setDependencies, handleUpload, handleAnalyze, handleConnectSource, handleExportCsv, serveStatic, sendJson, readJson
 };

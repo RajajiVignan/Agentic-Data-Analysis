@@ -6,7 +6,8 @@ const {
   inferType, 
   buildKpis, 
   buildTrend, 
-  buildSegments 
+  buildSegments,
+  objectRowsToCsv
 } = require('../utils/data-processor');
 
 describe('Data Processor Utils', () => {
@@ -135,6 +136,20 @@ describe('Data Processor Utils', () => {
       const segs = buildSegments(rows, catCol, metricCol);
       expect(segs[0]).toEqual({ label: 'B', value: 500 });
       expect(segs[1]).toEqual({ label: 'A', value: 200 });
+    });
+  });
+
+  describe('objectRowsToCsv', () => {
+    test('exports cleaned object rows with dataset source', () => {
+      const csv = objectRowsToCsv([
+        {
+          filename: 'sales.csv',
+          profile: { columns: [{ name: 'name' }, { name: 'note' }] },
+          rows: [{ name: '  Acme  ', note: 'Hello,  world' }],
+        },
+      ]);
+
+      expect(csv).toBe('source_dataset,name,note\nsales.csv,Acme,"Hello, world"\n');
     });
   });
 });

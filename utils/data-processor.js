@@ -25,6 +25,39 @@ function stringifyCell(value) {
   return String(value);
 }
 
+function cleanCell(value) {
+  return stringifyCell(value).trim().replace(/\s+/g, " ");
+}
+
+function escapeCsvCell(value) {
+  const text = cleanCell(value);
+  if (/[",\n\r]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+}
+
+function objectRowsToCsv(datasetsList) {
+  const allColumns = [
+    "source_dataset",
+    ...new Set(datasetsList.flatMap((dataset) => dataset.profile.columns.map((column) => column.name))),
+  ];
+
+  const lines = [allColumns.map(escapeCsvCell).join(",")];
+
+  datasetsList.forEach((dataset) => {
+    dataset.rows.forEach((row) => {
+      const values = allColumns.map((column) => {
+        if (column === "source_dataset") return dataset.filename;
+        return row[column] ?? "";
+      });
+      lines.push(values.map(escapeCsvCell).join(","));
+    });
+  });
+
+  return lines.join("\n") + "\n";
+}
+
 function profileRows(rows) {
   const headers = rows[0].map((header, index) => header.trim() || `column_${index + 1}`);
   const dataRows = rows.slice(1);
@@ -195,5 +228,5 @@ function safeSqlName(value) {
 }
 
 module.exports = {
-  parseRows, parseJsonRows, stringifyCell, profileRows, inferType, parseCsv, parseUpload, formatNumber, quoteId, safeSqlName, buildKpis, buildTrend, buildSegments, buildSql, makeNarrative, makeDashboardTitle, makeRecommendations
+  parseRows, parseJsonRows, stringifyCell, cleanCell, escapeCsvCell, objectRowsToCsv, profileRows, inferType, parseCsv, parseUpload, formatNumber, quoteId, safeSqlName, buildKpis, buildTrend, buildSegments, buildSql, makeNarrative, makeDashboardTitle, makeRecommendations
 }

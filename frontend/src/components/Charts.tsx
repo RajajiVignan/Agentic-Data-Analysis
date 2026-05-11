@@ -48,7 +48,7 @@ export function MetricTile({ label, value, change }: KpiProps) {
 export function PythonPlot({ url }: { url: string | null }) {
   if (!url) return null;
   return (
-    <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4">
+    <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4" data-export-plot="Python Plot">
       <div className="flex items-center justify-between">
         <strong className="text-sm font-semibold text-slate-800">AI Generated Visualization</strong>
         <span className="text-xs text-slate-400">Python (Matplotlib/Seaborn)</span>
@@ -69,7 +69,7 @@ export function PythonPlot({ url }: { url: string | null }) {
 
 export function TrendChart({ data }: TrendChartProps) {
   return (
-    <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4">
+    <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4" data-export-plot="Revenue Trend">
       <div className="flex items-center justify-between">
         <strong className="text-sm font-semibold text-slate-800">Revenue Trend</strong>
         <span className="text-xs text-slate-400">Last 8 periods</span>
@@ -96,7 +96,7 @@ export function SegmentChart({ data, recommendations }: SegmentChartProps) {
   const COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f97316', '#ef4444'];
   return (
     <div className="grid grid-cols-2 gap-6">
-      <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4">
+      <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4" data-export-plot="Segment Mix">
         <strong className="text-sm font-semibold text-slate-800">Segment Mix</strong>
         <div className="h-64 w-full">
           <ResponsiveContainer width="100%" height="100%">

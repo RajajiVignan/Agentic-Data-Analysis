@@ -31,7 +31,8 @@ apiController.setDependencies({
   datasets,
   connections,
   UPLOAD_DIR,
-  openai // Pass openai instance if needed in the future
+  openai,
+  mimeTypes,
 });
 
 
@@ -69,6 +70,10 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    if (req.method === "GET" && req.url.startsWith("/api/export/cleaned-csv")) {
+      return apiController.handleExportCsv(req, res);
+    }
+
     if (req.method === "POST" && req.url === "/api/upload") {
       return apiController.handleUpload(req, res);
     }
@@ -92,9 +97,15 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, HOST, async () => {
+async function startServer() {
   await fs.mkdir(UPLOAD_DIR, { recursive: true });
-  console.log(`InsightPilot running at http://${HOST}:${PORT}`);
-});
+  server.listen(PORT, HOST, () => {
+    console.log(`InsightPilot running at http://${HOST}:${PORT}`);
+  });
+}
+
+if (require.main === module) {
+  startServer();
+}
 
 module.exports = server;
