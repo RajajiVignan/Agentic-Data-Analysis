@@ -3,7 +3,10 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -123,7 +126,86 @@ func (h *Handler) handleConnectSource(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
-	h.sendJSON(w, http.StatusNotImplemented, map[string]string{"error": "Upload porting partially implemented"})
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		h.sendJSON(w, http.StatusBadRequest, map[string]string{"error": "Could not parse multipart form"})
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		h.sendJSON(w, http.StatusBadRequest, map[string]string{"error": "File is required (field name 'file')"})
+		return
+	}
+	defer file.Close()
+
+	content, err := io.ReadAll(file)
+	if err != nil {
+		h.sendJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to read file"})
+		return
+	}
+
+	if err := os.MkdirAll(h.uploadDir, 0755); err != nil {
+		h.sendJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create upload directory"})
+		return
+	}
+
+	id := fmt.Sprintf("%d", os.Getpid()) 
+	safeName := filepath.Base(header.Filename)
+	filePath := filepath.Join(h.uploadDir, fmt.Sprintf("%s-%s", id, safeName))
+	if err := os.WriteFile(filePath, content, 0644); err != nil {
+		h.sendJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to save file"})
+		return
+	}
+
+	var rows [][]string
+	text := string(content)
+	if strings.HasSuffix(strings.ToLower(header.Filename), ".json") {
+		rows, err = data.ParseJSONRows(text)
+	} else {
+		rows, err = data.ParseCSV(text)
+	}
+
+	if err != nil {
+		h.sendJSON(w, http.StatusBadRequest, map[string]string{"error": "Parsing failed: " + err.Error()})
+		return
+	}
+
+	if len(rows) < 2 {
+		h.sendJSON(w, http.StatusBadRequest, map[string]string{"error": "File must have a header and at least one data row"})
+		return
+	}
+
+	profile := data.ProfileRows(rows)
+	
+	rowObjects := make([]map[string]string, 0, len(rows)-1)
+	headers := rows[0]
+	for _, row := range rows[1:] {
+		obj := make(map[string]string)
+		for i, header := range headers {
+			if i < len(row) {
+				obj[header] = row[i]
+			}
+		}
+		rowObjects = append(rowObjects, obj)
+	}
+
+	dataset := &data.Dataset{
+		ID:       id,
+		Filename: header.Filename,
+		FilePath: filePath,
+		Profile:  profile,
+		Rows:     rowObjects,
+	}
+
+	h.mu.Lock()
+	h.datasets[id] = dataset
+	h.mu.Unlock()
+
+	h.sendJSON(w, http.StatusCreated, map[string]interface{}{
+		"datasetId": id,
+		"filename":  header.Filename,
+		"profile":   profile,
+	})
 }
 
 func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
@@ -160,9 +242,28 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	}
 	primary := activeDatasets[0]
 	narrative := "The agent analyzed the data. Deterministic logic indicates a strong trend in the primary metric."
-	kpis := data.BuildKPIs(primary.Rows, &primary.Profile.Columns[2], &primary.Profile.Columns[1])
-	trend := data.BuildTrend(primary.Rows, &primary.Profile.Columns[0], &primary.Profile.Columns[2])
-	segments := data.BuildSegments(primary.Rows, &primary.Profile.Columns[1], &primary.Profile.Columns[2])
+	
+	var metricCol, catCol *data.Column
+	if len(primary.Profile.Columns) > 0 {
+		metricCol = &primary.Profile.Columns[0] 
+		for i := range primary.Profile.Columns {
+			if primary.Profile.Columns[i].Type == "number" {
+				metricCol = &primary.Profile.Columns[i]
+				break
+			}
+		}
+		for i := range primary.Profile.Columns {
+			if primary.Profile.Columns[i].Type == "text" {
+				catCol = &primary.Profile.Columns[i]
+				break
+			}
+		}
+	}
+
+	kpis := data.BuildKPIs(primary.Rows, metricCol, catCol)
+	trend := data.BuildTrend(primary.Rows, &primary.Profile.Columns[0], metricCol)
+	segments := data.BuildSegments(primary.Rows, catCol, metricCol)
+
 	h.sendJSON(w, http.StatusOK, map[string]interface{}{
 		"question": body.Prompt,
 		"dataset": map[string]interface{}{
@@ -178,6 +279,13 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 			"kpis": kpis,
 			"trend": trend,
 			"segments": segments,
+			"recommendations": []string{
+				fmt.Sprintf("Review the top %s groups contributing to %s", 
+					func() string { if catCol != nil { return catCol.Name }; return "available" }(), 
+					func() string { if metricCol != nil { return metricCol.Name }; return "records" }()),
+				"Add business definitions for metrics to ensure consistency.",
+				"Publish this board after validating with the data owner.",
+			},
 		},
 	})
 }

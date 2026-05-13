@@ -76,7 +76,7 @@ export function TrendChart({ data }: TrendChartProps) {
       </div>
       <div className="h-64 w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data}>
+          <BarChart data={data ?? []}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
             <XAxis dataKey="label" fontSize={12} tickLine={false} axisLine={false} tick={{fill: '#94a3b8'}} />
             <YAxis hide />
@@ -110,7 +110,7 @@ export function SegmentChart({ data, recommendations }: SegmentChartProps) {
                 paddingAngle={5}
                 dataKey="value"
               >
-                {data.map((entry, index) => (
+                {(data ?? []).map((entry, index) => (
                   <Cell key={`cell-` + index} fill={COLORS[index % COLORS.length]} />
                 ))}
               </Pie>
@@ -119,7 +119,7 @@ export function SegmentChart({ data, recommendations }: SegmentChartProps) {
           </ResponsiveContainer>
         </div>
         <div className="flex flex-wrap gap-3 justify-center">
-          {data.map((entry, index) => (
+          {(data ?? []).map((entry, index) => (
             <div key={`${entry.label}-${index}`} className="flex items-center gap-1.5">
               <div className={`w-2 h-2 rounded-full`} style={{ backgroundColor: COLORS[index % COLORS.length] }} />
               <span className="text-[10px] text-slate-500 font-medium">{entry.label}</span>
@@ -130,7 +130,7 @@ export function SegmentChart({ data, recommendations }: SegmentChartProps) {
       <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4">
         <strong className="text-sm font-semibold text-slate-800">Agent Recommendations</strong>
         <div className="space-y-3">
-          {recommendations.map((rec, i) => (
+           {(recommendations ?? []).map((rec, i) => (
             <div key={i} className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-xs text-slate-600 leading-relaxed">
               {rec}
             </div>
