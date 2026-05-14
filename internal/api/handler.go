@@ -16,14 +16,24 @@ import (
 type Handler struct {
 	datasets    map[string]*data.Dataset
 	connections map[string]data.Connection
+	pinnedCharts map[string]*PinnedChart
 	uploadDir   string
 	mu          sync.RWMutex
+}
+
+type PinnedChart struct {
+	ID        string `json:"id"`
+	ChartType string `json:"chart_type"`
+	Label     string `json:"label"`
+	Data      any    `json:"data"`
+	URL       string `json:"url"`
 }
 
 func NewHandler() *Handler {
 	return &Handler{
 		datasets:    make(map[string]*data.Dataset),
 		connections: make(map[string]data.Connection),
+		pinnedCharts: make(map[string]*PinnedChart),
 		uploadDir:   "uploads",
 	}
 }
@@ -50,6 +60,8 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("/api/analyze", corsHandler(h.handleAnalyze))
 	mux.HandleFunc("/api/connect-source", corsHandler(h.handleConnectSource))
 	mux.HandleFunc("/api/export/cleaned-csv", corsHandler(h.handleExportCsv))
+	mux.HandleFunc("/api/pinned-charts", corsHandler(h.handleGetPinnedCharts))
+	mux.HandleFunc("/api/pin-chart", corsHandler(h.handlePinChart))
 
 	return mux
 }
@@ -292,4 +304,33 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleExportCsv(w http.ResponseWriter, r *http.Request) {
 	h.sendJSON(w, http.StatusNotImplemented, map[string]string{"error": "Export porting in progress"})
+}
+
+
+func (h *Handler) handleGetPinnedCharts(w http.ResponseWriter, r *http.Request) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	var list []*PinnedChart
+	for _, pc := range h.pinnedCharts {
+		list = append(list, pc)
+	}
+	h.sendJSON(w, http.StatusOK, map[string]interface{}{"pinnedCharts": list})
+}
+
+func (h *Handler) handlePinChart(w http.ResponseWriter, r *http.Request) {
+	var pc PinnedChart
+	if err := json.NewDecoder(r.Body).Decode(&pc); err != nil {
+		h.sendJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+		return
+	}
+	
+	if pc.ID == "" {
+		pc.ID = fmt.Sprintf("%d", os.Getpid()) // Simple ID gen for in-memory
+	}
+	
+	h.mu.Lock()
+	h.pinnedCharts[pc.ID] = &pc
+	h.mu.Unlock()
+	
+	h.sendJSON(w, http.StatusCreated, pc)
 }

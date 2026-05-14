@@ -21,23 +21,26 @@ That separation keeps backend dependencies out of the browser app.
 
 ## Run
 
-Backend:
+### 1. Start the Backend
+The backend is written in Go and provides the API for data processing and analysis.
 
 ```bash
-npm start
+# Run the server binary
+./server_bin
 ```
 
-Frontend:
+### 2. Start the Frontend
+The frontend is a Next.js application.
 
 ```bash
 cd frontend
+npm install
 npm run dev
 ```
 
 Open the frontend URL printed by Next.js, usually:
-
 ```text
-http://localhost:3001
+http://localhost:3000
 ```
 
 ## API

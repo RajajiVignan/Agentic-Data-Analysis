@@ -1,5 +1,6 @@
 import React from 'react';
 import Image from 'next/image';
+import { Pin } from 'lucide-react';
 import { 
   BarChart, 
   Bar, 
@@ -33,9 +34,18 @@ type SegmentChartProps = {
   recommendations: string[];
 };
 
-export function MetricTile({ label, value, change }: KpiProps) {
+export function MetricTile({ label, value, change, onPin }: KpiProps & { onPin?: () => void }) {
   return (
-    <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-1">
+    <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-1 relative group">
+      <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button 
+          onClick={onPin}
+          className="p-1 hover:bg-slate-100 rounded-md text-slate-400 hover:text-indigo-600 transition-colors"
+          title="Pin to Dashboard"
+        >
+          <Pin size={12} />
+        </button>
+      </div>
       <span className="text-xs font-medium text-slate-500">{label}</span>
       <strong className="block text-2xl font-bold text-slate-900">{value}</strong>
       <small className={`text-xs ${change.includes('+') ? 'text-emerald-600' : 'text-slate-500'}`}>
@@ -45,13 +55,22 @@ export function MetricTile({ label, value, change }: KpiProps) {
   );
 }
 
-export function PythonPlot({ url }: { url: string | null }) {
+export function PythonPlot({ url, onPin }: { url: string | null, onPin?: () => void }) {
   if (!url) return null;
   return (
-    <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4" data-export-plot="Python Plot">
+    <div className="p-6 bg-white rounded-2 own-2xl border border-slate-200 shadow-sm space-y-4 relative group" data-export-plot="Python Plot">
       <div className="flex items-center justify-between">
         <strong className="text-sm font-semibold text-slate-800">AI Generated Visualization</strong>
-        <span className="text-xs text-slate-400">Python (Matplotlib/Seaborn)</span>
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={onPin}
+            className="p-1 hover:bg-slate-100 rounded-md text-slate-400 hover:text-indigo-600 transition-colors"
+            title="Pin to Dashboard"
+          >
+            <Pin size={14} />
+          </button>
+          <span className="text-xs text-slate-400">Python (Matplotlib/Seaborn)</span>
+        </div>
       </div>
       <div className="flex justify-center bg-slate-50 rounded-xl overflow-hidden border border-slate-100">
         <Image 
@@ -67,12 +86,21 @@ export function PythonPlot({ url }: { url: string | null }) {
   );
 }
 
-export function TrendChart({ data }: TrendChartProps) {
+export function TrendChart({ data, onPin }: TrendChartProps & { onPin?: () => void }) {
   return (
-    <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4" data-export-plot="Revenue Trend">
+    <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4 relative group" data-export-plot="Revenue Trend">
       <div className="flex items-center justify-between">
         <strong className="text-sm font-semibold text-slate-800">Revenue Trend</strong>
-        <span className="text-xs text-slate-400">Last 8 periods</span>
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={onPin}
+            className="p-1 hover:bg-slate-100 rounded-md text-slate-400 hover:text-indigo-600 transition-colors"
+            title="Pin to Dashboard"
+          >
+            <Pin size={14} />
+          </button>
+          <span className="text-xs text-slate-400">Last 8 periods</span>
+        </div>
       </div>
       <div className="h-64 w-full">
         <ResponsiveContainer width="100%" height="100%">
@@ -92,12 +120,21 @@ export function TrendChart({ data }: TrendChartProps) {
   );
 }
 
-export function SegmentChart({ data, recommendations }: SegmentChartProps) {
-  const COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f97316', '#ef4444'];
+export function SegmentChart({ data, recommendations, onPin }: SegmentChartProps & { onPin?: () => void }) {
+  const COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f9731 la-600', '#ef4444'];
   return (
     <div className="grid grid-cols-2 gap-6">
-      <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4" data-export-plot="Segment Mix">
-        <strong className="text-sm font-semibold text-slate-800">Segment Mix</strong>
+      <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4 relative group" data-export-plot="Segment Mix">
+        <div className="flex items-center justify-between">
+          <strong className="text-sm font-semibold text-slate-800">Segment Mix</strong>
+          <button 
+            onClick={onPin}
+            className="p-1 hover:bg-slate-100 rounded-md text-slate-400 hover:text-indigo-600 transition-colors"
+            title="Pin to Dashboard"
+          >
+            <Pin size={14} />
+          </button>
+        </div>
         <div className="h-64 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
