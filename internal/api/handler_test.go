@@ -9,10 +9,12 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"insightpilot/internal/agent"
 )
 
 func TestHealthReturnsOK(t *testing.T) {
-	handler := NewHandler()
+	handler := NewHandler(agent.DefaultConfig())
 	req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
 	rec := httptest.NewRecorder()
 
@@ -31,7 +33,7 @@ func TestHealthReturnsOK(t *testing.T) {
 }
 
 func TestDatasetsReturnsEmptyArray(t *testing.T) {
-	handler := NewHandler()
+	handler := NewHandler(agent.DefaultConfig())
 	req := httptest.NewRequest(http.MethodGet, "/api/datasets", nil)
 	rec := httptest.NewRecorder()
 
@@ -46,7 +48,7 @@ func TestDatasetsReturnsEmptyArray(t *testing.T) {
 }
 
 func TestUploadAnalyzeAndExportRevenueCSV(t *testing.T) {
-	handler := NewHandler()
+	handler := NewHandler(agent.DefaultConfig())
 	mux := handler.Routes()
 
 	uploadBody, contentType := multipartBody(t, "file", "revenue.csv", strings.NewReader(`month,segment,revenue,customers,churn_risk
@@ -124,7 +126,7 @@ func TestUploadAnalyzeAndExportRevenueCSV(t *testing.T) {
 }
 
 func TestConnectSourceCanBeExported(t *testing.T) {
-	handler := NewHandler()
+	handler := NewHandler(agent.DefaultConfig())
 	mux := handler.Routes()
 
 	connectReq := httptest.NewRequest(http.MethodPost, "/api/connect-source", strings.NewReader(`{"source":"Export Test"}`))

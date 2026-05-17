@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"insightpilot/internal/agent"
 	"insightpilot/internal/data"
 )
 
@@ -21,6 +23,7 @@ type Handler struct {
 	connections  map[string]data.Connection
 	pinnedCharts map[string]*PinnedChart
 	uploadDir    string
+	analyzer     agent.Analyzer
 	mu           sync.RWMutex
 }
 
@@ -32,12 +35,13 @@ type PinnedChart struct {
 	URL       string `json:"url"`
 }
 
-func NewHandler() *Handler {
+func NewHandler(cfg agent.Config) *Handler {
 	return &Handler{
 		datasets:     make(map[string]*data.Dataset),
 		connections:  make(map[string]data.Connection),
 		pinnedCharts: make(map[string]*PinnedChart),
 		uploadDir:    "uploads",
+		analyzer:     agent.NewLLMAnalyzer(cfg),
 	}
 }
 
@@ -170,7 +174,7 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := fmt.Sprintf("%d", os.Getpid())
+	id := fmt.Sprintf("%d", time.Now().UnixNano())
 	safeName := filepath.Base(header.Filename)
 	filePath := filepath.Join(h.uploadDir, fmt.Sprintf("%s-%s", id, safeName))
 	if err := os.WriteFile(filePath, content, 0644); err != nil {
@@ -261,53 +265,36 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		h.sendJSON(w, http.StatusNotFound, map[string]string{"error": "Datasets not found"})
 		return
 	}
-	primary := activeDatasets[0]
-	narrative := "The agent analyzed the data. Deterministic logic indicates a strong trend in the primary metric."
 
-	var metricCol, catCol, dateCol *data.Column
-	if len(primary.Profile.Columns) > 0 {
-		metricCol = selectMetricColumn(primary.Profile.Columns, body.Prompt)
-		catCol = selectCategoryColumn(primary.Profile.Columns)
-		dateCol = selectDateColumn(primary.Profile.Columns)
+	req := agent.AnalysisRequest{
+		Prompt:     body.Prompt,
+		Datasets:   activeDatasets,
+		TimeoutSec: 30,
 	}
 
-	kpis := data.BuildKPIs(primary.Rows, metricCol, catCol)
-	trend := data.BuildTrend(primary.Rows, dateCol, metricCol)
-	segments := data.BuildSegments(primary.Rows, catCol, metricCol)
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	resp, err := h.analyzer.Analyze(ctx, req)
+	if err != nil {
+		h.sendJSON(w, http.StatusInternalServerError, map[string]string{"error": "Analysis failed: " + err.Error()})
+		return
+	}
 
 	h.sendJSON(w, http.StatusOK, map[string]interface{}{
-		"question": body.Prompt,
-		"dataset": map[string]interface{}{
-			"id":       primary.ID,
-			"filename": primary.Filename,
-			"rowCount": primary.Profile.RowCount,
-		},
-		"notebook": []map[string]string{
-			{"title": "Analysis", "body": narrative},
-		},
+		"question": resp.Question,
+		"dataset":  resp.Dataset,
+		"notebook": resp.Notebook,
 		"dashboard": map[string]interface{}{
-			"title":    "Insights Board",
-			"kpis":     kpis,
-			"trend":    trend,
-			"segments": segments,
-			"recommendations": []string{
-				fmt.Sprintf("Review the top %s groups contributing to %s",
-					func() string {
-						if catCol != nil {
-							return catCol.Name
-						}
-						return "available"
-					}(),
-					func() string {
-						if metricCol != nil {
-							return metricCol.Name
-						}
-						return "records"
-					}()),
-				"Add business definitions for metrics to ensure consistency.",
-				"Publish this board after validating with the data owner.",
-			},
+			"title":           resp.Dashboard.Title,
+			"kpis":            resp.Dashboard.KPIs,
+			"trend":           resp.Dashboard.Trend,
+			"segments":        resp.Dashboard.Segments,
+			"recommendations": resp.Dashboard.Recommendations,
 		},
+		"assumptions":       resp.Assumptions,
+		"warnings":          resp.Warnings,
+		"used_deterministic": resp.UsedDeterministic,
 	})
 }
 
@@ -352,7 +339,7 @@ func (h *Handler) handleExportCsv(w http.ResponseWriter, r *http.Request) {
 			record := make([]string, len(headers))
 			record[0] = dataset.Filename
 			for i := 1; i < len(headers); i++ {
-				record[i] = strings.Join(strings.Fields(row[headers[i]]), " ")
+				record[i] = row[headers[i]]
 			}
 			_ = writer.Write(record)
 		}
@@ -378,7 +365,7 @@ func (h *Handler) handlePinChart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if pc.ID == "" {
-		pc.ID = fmt.Sprintf("%d", os.Getpid()) // Simple ID gen for in-memory
+		pc.ID = fmt.Sprintf("%d", time.Now().UnixNano())
 	}
 
 	h.mu.Lock()
@@ -386,52 +373,6 @@ func (h *Handler) handlePinChart(w http.ResponseWriter, r *http.Request) {
 	h.mu.Unlock()
 
 	h.sendJSON(w, http.StatusCreated, pc)
-}
-
-func selectMetricColumn(columns []data.Column, prompt string) *data.Column {
-	prompt = strings.ToLower(prompt)
-	for i := range columns {
-		if columns[i].Type == "number" && prompt != "" && strings.Contains(prompt, strings.ToLower(columns[i].Name)) {
-			return &columns[i]
-		}
-	}
-	for i := range columns {
-		if columns[i].Type == "number" {
-			return &columns[i]
-		}
-	}
-	return nil
-}
-
-func selectCategoryColumn(columns []data.Column) *data.Column {
-	preferredNames := []string{"segment", "category", "region", "product", "department", "channel"}
-	for _, name := range preferredNames {
-		for i := range columns {
-			if columns[i].Type == "text" && strings.EqualFold(columns[i].Name, name) {
-				return &columns[i]
-			}
-		}
-	}
-	for i := range columns {
-		if columns[i].Type == "text" && !looksLikeDateDimension(columns[i].Name) {
-			return &columns[i]
-		}
-	}
-	return nil
-}
-
-func selectDateColumn(columns []data.Column) *data.Column {
-	for i := range columns {
-		if columns[i].Type == "date" {
-			return &columns[i]
-		}
-	}
-	return nil
-}
-
-func looksLikeDateDimension(name string) bool {
-	n := strings.ToLower(name)
-	return strings.Contains(n, "date") || strings.Contains(n, "month") || strings.Contains(n, "year") || strings.Contains(n, "week")
 }
 
 func exportHeaders(datasets []*data.Dataset) []string {
