@@ -60,19 +60,13 @@ func inferType(values []string) string {
 
 	numericCount := 0
 	dateCount := 0
-	
-	dateRegex := regexp.MustCompile(`^(\d{4})[-/](\d{1,2})[-/](\d{1,2})`)
 
 	for _, v := range values {
 		if _, err := strconv.ParseFloat(v, 64); err == nil {
 			numericCount++
 		}
-		if dateRegex.MatchString(v) {
-			if _, err := time.Parse("2006-01-02", v); err == nil {
-				dateCount++
-			} else if _, err := time.Parse("2006/01/02", v); err == nil {
-				dateCount++
-			}
+		if _, ok := parseDateValue(v); ok {
+			dateCount++
 		}
 	}
 
@@ -84,6 +78,34 @@ func inferType(values []string) string {
 		return "date"
 	}
 	return "text"
+}
+
+func parseDateValue(value string) (time.Time, bool) {
+	v := strings.TrimSpace(value)
+	if v == "" {
+		return time.Time{}, false
+	}
+
+	formats := []string{
+		"2006-01-02",
+		"2006/01/02",
+		"2006-01",
+		"2006/01",
+	}
+	for _, format := range formats {
+		if t, err := time.Parse(format, v); err == nil {
+			return t, true
+		}
+	}
+
+	yearRegex := regexp.MustCompile(`^\d{4}$`)
+	if yearRegex.MatchString(v) {
+		if t, err := time.Parse("2006", v); err == nil {
+			return t, true
+		}
+	}
+
+	return time.Time{}, false
 }
 
 func getSample(values []string, n int) []string {
@@ -225,17 +247,17 @@ func BuildTrend(rows []map[string]string, dateCol *Column, metricCol *Column) []
 	for _, row := range rows {
 		dStr := row[dateCol.Name]
 		vStr := row[metricCol.Name]
-		
-		t, err := time.Parse("2006-01-02", dStr)
-		if err != nil {
+
+		t, ok := parseDateValue(dStr)
+		if !ok {
 			continue
 		}
-		
+
 		val, err := strconv.ParseFloat(vStr, 64)
 		if err != nil {
 			continue
 		}
-		
+
 		label := t.Format("2006-01")
 		grouped[label] += val
 	}
@@ -269,7 +291,7 @@ func BuildSegments(rows []map[string]string, categoryCol *Column, metricCol *Col
 		if cat == "" {
 			cat = "Unknown"
 		}
-		
+
 		val := 1.0
 		if metricCol != nil {
 			if v, err := strconv.ParseFloat(row[metricCol.Name], 64); err == nil {

@@ -7,7 +7,7 @@ Next.js frontend for the InsightPilot BI workspace.
 Start the backend from the repo root first:
 
 ```bash
-npm start
+go run ./cmd/server
 ```
 
 Then start the frontend:

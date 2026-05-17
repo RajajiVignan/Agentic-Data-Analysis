@@ -6,18 +6,15 @@ A full-stack prototype for prompt-driven data analysis.
 
 ```text
 .
-├── server.js          # Backend API and local analysis agent
+├── cmd/server/        # Go backend entrypoint
+├── internal/api/      # HTTP handlers and routes
+├── internal/data/     # CSV/JSON parsing, profiling, and chart data helpers
 ├── samples/           # Sample CSV/JSON files
-├── package.json       # Backend package
+├── go.mod             # Go backend module
 └── frontend/          # Next.js frontend package
 ```
 
-There are two `package.json` files because this is currently a small two-package app:
-
-- root `package.json`: runs the backend API
-- `frontend/package.json`: runs the Next.js UI
-
-That separation keeps backend dependencies out of the browser app.
+The backend is now a Go module. Node is only used inside `frontend/` for the Next.js UI.
 
 ## Run
 
@@ -25,8 +22,17 @@ That separation keeps backend dependencies out of the browser app.
 The backend is written in Go and provides the API for data processing and analysis.
 
 ```bash
-# Run the server binary
+# Run from source
+go run ./cmd/server
+
+# Or run the checked-in server binary
 ./server_bin
+```
+
+The backend defaults to `http://127.0.0.1:3000`. To use another port:
+
+```bash
+PORT=3001 go run ./cmd/server
 ```
 
 ### 2. Start the Frontend
@@ -51,6 +57,17 @@ GET  /api/datasets
 POST /api/upload
 POST /api/analyze
 POST /api/connect-source
+GET  /api/export/cleaned-csv
+GET  /api/pinned-charts
+POST /api/pin-chart
+```
+
+## Tests
+
+The active backend tests are Go tests:
+
+```bash
+go test ./cmd/server ./internal/...
 ```
 
 ## Current Agent
@@ -59,9 +76,8 @@ The current backend agent is local and deterministic, so it works without paid A
 
 - infers column types
 - selects a likely metric column from the prompt
-- creates SQL
 - computes KPIs
 - builds trend and segment chart data
 - writes recommendations
 
-The production version should replace `runAgentAnalysis` in `server.js` with an LLM-backed agent that can generate governed SQL, validate results, and produce richer dashboard specs.
+The production version should replace the deterministic analysis logic in `internal/api/handler.go` with an LLM-backed agent that can generate governed SQL, validate results, and produce richer dashboard specs.
