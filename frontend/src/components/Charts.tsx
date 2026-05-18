@@ -99,7 +99,7 @@ export function TrendChart({ data, onPin }: TrendChartProps & { onPin?: () => vo
           >
             <Pin size={14} />
           </button>
-          <span className="text-xs text-slate-400">Last 8 periods</span>
+          <span className="text-xs text-slate-400">Last {data.length} periods</span>
         </div>
       </div>
       <div className="h-64 w-full">

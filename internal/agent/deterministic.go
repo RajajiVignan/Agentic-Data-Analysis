@@ -24,8 +24,8 @@ func (a *DeterministicAnalyzer) Analyze(ctx context.Context, req AnalysisRequest
 	primary := req.Datasets[0]
 
 	metricCol := selectMetricColumn(primary.Profile.Columns, req.Prompt)
-	catCol := selectCategoryColumn(primary.Profile.Columns)
 	dateCol := selectDateColumn(primary.Profile.Columns)
+	catCol := selectCategoryColumn(primary.Profile.Columns, metricCol, dateCol)
 
 	kpis := data.BuildKPIs(primary.Rows, metricCol, catCol)
 	trend := data.BuildTrend(primary.Rows, dateCol, metricCol)
@@ -147,17 +147,24 @@ func selectMetricColumn(columns []data.Column, prompt string) *data.Column {
 	return nil
 }
 
-func selectCategoryColumn(columns []data.Column) *data.Column {
+func selectCategoryColumn(columns []data.Column, metricCol *data.Column, dateCol *data.Column) *data.Column {
+	used := make(map[string]bool)
+	if metricCol != nil {
+		used[metricCol.Name] = true
+	}
+	if dateCol != nil {
+		used[dateCol.Name] = true
+	}
 	preferredNames := []string{"segment", "category", "region", "product", "department", "channel"}
 	for _, name := range preferredNames {
 		for i := range columns {
-			if columns[i].Type == "text" && strings.EqualFold(columns[i].Name, name) {
+			if columns[i].Type == "text" && !used[columns[i].Name] && strings.EqualFold(columns[i].Name, name) {
 				return &columns[i]
 			}
 		}
 	}
 	for i := range columns {
-		if columns[i].Type == "text" && !looksLikeDateDimension(columns[i].Name) {
+		if columns[i].Type == "text" && !used[columns[i].Name] && !looksLikeDateDimension(columns[i].Name) {
 			return &columns[i]
 		}
 	}

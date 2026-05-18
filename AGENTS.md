@@ -1,0 +1,110 @@
+# InsightPilot — Project Quick Reference
+
+## What It Is
+Prompt-driven BI application. Go backend + Next.js frontend. User uploads CSV/JSON data, asks questions in natural language, gets back KPIs, charts, and AI-generated visualizations.
+
+## Architecture at a Glance
+
+```
+.
+├── cmd/server/main.go          # Go backend entrypoint (port 3000)
+├── internal/
+│   ├── api/
+│   │   ├── handler.go          # HTTP handlers, routes, CORS
+│   │   ├── pythonbridge.go     # Python viz bridge (executes matplotlib scripts)
+│   │   └── handler_test.go     # API tests
+│   ├── agent/
+│   │   ├── analyzer.go         # Analyzer interface + request/response structs
+│   │   ├── deterministic.go    # Deterministic (no LLM) analyzer
+│   │   ├── llm.go              # NVIDIA NIM LLM analyzer
+│   │   ├── tools.go            # Agent tools (profile, aggregate, group, trend)
+│   │   ├── guardrails.go       # Response validation + sanitization
+│   │   └── agent_test.go       # Agent tests
+│   ├── data/
+│   │   ├── models.go           # Dataset, Profile, Column, Connection structs
+│   │   ├── processor.go        # CSV/JSON parsing, profiling, KPI/trend/segment builders
+│   │   └── processor_test.go   # Data tests
+│   └── store/
+│       └── db.go               # Supabase PostgreSQL persistence (pinned charts)
+├── frontend/
+│   ├── src/app/page.tsx        # Main workspace page (upload, analyze, dashboard)
+│   └── src/components/
+│       ├── Charts.tsx          # MetricTile, TrendChart, SegmentChart, PythonPlot
+│       └── Sidebar.tsx         # Navigation sidebar
+├── uploads/                    # Uploaded files
+├── uploads/plots/              # Generated Python plot images (.py + .png)
+├── .env                        # SUPABASE_URL, SUPABASE_KEY, NVIDIA_API_KEY, NVIDIA_BASE_URL
+├── server_bin                  # Pre-built Go binary
+├── go.mod                      # Module: insightpilot (deps: godotenv, lib/pq)
+└── pinned_charts_schema.sql    # Supabase pinned_charts table schema
+```
+
+## Key API Endpoints
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | /api/health | Health check (reports DB status) |
+| GET | /api/datasets | List uploaded datasets |
+| POST | /api/upload | Upload CSV/JSON file |
+| POST | /api/analyze | Run analysis (returns KPIs, trend, segments, plotUrl) |
+| POST | /api/connect-source | Connect a data source (creates sample dataset) |
+| GET | /api/export/cleaned-csv | Export cleaned CSV |
+| GET | /api/pinned-charts | List pinned charts |
+| POST | /api/pin-chart | Pin a chart to dashboard |
+| DELETE | /api/unpin-chart?id= | Unpin a chart |
+| GET | /api/python-plot?datasetId= | Generate Python plot on demand |
+| GET | /plots/{filename} | Serve generated plot images |
+
+## Data Flow
+
+1. User uploads CSV -> `handleUpload` parses it, stores in `h.datasets` map (in-memory)
+2. User asks question -> `handleAnalyze` runs deterministic or LLM analyzer
+3. Analyzer returns KPIs, trend, segments, recommendations
+4. If dataset has FilePath, Python bridge auto-generates a matplotlib plot
+5. Frontend renders: MetricTiles, PythonPlot image, TrendChart (bar), SegmentChart (pie)
+6. User can pin charts -> stored in memory + Supabase PostgreSQL
+
+## Key Patterns
+
+- **Analyzer interface**: `internal/agent/analyzer.go` — `Analyze(ctx, req) (resp, err)`
+- **Deterministic fallback**: Always works without LLM key; selects columns by type + prompt keywords
+- **Python bridge**: Generates self-contained .py script -> exec `python3` -> serves /plots/*.png
+- **DB persistence**: `internal/store/db.go` — graceful fallback to in-memory if Supabase unavailable
+- **ID generation**: Uses `time.Now().UnixNano()` (not `os.Getpid()` which collides)
+- **Concurrency**: Handler uses `sync.RWMutex` for thread-safe map access
+
+## Build & Test
+
+```bash
+# Backend
+go build -o server_bin ./cmd/server
+go test ./...
+
+# Frontend
+cd frontend && npm run dev
+cd frontend && npm run build
+```
+
+## Environment Variables (.env)
+
+- `SUPABASE_URL` — e.g. `https://xxxx.supabase.co`
+- `SUPABASE_KEY` — publishable/anon key
+- `SUPABASE_DB_PASSWORD` — DB password (falls back to SUPABASE_KEY)
+- `NVIDIA_API_KEY` — LLM API key (optional, falls back to deterministic)
+- `NVIDIA_BASE_URL` — e.g. `https://api.nvcf.nvidia.com/v2/nvcf`
+- `PORT` — default 3000
+- `HOST` — default 127.0.0.1
+
+## Known Issues / Tech Debt
+
+- Export handler uses `strings.Fields`+`Join` which corrupts data containing spaces
+- In-memory datasets/connections lost on server restart (no DB persistence for them yet)
+- LLM analyzer returns 401 without valid NVIDIA_API_KEY (falls back to deterministic)
+- Python scripts in uploads/plots/ are not cleaned up after execution
+
+## Instruction Files (role-specific)
+
+- `Instructions/Developer.md` — Backend/frontend implementation rules
+- `Instructions/Tester.md` — Testing procedures and smoke tests
+- `Instructions/Agentic_AI.md` — Future agentic AI design and milestones
+- `Instructions/Python_Visualizations.md` — Python viz guidelines

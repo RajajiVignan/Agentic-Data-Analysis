@@ -1,5 +1,7 @@
 # Tester Agent Instructions
 
+**First time here?** Read `AGENTS.md` at the project root for the full project quick-reference (architecture, file map, API endpoints, build commands).
+
 Use this role when validating backend behavior, frontend integration, and future agentic AI features.
 
 ## Current Test Stack

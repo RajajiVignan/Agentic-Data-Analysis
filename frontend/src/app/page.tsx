@@ -1,15 +1,16 @@
 "use client";
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Sparkles, 
-  Loader2, 
+import {
+  Sparkles,
+  Loader2,
   FileText,
   CheckCircle2,
   Download,
   FileDown,
   FileType2,
   Pin,
-  LayoutDashboard
+  LayoutDashboard,
+  X
 } from 'lucide-react';
 import { Sidebar } from '../components/Sidebar';
 import { MetricTile, TrendChart, SegmentChart, PythonPlot } from '../components/Charts';
@@ -42,6 +43,9 @@ type AnalysisResult = {
     recommendations: string[];
     plotUrl?: string | null;
   };
+  assumptions: string[];
+  warnings: string[];
+  used_deterministic?: boolean;
 };
 
 type Dataset = {
@@ -68,13 +72,15 @@ export default function Workspace() {
   const [availableDatasets, setAvailableDatasets] = useState<Dataset[]>([]);
   const [selectedDatasetIds, setSelectedDatasetIds] = useState<string[]>([]);
   const [prompt, setPrompt] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [uploadLoading, setUploadLoading] = useState(false);
+  const [analyzeLoading, setAnalyzeLoading] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [backendStatus, setBackendStatus] = useState<BackendStatus>("checking");
   const [error, setError] = useState<string | null>(null);
-  
+
   const [pinnedCharts, setPinnedCharts] = useState<PinnedChart[]>([]);
   const [showPinned, setShowPinned] = useState(false);
+  const [activeNav, setActiveNav] = useState('explore');
 
   useEffect(() => {
     checkBackend();
@@ -137,23 +143,23 @@ export default function Workspace() {
     const formData = new FormData();
     formData.append("file", file);
 
-    setLoading(true);
+    setUploadLoading(true);
     setError(null);
     try {
       const res = await fetch(`${API_BASE}/upload`, { method: "POST", body: formData });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      
+
       await fetchDatasets();
       setSelectedDatasetIds([data.datasetId]);
-      
+
       const starterPrompt = "Analyze this dataset and suggest key growth drivers.";
       setPrompt(starterPrompt);
       await runAnalysis(starterPrompt, [data.datasetId]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
-      setLoading(false);
+      setUploadLoading(false);
     }
   }
 
@@ -162,8 +168,8 @@ export default function Workspace() {
       setError("Select at least one dataset before running analysis.");
       return;
     }
-    
-    setLoading(true);
+
+    setAnalyzeLoading(true);
     setError(null);
     try {
       const res = await fetch(`${API_BASE}/analyze`, {
@@ -177,15 +183,34 @@ export default function Workspace() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Analysis failed");
     } finally {
-      setLoading(false);
+      setAnalyzeLoading(false);
     }
   }
 
   const toggleDataset = (id: string) => {
-    setSelectedDatasetIds(prev => 
+    setSelectedDatasetIds(prev =>
       prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
     );
   };
+
+  async function handleConnectSource() {
+    try {
+      setError(null);
+      const res = await fetch(`${API_BASE}/connect-source`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source: "sample" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to connect source");
+      await fetchDatasets();
+      if (data.datasetId) {
+        setSelectedDatasetIds(prev => [...prev, data.datasetId]);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to connect data source");
+    }
+  }
 
   function downloadBlob(blob: Blob, filename: string) {
     const url = URL.createObjectURL(blob);
@@ -374,8 +399,15 @@ export default function Workspace() {
 
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900">
-      <Sidebar />
-      
+      <Sidebar
+        datasets={availableDatasets}
+        selectedDatasetIds={selectedDatasetIds}
+        onToggleDataset={toggleDataset}
+        onConnectSource={handleConnectSource}
+        activeNav={activeNav}
+        onNavChange={setActiveNav}
+      />
+
       <main className="flex-1 overflow-y-auto">
         <header className="px-8 py-6 flex justify-between items-center border-b border-slate-200 bg-white">
           <div className="flex items-center gap-4">
@@ -383,8 +415,8 @@ export default function Workspace() {
               <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Explore Workspace</p>
               <h1 className="text-2xl font-bold text-slate-900">AI Data Analyst</h1>
             </div>
-            <button 
-              onClick={() => setShowPinned(!showPinned)} 
+            <button
+              onClick={() => { setShowPinned(!showPinned); setActiveNav(showPinned ? 'explore' : 'dashboards'); }}
               className={`ml-4 px-3 py-1 rounded-full text-xs font-bold uppercase flex items-center gap-1.5 transition-all ${showPinned ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
             >
               <LayoutDashboard size={12} />
@@ -414,18 +446,18 @@ export default function Workspace() {
                     <input type="file" className="hidden" accept=".csv,.json" onChange={handleFileUpload} />
                   </label>
                 </div>
-                
+
                 <div className="flex flex-wrap gap-3">
                   {availableDatasets.length === 0 ? (
                     <p className="text-sm text-slate-400 italic">No datasets available. Please upload a file.</p>
                   ) : (
                     availableDatasets.map(ds => (
-                      <div 
-                        key={ds.id} 
+                      <div
+                        key={ds.id}
                         onClick={() => toggleDataset(ds.id)}
                         className={`px-3 py-2 rounded-xl border cursor-pointer transition-all flex items-center gap-2 text-xs font-medium ${
-                          selectedDatasetIds.includes(ds.id) 
-                            ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-sm' 
+                          selectedDatasetIds.includes(ds.id)
+                            ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-sm'
                             : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
                         }`}
                       >
@@ -444,18 +476,19 @@ export default function Workspace() {
                   <div className="p-3 text-indigo-500">
                     <Sparkles size={24} />
                   </div>
-                  <input 
+                  <input
                     className="flex-1 py-3 px-2 outline-none text-slate-700 placeholder:text-slate-400"
                     placeholder="Ask your data a question... (e.g., 'Compare revenue between these files')"
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && !analyzeLoading) runAnalysis(prompt); }}
                   />
-                  <button 
+                  <button
                     onClick={() => runAnalysis(prompt)}
-                    disabled={loading || selectedDatasetIds.length === 0}
+                    disabled={analyzeLoading || selectedDatasetIds.length === 0}
                     className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-xl font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                   >
-                    {loading ? <Loader2 className="animate-spin" size={18} /> : "Run Analysis"}
+                    {analyzeLoading ? <Loader2 className="animate-spin" size={18} /> : "Run Analysis"}
                   </button>
                 </div>
                 {error && (
@@ -464,9 +497,49 @@ export default function Workspace() {
                   </p>
                 )}
               </div>
-              
+
+              {/* Upload loading indicator */}
+              {uploadLoading && (
+                <div className="flex items-center gap-3 bg-indigo-50 border border-indigo-200 rounded-xl px-5 py-3">
+                  <Loader2 className="animate-spin text-indigo-500" size={18} />
+                  <span className="text-sm text-indigo-700 font-medium">Uploading and processing your file...</span>
+                </div>
+              )}
+
               {/* Results Grid */}
               {result && (
+                <>
+                {/* Assumptions & Warnings */}
+                {(result.assumptions.length > 0 || result.warnings.length > 0) && (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {result.assumptions.length > 0 && (
+                      <div className="p-4 bg-blue-50 rounded-2xl border border-blue-200 space-y-2">
+                        <h4 className="text-xs font-bold text-blue-700 uppercase tracking-wider">Assumptions</h4>
+                        <ul className="space-y-1">
+                          {result.assumptions.map((a, i) => (
+                            <li key={i} className="text-xs text-blue-800 leading-relaxed flex gap-1.5">
+                              <span className="text-blue-400 shrink-0">•</span>
+                              <span>{a}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {result.warnings.length > 0 && (
+                      <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200 space-y-2">
+                        <h4 className="text-xs font-bold text-amber-700 uppercase tracking-wider">Warnings</h4>
+                        <ul className="space-y-1">
+                          {result.warnings.map((w, i) => (
+                            <li key={i} className="text-xs text-amber-800 leading-relaxed flex gap-1.5">
+                              <span className="text-amber-400 shrink-0">⚠</span>
+                              <span>{w}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                   <div className="lg:col-span-1 space-y-6">
                     <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4">
@@ -520,31 +593,32 @@ export default function Workspace() {
                   <div ref={dashboardRef} className="lg:col-span-2 space-y-8">
                     <div className="grid grid-cols-3 gap-4">
                       {result.dashboard.kpis.map((kpi, i) => (
-                        <MetricTile 
-                          key={i} 
-                          label={kpi.label} 
-                          value={kpi.value} 
-                          change={kpi.change} 
+                        <MetricTile
+                          key={i}
+                          label={kpi.label}
+                          value={kpi.value}
+                          change={kpi.change}
                           onPin={() => pinChart('kpi', kpi.label, kpi)}
                         />
                       ))}
                     </div>
-                    
-                    <PythonPlot 
-                      url={result.dashboard.plotUrl ?? null} 
+
+                    <PythonPlot
+                      url={result.dashboard.plotUrl ?? null}
                       onPin={() => pinChart('python_plot', 'AI Visualization', {}, result.dashboard.plotUrl ?? undefined)}
                     />
-                    <TrendChart 
-                      data={result.dashboard.trend} 
+                    <TrendChart
+                      data={result.dashboard.trend}
                       onPin={() => pinChart('trend', 'Revenue Trend', result.dashboard.trend)}
                     />
-                    <SegmentChart 
-                      data={result.dashboard.segments} 
-                      recommendations={result.dashboard.recommendations} 
+                    <SegmentChart
+                      data={result.dashboard.segments}
+                      recommendations={result.dashboard.recommendations}
                       onPin={() => pinChart('segment', 'Segment Mix', result.dashboard.segments)}
                     />
                   </div>
                 </div>
+                </>
               )}
             </>
           ) : (
@@ -553,7 +627,7 @@ export default function Workspace() {
                 <h2 className="text-2xl font-bold text-slate-900">Pinned Dashboard</h2>
                 <p className="text-sm text-slate-500 font-medium">Your persistent collection of key insights</p>
               </div>
-              
+
               {pinnedCharts.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-20 text-center bg-white rounded-3xl border border-slate-200 border-dashed">
                   <LayoutDashboard size={48} className="text-slate-300 mb-4" />
@@ -567,38 +641,38 @@ export default function Workspace() {
                   {pinnedCharts.map((chart) => (
                     <div key={chart.id} className="relative group rounded-2xl p-1 bg-white border border-slate-200 shadow-sm">
                       <div className="absolute top-3 right-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button 
+                        <button
                           onClick={() => unpinChart(chart.id)}
-                          className="p-1.5 bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-red-500 transition-all shadow-sm"
+                          className="p-1.5 bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-red-500 hover:border-red-300 transition-all shadow-sm"
                           title="Unpin chart"
                         >
-                          <Pin size={14} className="rotate-45" />
+                          <X size={14} />
                         </button>
                       </div>
                       <div className="p-4">
                          {chart.chart_type === 'kpi' && (
-                           <MetricTile 
-                             label={chart.label} 
-                             value={(chart.data as Kpi).value} 
-                             change={(chart.data as Kpi).change} 
+                           <MetricTile
+                             label={chart.label}
+                             value={(chart.data as Kpi).value}
+                             change={(chart.data as Kpi).change}
                            />
                          )}
                          {chart.chart_type === 'trend' && (
-                           <TrendChart 
-                             data={chart.data as ChartPoint[]} 
+                           <TrendChart
+                             data={chart.data as ChartPoint[]}
                              onPin={() => {}}
                            />
                          )}
                          {chart.chart_type === 'segment' && (
-                           <SegmentChart 
-                             data={chart.data as ChartPoint[]} 
-                             recommendations={[]} 
+                           <SegmentChart
+                             data={chart.data as ChartPoint[]}
+                             recommendations={[]}
                              onPin={() => {}}
                            />
                          )}
                          {chart.chart_type === 'python_plot' && (
-                           <PythonPlot 
-                             url={chart.url ?? null} 
+                           <PythonPlot
+                             url={chart.url ?? null}
                              onPin={() => {}}
                            />
                          )}

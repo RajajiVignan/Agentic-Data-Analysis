@@ -219,8 +219,9 @@ func (h *Handler) handleConnectSource(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseMultipartForm(10 << 20); err != nil {
-		h.sendJSON(w, http.StatusBadRequest, map[string]string{"error": "Could not parse multipart form"})
+	const maxFileSize = 10 << 20 // 10 MB
+	if err := r.ParseMultipartForm(maxFileSize); err != nil {
+		h.sendJSON(w, http.StatusBadRequest, map[string]string{"error": "Could not parse multipart form (max 10MB)"})
 		return
 	}
 
@@ -231,9 +232,46 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	content, err := io.ReadAll(file)
+	// Validate file size from header
+	if header.Size > maxFileSize {
+		h.sendJSON(w, http.StatusBadRequest, map[string]string{"error": "File exceeds 10MB limit"})
+		return
+	}
+
+	// Validate content type
+	ct := header.Header.Get("Content-Type")
+	allowedTypes := map[string]bool{
+		"text/csv":                true,
+		"application/csv":         true,
+		"application/json":        true,
+		"text/plain":              true,
+		"application/octet-stream": true,
+	}
+	if ct != "" && !allowedTypes[ct] {
+		h.sendJSON(w, http.StatusBadRequest, map[string]string{"error": "Unsupported file type: " + ct + ". Only CSV and JSON are allowed."})
+		return
+	}
+
+	// Sanitize filename: use filepath.Base to strip paths, then remove any remaining risky chars
+	sanitizeFilename := func(name string) string {
+		name = filepath.Base(name)
+		// Remove any null bytes
+		name = strings.ReplaceAll(name, "\x00", "")
+		// Trim leading dots (hidden files)
+		name = strings.TrimLeft(name, ".")
+		if name == "" {
+			name = "upload"
+		}
+		return name
+	}
+
+	content, err := io.ReadAll(io.LimitReader(file, maxFileSize+1))
 	if err != nil {
 		h.sendJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to read file"})
+		return
+	}
+	if int64(len(content)) > maxFileSize {
+		h.sendJSON(w, http.StatusBadRequest, map[string]string{"error": "File exceeds 10MB limit"})
 		return
 	}
 
@@ -243,7 +281,13 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := fmt.Sprintf("%d", time.Now().UnixNano())
-	safeName := filepath.Base(header.Filename)
+	safeName := sanitizeFilename(header.Filename)
+	ext := strings.ToLower(filepath.Ext(safeName))
+	if ext != ".csv" && ext != ".json" {
+		h.sendJSON(w, http.StatusBadRequest, map[string]string{"error": "File must have .csv or .json extension"})
+		return
+	}
+
 	filePath := filepath.Join(h.uploadDir, fmt.Sprintf("%s-%s", id, safeName))
 	if err := os.WriteFile(filePath, content, 0644); err != nil {
 		h.sendJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to save file"})
@@ -252,7 +296,7 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	var rows [][]string
 	text := string(content)
-	if strings.HasSuffix(strings.ToLower(header.Filename), ".json") {
+	if ext == ".json" {
 		rows, err = data.ParseJSONRows(text)
 	} else {
 		rows, err = data.ParseCSV(text)
@@ -284,7 +328,7 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	dataset := &data.Dataset{
 		ID:       id,
-		Filename: header.Filename,
+		Filename: safeName,
 		FilePath: filePath,
 		Profile:  profile,
 		Rows:     rowObjects,
@@ -296,7 +340,7 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	h.sendJSON(w, http.StatusCreated, map[string]interface{}{
 		"datasetId": id,
-		"filename":  header.Filename,
+		"filename":  safeName,
 		"profile":   profile,
 	})
 }

@@ -1,5 +1,7 @@
 # Developer Agent Instructions
 
+**First time here?** Read `AGENTS.md` at the project root for the full project quick-reference (architecture, file map, API endpoints, build commands).
+
 Use this role when implementing backend, frontend, or shared application behavior for InsightPilot.
 
 ## Project Shape

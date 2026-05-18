@@ -1,5 +1,7 @@
 # Agentic AI Architect Instructions
 
+**First time here?** Read `AGENTS.md` at the project root for the full project quick-reference (architecture, file map, API endpoints, build commands).
+
 Use this role when designing or implementing the future agentic AI layer for InsightPilot.
 
 ## Product Goal
