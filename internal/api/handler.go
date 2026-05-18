@@ -16,6 +16,7 @@ import (
 
 	"insightpilot/internal/agent"
 	"insightpilot/internal/data"
+	"insightpilot/internal/store"
 )
 
 type Handler struct {
@@ -24,25 +25,60 @@ type Handler struct {
 	pinnedCharts map[string]*PinnedChart
 	uploadDir    string
 	analyzer     agent.Analyzer
+	pythonBridge *PythonBridge
+	db           *store.DB
 	mu           sync.RWMutex
 }
 
 type PinnedChart struct {
 	ID        string `json:"id"`
+	CreatedAt string `json:"created_at,omitempty"`
 	ChartType string `json:"chart_type"`
 	Label     string `json:"label"`
 	Data      any    `json:"data"`
-	URL       string `json:"url"`
+	URL       string `json:"url,omitempty"`
 }
 
 func NewHandler(cfg agent.Config) *Handler {
-	return &Handler{
+	db := store.NewDB()
+
+	h := &Handler{
 		datasets:     make(map[string]*data.Dataset),
 		connections:  make(map[string]data.Connection),
 		pinnedCharts: make(map[string]*PinnedChart),
 		uploadDir:    "uploads",
 		analyzer:     agent.NewLLMAnalyzer(cfg),
+		pythonBridge: NewPythonBridge("uploads/plots"),
+		db:           db,
 	}
+
+	// Load pinned charts from database on startup
+	if db != nil {
+		h.loadPinnedChartsFromDB()
+	}
+
+	return h
+}
+
+func (h *Handler) loadPinnedChartsFromDB() {
+	charts, err := h.db.GetPinnedCharts()
+	if err != nil {
+		fmt.Printf("Warning: failed to load pinned charts from DB: %v\n", err)
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, c := range charts {
+		h.pinnedCharts[c.ID] = &PinnedChart{
+			ID:        c.ID,
+			CreatedAt: c.CreatedAt.Format(time.RFC3339),
+			ChartType: c.ChartType,
+			Label:     c.Label,
+			Data:      c.Data,
+			URL:       c.URL,
+		}
+	}
+	fmt.Printf("Loaded %d pinned charts from database\n", len(charts))
 }
 
 func (h *Handler) Routes() http.Handler {
@@ -51,7 +87,7 @@ func (h *Handler) Routes() http.Handler {
 	corsHandler := func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 			if r.Method == "OPTIONS" {
 				w.WriteHeader(http.StatusNoContent)
@@ -69,8 +105,35 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("/api/export/cleaned-csv", corsHandler(h.handleExportCsv))
 	mux.HandleFunc("/api/pinned-charts", corsHandler(h.handleGetPinnedCharts))
 	mux.HandleFunc("/api/pin-chart", corsHandler(h.handlePinChart))
+	mux.HandleFunc("/api/unpin-chart", corsHandler(h.handleUnpinChart))
+	mux.HandleFunc("/api/python-plot", corsHandler(h.handlePythonPlot))
+
+	// Static file server for generated plots
+	mux.HandleFunc("/plots/", corsHandler(h.handleServePlot))
 
 	return mux
+}
+
+func (h *Handler) handleServePlot(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	// Security: prevent directory traversal
+	name := filepath.Base(r.URL.Path)
+	if name == "" || name == "." {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+	plotPath := filepath.Join("uploads/plots", name)
+	info, err := os.Stat(plotPath)
+	if err != nil || info.IsDir() {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	http.ServeFile(w, r, plotPath)
 }
 
 func (h *Handler) sendJSON(w http.ResponseWriter, status int, data interface{}) {
@@ -82,11 +145,16 @@ func (h *Handler) sendJSON(w http.ResponseWriter, status int, data interface{}) 
 func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
+	dbStatus := "disabled"
+	if h.db != nil {
+		dbStatus = "connected"
+	}
 	h.sendJSON(w, http.StatusOK, map[string]interface{}{
 		"ok":          true,
 		"service":     "InsightPilot API (Go)",
 		"datasets":    len(h.datasets),
 		"connections": len(h.connections),
+		"db":          dbStatus,
 	})
 }
 
@@ -281,10 +349,22 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Generate Python plot for the first dataset that has a file path
+	var plotURL string
+	for _, ds := range activeDatasets {
+		if ds.FilePath != "" {
+			plotURL = h.generatePythonPlot(ds)
+			if plotURL != "" {
+				break
+			}
+		}
+	}
+
 	h.sendJSON(w, http.StatusOK, map[string]interface{}{
-		"question": resp.Question,
-		"dataset":  resp.Dataset,
-		"notebook": resp.Notebook,
+		"question":  resp.Question,
+		"dataset":   resp.Dataset,
+		"notebook":  resp.Notebook,
+		"plotUrl":   plotURL,
 		"dashboard": map[string]interface{}{
 			"title":           resp.Dashboard.Title,
 			"kpis":            resp.Dashboard.KPIs,
@@ -292,9 +372,54 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 			"segments":        resp.Dashboard.Segments,
 			"recommendations": resp.Dashboard.Recommendations,
 		},
-		"assumptions":       resp.Assumptions,
-		"warnings":          resp.Warnings,
+		"assumptions":        resp.Assumptions,
+		"warnings":           resp.Warnings,
 		"used_deterministic": resp.UsedDeterministic,
+	})
+}
+
+// generatePythonPlot creates and executes a Python visualization script for the given dataset.
+// Returns the URL path to the generated plot image, or empty string on failure.
+func (h *Handler) generatePythonPlot(ds *data.Dataset) string {
+	scriptID := fmt.Sprintf("auto_%d", time.Now().UnixNano())
+	scriptContent := h.pythonBridge.GeneratePlotScript(scriptID, ds.FilePath, "")
+	plotURL, err := h.pythonBridge.ExecuteScript(scriptID, scriptContent)
+	if err != nil {
+		fmt.Printf("Python plot generation failed for dataset %s: %v\n", ds.ID, err)
+		return ""
+	}
+	return plotURL
+}
+
+// handlePythonPlot is an on-demand endpoint to generate a Python plot for a dataset.
+func (h *Handler) handlePythonPlot(w http.ResponseWriter, r *http.Request) {
+	datasetID := r.URL.Query().Get("datasetId")
+	if datasetID == "" {
+		h.sendJSON(w, http.StatusBadRequest, map[string]string{"error": "datasetId query parameter required"})
+		return
+	}
+
+	h.mu.RLock()
+	ds, ok := h.datasets[datasetID]
+	h.mu.RUnlock()
+	if !ok {
+		h.sendJSON(w, http.StatusNotFound, map[string]string{"error": "Dataset not found"})
+		return
+	}
+
+	if ds.FilePath == "" {
+		h.sendJSON(w, http.StatusBadRequest, map[string]string{"error": "Dataset has no file path (in-memory only)"})
+		return
+	}
+
+	plotURL := h.generatePythonPlot(ds)
+	if plotURL == "" {
+		h.sendJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to generate plot"})
+		return
+	}
+
+	h.sendJSON(w, http.StatusOK, map[string]interface{}{
+		"plotUrl": plotURL,
 	})
 }
 
@@ -372,7 +497,37 @@ func (h *Handler) handlePinChart(w http.ResponseWriter, r *http.Request) {
 	h.pinnedCharts[pc.ID] = &pc
 	h.mu.Unlock()
 
+	// Persist to database
+	if h.db != nil {
+		urlStr := pc.URL
+		_, err := h.db.SavePinnedChart(pc.ID, pc.ChartType, pc.Label, pc.Data, urlStr)
+		if err != nil {
+			fmt.Printf("Warning: failed to save pinned chart to DB: %v\n", err)
+		}
+	}
+
 	h.sendJSON(w, http.StatusCreated, pc)
+}
+
+func (h *Handler) handleUnpinChart(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		h.sendJSON(w, http.StatusBadRequest, map[string]string{"error": "id query parameter required"})
+		return
+	}
+
+	h.mu.Lock()
+	delete(h.pinnedCharts, id)
+	h.mu.Unlock()
+
+	// Remove from database
+	if h.db != nil {
+		if err := h.db.DeletePinnedChart(id); err != nil {
+			fmt.Printf("Warning: failed to delete pinned chart from DB: %v\n", err)
+		}
+	}
+
+	h.sendJSON(w, http.StatusOK, map[string]interface{}{"ok": true})
 }
 
 func exportHeaders(datasets []*data.Dataset) []string {

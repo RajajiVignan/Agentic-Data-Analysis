@@ -359,6 +359,19 @@ export default function Workspace() {
     })[char] || char);
   }
 
+  async function unpinChart(id: string) {
+    try {
+      const res = await fetch(`${API_BASE}/unpin-chart?id=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        setPinnedCharts(prev => prev.filter(c => c.id !== id));
+      }
+    } catch (e) {
+      console.error("Unpin failed", e);
+    }
+  }
+
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900">
       <Sidebar />
@@ -456,7 +469,7 @@ export default function Workspace() {
               {result && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                   <div className="lg:col-span-1 space-y-6">
-                    <div className="p-6 bg-white rounded-2xl border border-slate- la-200 shadow-sm space-y-4">
+                    <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4">
                       <h3 className="font-bold text-slate-800 flex items-center gap-2">
                         <Download size={18} className="text-indigo-500" />
                         Export Options
@@ -555,7 +568,7 @@ export default function Workspace() {
                     <div key={chart.id} className="relative group rounded-2xl p-1 bg-white border border-slate-200 shadow-sm">
                       <div className="absolute top-3 right-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button 
-                          onClick={() => {}}
+                          onClick={() => unpinChart(chart.id)}
                           className="p-1.5 bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-red-500 transition-all shadow-sm"
                           title="Unpin chart"
                         >

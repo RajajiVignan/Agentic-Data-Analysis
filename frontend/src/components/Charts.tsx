@@ -58,7 +58,7 @@ export function MetricTile({ label, value, change, onPin }: KpiProps & { onPin?:
 export function PythonPlot({ url, onPin }: { url: string | null, onPin?: () => void }) {
   if (!url) return null;
   return (
-    <div className="p-6 bg-white rounded-2 own-2xl border border-slate-200 shadow-sm space-y-4 relative group" data-export-plot="Python Plot">
+    <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4 relative group" data-export-plot="Python Plot">
       <div className="flex items-center justify-between">
         <strong className="text-sm font-semibold text-slate-800">AI Generated Visualization</strong>
         <div className="flex items-center gap-2">
@@ -121,7 +121,7 @@ export function TrendChart({ data, onPin }: TrendChartProps & { onPin?: () => vo
 }
 
 export function SegmentChart({ data, recommendations, onPin }: SegmentChartProps & { onPin?: () => void }) {
-  const COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f9731 la-600', '#ef4444'];
+  const COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f97316', '#ef4444'];
   return (
     <div className="grid grid-cols-2 gap-6">
       <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4 relative group" data-export-plot="Segment Mix">
