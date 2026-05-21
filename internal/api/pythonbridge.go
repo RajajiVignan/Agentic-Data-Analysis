@@ -22,15 +22,16 @@ func NewPythonBridge(plotsDir string) *PythonBridge {
 
 // ExecuteScript runs a Python script and returns the path to the generated plot.
 // The script is expected to save a plot as {scriptID}_plot.png in the plots directory.
-func (pb *PythonBridge) ExecuteScript(scriptID, scriptContent string) (string, error) {
+// The csvPath is passed as a command-line argument to avoid string interpolation in the script.
+func (pb *PythonBridge) ExecuteScript(scriptID, scriptContent, csvPath string) (string, error) {
 	// Write script to a temp file
 	scriptPath := filepath.Join(pb.plotsDir, fmt.Sprintf("%s.py", scriptID))
 	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0644); err != nil {
 		return "", fmt.Errorf("write script: %w", err)
 	}
 
-	// Execute the script
-	cmd := exec.Command("python3", scriptPath)
+	// Execute the script, passing csvPath as a CLI argument
+	cmd := exec.Command("python3", scriptPath, csvPath)
 
 	// Set a timeout via context
 	done := make(chan error, 1)
@@ -66,23 +67,28 @@ func (pb *PythonBridge) ExecuteScript(scriptID, scriptContent string) (string, e
 }
 
 // GeneratePlotScript creates a Python script for visualizing the given dataset.
-// It generates a self-contained script that reads the CSV and creates a visualization.
-func (pb *PythonBridge) GeneratePlotScript(scriptID, csvPath, prompt string) string {
-	// Escape the paths for Python string literals
-	csvPathEscaped := strings.ReplaceAll(csvPath, `\`, `\\`)
+// The script reads the CSV path from sys.argv[1], eliminating the need for
+// string interpolation and preventing code injection via filenames.
+func (pb *PythonBridge) GeneratePlotScript(scriptID, prompt string) string {
 	plotPath := filepath.Join(pb.plotsDir, fmt.Sprintf("%s_plot.png", scriptID))
-	plotPathEscaped := strings.ReplaceAll(plotPath, `\`, `\\`)
 
-	return fmt.Sprintf(`import pandas as pd
+	return fmt.Sprintf(`import sys
+import pandas as pd
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
-import sys
+
+# Read the dataset path from command-line argument (safe from injection)
+if len(sys.argv) < 2:
+    print("Error: CSV path not provided", file=sys.stderr)
+    sys.exit(1)
+
+csv_path = sys.argv[1]
 
 # Read the dataset
 try:
-    data = pd.read_csv('%s')
+    data = pd.read_csv(csv_path)
 except Exception as e:
     print(f"Error reading CSV: {e}", file=sys.stderr)
     sys.exit(1)
@@ -143,5 +149,5 @@ else:
 plt.tight_layout()
 plt.savefig('%s', dpi=150, bbox_inches='tight')
 print("Plot saved to %s")
-`, csvPathEscaped, plotPathEscaped, plotPathEscaped)
+`, plotPath, plotPath)
 }

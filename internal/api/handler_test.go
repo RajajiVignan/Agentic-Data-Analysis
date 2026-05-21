@@ -169,3 +169,98 @@ func multipartBody(t *testing.T, fieldName, filename string, content io.Reader) 
 	}
 	return body, writer.FormDataContentType()
 }
+
+func TestUploadRejectsFilenameWithSingleQuote(t *testing.T) {
+	handler := NewHandler(agent.DefaultConfig())
+	mux := handler.Routes()
+
+	// Attempt to upload with a filename that tries Python string escape
+	maliciousFilename := "test'; os.system('rm -rf / #.csv"
+	csvContent := "month,segment,revenue\n2026-01,Enterprise,100\n"
+
+	uploadBody, contentType := multipartBody(t, "file", maliciousFilename, strings.NewReader(csvContent))
+	uploadReq := httptest.NewRequest(http.MethodPost, "/api/upload", uploadBody)
+	uploadReq.Header.Set("Content-Type", contentType)
+	uploadRec := httptest.NewRecorder()
+
+	mux.ServeHTTP(uploadRec, uploadReq)
+
+	if uploadRec.Code != http.StatusCreated {
+		t.Fatalf("upload status = %d, body = %s", uploadRec.Code, uploadRec.Body.String())
+	}
+
+	// Verify the saved filename does NOT contain single quotes or path traversal chars
+	var uploadResp struct {
+		Filename string `json:"filename"`
+	}
+	if err := json.Unmarshal(uploadRec.Body.Bytes(), &uploadResp); err != nil {
+		t.Fatal(err)
+	}
+	if strings.ContainsAny(uploadResp.Filename, "'\";<>`|&$") {
+		t.Fatalf("sanitized filename still contains dangerous characters: %q", uploadResp.Filename)
+	}
+}
+
+func TestUploadRejectsPathTraversalInFilename(t *testing.T) {
+	handler := NewHandler(agent.DefaultConfig())
+	mux := handler.Routes()
+
+	maliciousFilename := "../../../etc/passwd.csv"
+	csvContent := "month,segment,revenue\n2026-01,Enterprise,100\n"
+
+	uploadBody, contentType := multipartBody(t, "file", maliciousFilename, strings.NewReader(csvContent))
+	uploadReq := httptest.NewRequest(http.MethodPost, "/api/upload", uploadBody)
+	uploadReq.Header.Set("Content-Type", contentType)
+	uploadRec := httptest.NewRecorder()
+
+	mux.ServeHTTP(uploadRec, uploadReq)
+
+	if uploadRec.Code != http.StatusCreated {
+		t.Fatalf("upload status = %d, body = %s", uploadRec.Code, uploadRec.Body.String())
+	}
+
+	var uploadResp struct {
+		Filename string `json:"filename"`
+	}
+	if err := json.Unmarshal(uploadRec.Body.Bytes(), &uploadResp); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(uploadResp.Filename, "..") || strings.Contains(uploadResp.Filename, "/") || strings.Contains(uploadResp.Filename, `\`) {
+		t.Fatalf("sanitized filename still contains path traversal characters: %q", uploadResp.Filename)
+	}
+}
+
+func TestUploadRejectsFilenameWithPythonInjection(t *testing.T) {
+	handler := NewHandler(agent.DefaultConfig())
+	mux := handler.Routes()
+
+	// Filename crafted to break out of pd.read_csv('%s') string
+	maliciousFilename := "data', 'x'); import os; os.system('echo pwned #.csv"
+	csvContent := "a,b\n1,2\n"
+
+	uploadBody, contentType := multipartBody(t, "file", maliciousFilename, strings.NewReader(csvContent))
+	uploadReq := httptest.NewRequest(http.MethodPost, "/api/upload", uploadBody)
+	uploadReq.Header.Set("Content-Type", contentType)
+	uploadRec := httptest.NewRecorder()
+
+	mux.ServeHTTP(uploadRec, uploadReq)
+
+	// The upload should succeed (sanitized), but the filename must be safe
+	if uploadRec.Code != http.StatusCreated {
+		t.Fatalf("upload status = %d, body = %s", uploadRec.Code, uploadRec.Body.String())
+	}
+
+	var uploadResp struct {
+		Filename string `json:"filename"`
+	}
+	if err := json.Unmarshal(uploadRec.Body.Bytes(), &uploadResp); err != nil {
+		t.Fatal(err)
+	}
+	// Filename must not contain any characters that could break a Python string
+	dangerous := []string{"'", "\"", ";", "(", ")", "#", "\\", "\x00"}
+	for _, ch := range dangerous {
+		if strings.Contains(uploadResp.Filename, ch) {
+			t.Fatalf("sanitized filename contains dangerous character %q: %q", ch, uploadResp.Filename)
+		}
+	}
+}

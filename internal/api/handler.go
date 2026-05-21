@@ -252,13 +252,27 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sanitize filename: use filepath.Base to strip paths, then remove any remaining risky chars
+	// Sanitize filename: strip paths and allow only safe characters.
+	// Only alphanumeric, hyphens, underscores, and a single dot for extension are permitted.
+	// This prevents Python script injection via crafted filenames.
 	sanitizeFilename := func(name string) string {
 		name = filepath.Base(name)
 		// Remove any null bytes
 		name = strings.ReplaceAll(name, "\x00", "")
+		// Allow only safe characters: alnum, hyphen, underscore, dot
+		safe := strings.Builder{}
+		for _, r := range name {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' {
+				safe.WriteRune(r)
+			}
+		}
+		name = safe.String()
 		// Trim leading dots (hidden files)
 		name = strings.TrimLeft(name, ".")
+		// Collapse multiple dots to a single one to prevent ".csv" bypass via "....csv"
+		for strings.Contains(name, "..") {
+			name = strings.ReplaceAll(name, "..", ".")
+		}
 		if name == "" {
 			name = "upload"
 		}
@@ -423,11 +437,13 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 }
 
 // generatePythonPlot creates and executes a Python visualization script for the given dataset.
+// The CSV file path is passed as a command-line argument to the Python script, preventing
+// code injection via crafted filenames.
 // Returns the URL path to the generated plot image, or empty string on failure.
 func (h *Handler) generatePythonPlot(ds *data.Dataset) string {
 	scriptID := fmt.Sprintf("auto_%d", time.Now().UnixNano())
-	scriptContent := h.pythonBridge.GeneratePlotScript(scriptID, ds.FilePath, "")
-	plotURL, err := h.pythonBridge.ExecuteScript(scriptID, scriptContent)
+	scriptContent := h.pythonBridge.GeneratePlotScript(scriptID, "")
+	plotURL, err := h.pythonBridge.ExecuteScript(scriptID, scriptContent, ds.FilePath)
 	if err != nil {
 		fmt.Printf("Python plot generation failed for dataset %s: %v\n", ds.ID, err)
 		return ""
