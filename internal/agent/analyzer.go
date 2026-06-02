@@ -15,13 +15,13 @@ type AnalysisRequest struct {
 // AnalysisResponse is the structured output from an analyzer.
 // It matches the contract described in Instructions/Agentic_AI.md.
 type AnalysisResponse struct {
-	Question         string                   `json:"question"`
-	Dataset          DatasetSummary           `json:"dataset"`
-	Notebook         []NotebookStep           `json:"notebook"`
-	Dashboard        DashboardSpec            `json:"dashboard"`
-	Assumptions      []string                 `json:"assumptions"`
-	Warnings         []string                 `json:"warnings"`
-	UsedDeterministic bool                    `json:"used_deterministic"`
+	Question          string                   `json:"question"`
+	Dataset           DatasetSummary           `json:"dataset"`
+	Notebook          []NotebookStep           `json:"notebook"`
+	Dashboard         DashboardSpec            `json:"dashboard"`
+	Assumptions       []string                 `json:"assumptions"`
+	Warnings          []string                 `json:"warnings"`
+	UsedDeterministic bool                     `json:"used_deterministic"`
 }
 
 // DatasetSummary describes the primary dataset used in analysis.
@@ -59,6 +59,9 @@ type Config struct {
 	Enabled         bool
 	NVIDIAAPIKey    string
 	NVIDIABaseURL   string
+	Model           string
+	MaxTokens       int
+	Temperature     float64
 	TimeoutSec      int
 	FallbackOnError bool
 }
@@ -67,6 +70,9 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		Enabled:         false,
+		Model:           "stepfun-ai/step-3.7-flash",
+		MaxTokens:       16384,
+		Temperature:     1.0,
 		TimeoutSec:      30,
 		FallbackOnError: true,
 	}

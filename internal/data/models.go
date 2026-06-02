@@ -6,12 +6,11 @@ import (
 
 // Dataset represents an uploaded or connected dataset.
 type Dataset struct {
-	ID          string
-	Filename    string
-	FilePath    string // empty for connected sources
-	Profile     Profile
-	Rows        []map[string]string
-	HealthCheck interface{} // can be any struct, we'll use map[string]interface{} for simplicity
+	ID       string
+	Filename string
+	FilePath string // empty for connected sources
+	Profile  Profile
+	Rows     []map[string]string
 }
 
 // Profile represents the column profile of a dataset.
@@ -30,15 +29,6 @@ type Column struct {
 
 // Connection represents a connection to a data source.
 type Connection struct {
-	Source     string
+	Source      string
 	ConnectedAt time.Time
-}
-
-// HealthCheckResult represents the result of a health check.
-type HealthCheckResult struct {
-	Anomalies      []string `json:"anomalies,omitempty"`
-	Outliers       []string `json:"outliers,omitempty"`
-	MissingValues  []string `json:"missing_values,omitempty"`
-	Correlations   []string `json:"correlations,omitempty"`
-	DataQualityIssues []string `json:"data_quality_issues,omitempty"`
 }

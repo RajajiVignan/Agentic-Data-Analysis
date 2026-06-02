@@ -7,11 +7,27 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"insightpilot/internal/agent"
 )
+
+func TestMain(m *testing.M) {
+	uploadDir, err := os.MkdirTemp("", "insightpilot-api-test-uploads-*")
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv("UPLOAD_DIR", uploadDir)
+	os.Setenv("PLOT_RETENTION_HOURS", "0")
+
+	code := m.Run()
+	os.RemoveAll(uploadDir)
+	os.Exit(code)
+}
 
 func TestHealthReturnsOK(t *testing.T) {
 	handler := NewHandler(agent.DefaultConfig())
@@ -44,6 +60,73 @@ func TestDatasetsReturnsEmptyArray(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"datasets":[]`) {
 		t.Fatalf("body = %s, want empty datasets array", rec.Body.String())
+	}
+}
+
+func TestProductionCORSRequiresAllowedOrigin(t *testing.T) {
+	t.Setenv("NODE_ENV", "production")
+	t.Setenv("CORS_ALLOWED_ORIGINS", "https://app.example.com")
+
+	handler := NewHandler(agent.DefaultConfig())
+	mux := handler.Routes()
+
+	disallowedReq := httptest.NewRequest(http.MethodOptions, "/api/health", nil)
+	disallowedReq.Header.Set("Origin", "https://evil.example.com")
+	disallowedRec := httptest.NewRecorder()
+	mux.ServeHTTP(disallowedRec, disallowedReq)
+
+	if got := disallowedRec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("disallowed origin header = %q, want empty", got)
+	}
+
+	allowedReq := httptest.NewRequest(http.MethodOptions, "/api/health", nil)
+	allowedReq.Header.Set("Origin", "https://app.example.com")
+	allowedRec := httptest.NewRecorder()
+	mux.ServeHTTP(allowedRec, allowedReq)
+
+	if got := allowedRec.Header().Get("Access-Control-Allow-Origin"); got != "https://app.example.com" {
+		t.Fatalf("allowed origin header = %q, want configured origin", got)
+	}
+}
+
+func TestPythonBridgeCleanupOlderThan(t *testing.T) {
+	plotsDir := t.TempDir()
+	bridge := NewPythonBridge(plotsDir)
+
+	oldPlot := filepath.Join(plotsDir, "old_plot.png")
+	oldScript := filepath.Join(plotsDir, "old.py")
+	newPlot := filepath.Join(plotsDir, "new_plot.png")
+	keepText := filepath.Join(plotsDir, "notes.txt")
+
+	for _, path := range []string{oldPlot, oldScript, newPlot, keepText} {
+		if err := os.WriteFile(path, []byte("x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	oldTime := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(oldPlot, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(oldScript, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+
+	removed, err := bridge.CleanupOlderThan(24 * time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 2 {
+		t.Fatalf("removed = %d, want 2", removed)
+	}
+	for _, path := range []string{oldPlot, oldScript} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("%s still exists or unexpected stat error: %v", path, err)
+		}
+	}
+	for _, path := range []string{newPlot, keepText} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("%s should remain: %v", path, err)
+		}
 	}
 }
 

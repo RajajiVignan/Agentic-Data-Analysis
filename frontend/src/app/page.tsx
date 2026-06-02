@@ -15,7 +15,7 @@ import {
 import { Sidebar } from '../components/Sidebar';
 import { MetricTile, TrendChart, SegmentChart, PythonPlot } from '../components/Charts';
 
-const API_BASE = "http://127.0.0.1:3000/api";
+const API_BASE = (process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:3000/api").replace(/\/$/, "");
 
 type NotebookStep = {
   title: string;
@@ -67,6 +67,23 @@ type PinnedChart = {
   url?: string;
 };
 
+function AnalysisSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="h-28 rounded-2xl border border-slate-200 bg-slate-100 animate-pulse" />
+        ))}
+      </div>
+      <div className="h-64 rounded-2xl border border-slate-200 bg-slate-100 animate-pulse" />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="h-64 rounded-2xl border border-slate-200 bg-slate-100 animate-pulse" />
+        <div className="h-64 rounded-2xl border border-slate-200 bg-slate-100 animate-pulse" />
+      </div>
+    </div>
+  );
+}
+
 export default function Workspace() {
   const dashboardRef = useRef<HTMLDivElement | null>(null);
   const [availableDatasets, setAvailableDatasets] = useState<Dataset[]>([]);
@@ -81,8 +98,10 @@ export default function Workspace() {
   const [pinnedCharts, setPinnedCharts] = useState<PinnedChart[]>([]);
   const [showPinned, setShowPinned] = useState(false);
   const [activeNav, setActiveNav] = useState('explore');
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
     checkBackend();
     fetchDatasets();
     fetchPinnedCharts();
@@ -152,10 +171,8 @@ export default function Workspace() {
 
       await fetchDatasets();
       setSelectedDatasetIds([data.datasetId]);
-
-      const starterPrompt = "Analyze this dataset and suggest key growth drivers.";
-      setPrompt(starterPrompt);
-      await runAnalysis(starterPrompt, [data.datasetId]);
+      setPrompt("");
+      setResult(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
@@ -242,6 +259,8 @@ export default function Workspace() {
       return;
     }
 
+    if (!mounted) return;
+
     const serializer = new XMLSerializer();
     const width = 900;
     const sectionHeight = 360;
@@ -289,6 +308,7 @@ export default function Workspace() {
       return;
     }
 
+    const sectionHeight = 360;
     const sections = plotNodes.map((node) => {
       const title = node.dataset?.exportPlot || "Plot";
       const svg = node.querySelector("svg");
@@ -370,7 +390,7 @@ export default function Workspace() {
       ">": "&gt;",
       "&": "&amp;",
       '"': "&quot;",
-      '\'': "&apos;",
+      "'": "&apos;",
     })[char] || char);
   }
 
@@ -380,7 +400,7 @@ export default function Workspace() {
       ">": "&gt;",
       "&": "&amp;",
       '"': "&quot;",
-      '\'': "&#039;",
+      "'": "&#039;",
     })[char] || char);
   }
 
@@ -485,7 +505,7 @@ export default function Workspace() {
                   />
                   <button
                     onClick={() => runAnalysis(prompt)}
-                    disabled={analyzeLoading || selectedDatasetIds.length === 0}
+                    disabled={analyzeLoading || selectedDatasetIds.length === 0 || !mounted}
                     className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-xl font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                   >
                     {analyzeLoading ? <Loader2 className="animate-spin" size={18} /> : "Run Analysis"}
@@ -498,185 +518,53 @@ export default function Workspace() {
                 )}
               </div>
 
-              {/* Upload loading indicator */}
-              {uploadLoading && (
-                <div className="flex items-center gap-3 bg-indigo-50 border border-indigo-200 rounded-xl px-5 py-3">
-                  <Loader2 className="animate-spin text-indigo-500" size={18} />
-                  <span className="text-sm text-indigo-700 font-medium">Uploading and processing your file...</span>
-                </div>
-              )}
+              {analyzeLoading && !result && <AnalysisSkeleton />}
 
-              {/* Results Grid */}
-              {result && (
-                <>
-                {/* Assumptions & Warnings */}
-                {(result.assumptions.length > 0 || result.warnings.length > 0) && (
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    {result.assumptions.length > 0 && (
-                      <div className="p-4 bg-blue-50 rounded-2xl border border-blue-200 space-y-2">
-                        <h4 className="text-xs font-bold text-blue-700 uppercase tracking-wider">Assumptions</h4>
-                        <ul className="space-y-1">
-                          {result.assumptions.map((a, i) => (
-                            <li key={i} className="text-xs text-blue-800 leading-relaxed flex gap-1.5">
-                              <span className="text-blue-400 shrink-0">•</span>
-                              <span>{a}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    {result.warnings.length > 0 && (
-                      <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200 space-y-2">
-                        <h4 className="text-xs font-bold text-amber-700 uppercase tracking-wider">Warnings</h4>
-                        <ul className="space-y-1">
-                          {result.warnings.map((w, i) => (
-                            <li key={i} className="text-xs text-amber-800 leading-relaxed flex gap-1.5">
-                              <span className="text-amber-400 shrink-0">⚠</span>
-                              <span>{w}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                )}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                  <div className="lg:col-span-1 space-y-6">
-                    <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4">
-                      <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                        <Download size={18} className="text-indigo-500" />
-                        Export Options
-                      </h3>
-                      <div className="grid grid-cols-1 gap-3">
-                        <button
-                          type="button"
-                          onClick={exportPlotsAsPdf}
-                          className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:border-indigo-300 hover:text-indigo-700"
-                        >
-                          <FileDown size={16} />
-                          Download plots as PDF
-                        </button>
-                        <button
-                          type="button"
-                          onClick={exportPlotsAsSvg}
-                          className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:border-indigo-300 hover:text-indigo-700"
-                        >
-                          <FileType2 size={16} />
-                          Download plots as SVG
-                        </button>
-                        <button
-                          type="button"
-                          onClick={exportCleanedCsv}
-                          className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:border-indigo-300 hover:text-indigo-700"
-                        >
-                          <FileText size={16} />
-                          Export cleaned CSV
-                        </button>
-                      </div>
-                    </div>
-                    <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4">
-                      <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                        <div className="w-1.5 h-5 bg-indigo-500 rounded-full" />
-                        Agent Notebook
-                      </h3>
-                      <div className="space-y-4">
-                        {result.notebook.map((step, i) => (
-                          <div key={i} className="p-3 rounded-lg bg-slate-50 border border-slate-100 space-y-2">
-                            <span className="text-[10px] font-bold uppercase text-slate-400">Step 0{i+1}: {step.title}</span>
-                            <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap">{step.body || step.code}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+              {result && !analyzeLoading && (
+                <div className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {result.dashboard.kpis.map((kpi, i) => (
+                      <MetricTile key={i} {...kpi} onPin={() => pinChart('kpi', kpi.label, { value: kpi.value, change: kpi.change })} />
+                    ))}
                   </div>
 
-                  <div ref={dashboardRef} className="lg:col-span-2 space-y-8">
-                    <div className="grid grid-cols-3 gap-4">
-                      {result.dashboard.kpis.map((kpi, i) => (
-                        <MetricTile
-                          key={i}
-                          label={kpi.label}
-                          value={kpi.value}
-                          change={kpi.change}
-                          onPin={() => pinChart('kpi', kpi.label, kpi)}
-                        />
+                  {result.dashboard.plotUrl && (
+                    <PythonPlot url={result.dashboard.plotUrl} onPin={() => pinChart('python_plot', 'Python Plot', { url: result.dashboard.plotUrl }, result.dashboard.plotUrl)} />
+                  )}
+
+                  <TrendChart data={result.dashboard.trend} onPin={() => pinChart('trend', 'Revenue Trend', result.dashboard.trend)} />
+
+                  <SegmentChart data={result.dashboard.segments} recommendations={result.dashboard.recommendations} onPin={() => pinChart('segment', 'Segment Mix', result.dashboard.segments)} />
+
+                  {result.warnings && result.warnings.length > 0 && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-700 space-y-1">
+                      {result.warnings.map((w, i) => (
+                        <div key={i}>{w}</div>
                       ))}
                     </div>
-
-                    <PythonPlot
-                      url={result.dashboard.plotUrl ?? null}
-                      onPin={() => pinChart('python_plot', 'AI Visualization', {}, result.dashboard.plotUrl ?? undefined)}
-                    />
-                    <TrendChart
-                      data={result.dashboard.trend}
-                      onPin={() => pinChart('trend', 'Revenue Trend', result.dashboard.trend)}
-                    />
-                    <SegmentChart
-                      data={result.dashboard.segments}
-                      recommendations={result.dashboard.recommendations}
-                      onPin={() => pinChart('segment', 'Segment Mix', result.dashboard.segments)}
-                    />
-                  </div>
+                  )}
                 </div>
-                </>
               )}
             </>
           ) : (
-            <div className="space-y-8">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-bold text-slate-900">Pinned Dashboard</h2>
-                <p className="text-sm text-slate-500 font-medium">Your persistent collection of key insights</p>
-              </div>
-
+            <div className="space-y-4">
+              <h2 className="text-lg font-bold text-slate-900">Pinned Dashboard</h2>
               {pinnedCharts.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-20 text-center bg-white rounded-3xl border border-slate-200 border-dashed">
-                  <LayoutDashboard size={48} className="text-slate-300 mb-4" />
-                  <h3 className="text-lg font-semibold text-slate-800">No pinned charts yet</h3>
-                  <p className="text-sm text-slate-400 max-w-xs mx-auto">
-                    Run an analysis and click the pin icon on components you want to save to your dashboard.
-                  </p>
-                </div>
+                <p className="text-sm text-slate-500">No pinned charts yet.</p>
               ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                  {pinnedCharts.map((chart) => (
-                    <div key={chart.id} className="relative group rounded-2xl p-1 bg-white border border-slate-200 shadow-sm">
-                      <div className="absolute top-3 right-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          onClick={() => unpinChart(chart.id)}
-                          className="p-1.5 bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-red-500 hover:border-red-300 transition-all shadow-sm"
-                          title="Unpin chart"
-                        >
-                          <X size={14} />
-                        </button>
-                      </div>
-                      <div className="p-4">
-                         {chart.chart_type === 'kpi' && (
-                           <MetricTile
-                             label={chart.label}
-                             value={(chart.data as Kpi).value}
-                             change={(chart.data as Kpi).change}
-                           />
-                         )}
-                         {chart.chart_type === 'trend' && (
-                           <TrendChart
-                             data={chart.data as ChartPoint[]}
-                             onPin={() => {}}
-                           />
-                         )}
-                         {chart.chart_type === 'segment' && (
-                           <SegmentChart
-                             data={chart.data as ChartPoint[]}
-                             recommendations={[]}
-                             onPin={() => {}}
-                           />
-                         )}
-                         {chart.chart_type === 'python_plot' && (
-                           <PythonPlot
-                             url={chart.url ?? null}
-                             onPin={() => {}}
-                           />
-                         )}
-                      </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {pinnedCharts.map(chart => (
+                    <div key={chart.id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm relative">
+                      <button
+                        onClick={() => unpinChart(chart.id)}
+                        className="absolute top-3 right-3 text-slate-400 hover:text-red-500"
+                        title="Unpin"
+                      >
+                        <X size={14} />
+                      </button>
+                      <div className="text-xs font-bold text-slate-500 mb-2">{chart.label}</div>
+                      <div className="text-xs text-slate-400 capitalize">{chart.chart_type}</div>
+                      {chart.url && <img src={chart.url} alt={chart.label} className="mt-2 rounded-lg border border-slate-100" />}
                     </div>
                   ))}
                 </div>

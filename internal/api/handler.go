@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -20,14 +22,16 @@ import (
 )
 
 type Handler struct {
-	datasets     map[string]*data.Dataset
-	connections  map[string]data.Connection
-	pinnedCharts map[string]*PinnedChart
-	uploadDir    string
-	analyzer     agent.Analyzer
-	pythonBridge *PythonBridge
-	db           *store.DB
-	mu           sync.RWMutex
+	datasets       map[string]*data.Dataset
+	connections    map[string]data.Connection
+	pinnedCharts   map[string]*PinnedChart
+	uploadDir      string
+	plotsDir       string
+	analyzer       agent.Analyzer
+	pythonBridge   *PythonBridge
+	db             *store.DB
+	allowedOrigins map[string]bool
+	mu             sync.RWMutex
 }
 
 type PinnedChart struct {
@@ -41,15 +45,19 @@ type PinnedChart struct {
 
 func NewHandler(cfg agent.Config) *Handler {
 	db := store.NewDB()
+	uploadDir := resolveDataDir("UPLOAD_DIR", "uploads")
+	plotsDir := filepath.Join(uploadDir, "plots")
 
 	h := &Handler{
-		datasets:     make(map[string]*data.Dataset),
-		connections:  make(map[string]data.Connection),
-		pinnedCharts: make(map[string]*PinnedChart),
-		uploadDir:    "uploads",
-		analyzer:     agent.NewLLMAnalyzer(cfg),
-		pythonBridge: NewPythonBridge("uploads/plots"),
-		db:           db,
+		datasets:       make(map[string]*data.Dataset),
+		connections:    make(map[string]data.Connection),
+		pinnedCharts:   make(map[string]*PinnedChart),
+		uploadDir:      uploadDir,
+		plotsDir:       plotsDir,
+		analyzer:       agent.NewLLMAnalyzer(cfg),
+		pythonBridge:   NewPythonBridge(plotsDir),
+		db:             db,
+		allowedOrigins: configuredAllowedOrigins(),
 	}
 
 	// Load pinned charts from database on startup
@@ -57,7 +65,119 @@ func NewHandler(cfg agent.Config) *Handler {
 		h.loadPinnedChartsFromDB()
 	}
 
+	h.startPlotCleanup()
+
 	return h
+}
+
+func resolveDataDir(envName, defaultRel string) string {
+	if configured := os.Getenv(envName); configured != "" {
+		if abs, err := filepath.Abs(configured); err == nil {
+			return abs
+		}
+		return configured
+	}
+
+	root, err := projectRoot()
+	if err != nil {
+		root, _ = os.Getwd()
+	}
+	return filepath.Join(root, defaultRel)
+}
+
+func projectRoot() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("go.mod not found from %s", dir)
+		}
+		dir = parent
+	}
+}
+
+func configuredAllowedOrigins() map[string]bool {
+	raw := strings.TrimSpace(os.Getenv("CORS_ALLOWED_ORIGINS"))
+	if raw == "" {
+		raw = strings.TrimSpace(os.Getenv("FRONTEND_ORIGIN"))
+	}
+	if raw == "" && !isProduction() {
+		raw = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001"
+	}
+
+	origins := make(map[string]bool)
+	for _, origin := range strings.Split(raw, ",") {
+		origin = strings.TrimSpace(origin)
+		if origin != "" {
+			origins[origin] = true
+		}
+	}
+	return origins
+}
+
+func isProduction() bool {
+	for _, name := range []string{"APP_ENV", "GO_ENV", "NODE_ENV"} {
+		if strings.EqualFold(os.Getenv(name), "production") {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *Handler) startPlotCleanup() {
+	retention := 24 * time.Hour
+	if raw := strings.TrimSpace(os.Getenv("PLOT_RETENTION_HOURS")); raw != "" {
+		hours, err := strconv.Atoi(raw)
+		if err != nil || hours < 0 {
+			log.Printf("api: invalid PLOT_RETENTION_HOURS=%q, using %s", raw, retention)
+		} else if hours == 0 {
+			return
+		} else {
+			retention = time.Duration(hours) * time.Hour
+		}
+	}
+
+	h.cleanupPlotArtifacts(retention)
+
+	go func() {
+		ticker := time.NewTicker(time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			h.cleanupPlotArtifacts(retention)
+		}
+	}()
+}
+
+func (h *Handler) cleanupPlotArtifacts(retention time.Duration) {
+	if removed, err := h.pythonBridge.CleanupOlderThan(retention); err != nil {
+		log.Printf("api: plot cleanup failed for %s: %v", h.plotsDir, err)
+	} else if removed > 0 {
+		log.Printf("api: removed %d stale plot files from %s", removed, h.plotsDir)
+	}
+
+	root, err := projectRoot()
+	if err != nil {
+		return
+	}
+	legacyPlotsDir := filepath.Join(root, "internal", "api", "uploads", "plots")
+	if legacyPlotsDir == h.plotsDir {
+		return
+	}
+	if info, err := os.Stat(legacyPlotsDir); err != nil || !info.IsDir() {
+		return
+	}
+	legacyBridge := NewPythonBridge(legacyPlotsDir)
+	if removed, err := legacyBridge.CleanupOlderThan(retention); err != nil {
+		log.Printf("api: legacy plot cleanup failed for %s: %v", legacyPlotsDir, err)
+	} else if removed > 0 {
+		log.Printf("api: removed %d stale legacy plot files from %s", removed, legacyPlotsDir)
+	}
 }
 
 func (h *Handler) loadPinnedChartsFromDB() {
@@ -86,7 +206,7 @@ func (h *Handler) Routes() http.Handler {
 
 	corsHandler := func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
+			h.setCORSHeaders(w, r)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 			if r.Method == "OPTIONS" {
@@ -114,6 +234,17 @@ func (h *Handler) Routes() http.Handler {
 	return mux
 }
 
+func (h *Handler) setCORSHeaders(w http.ResponseWriter, r *http.Request) {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return
+	}
+	if h.allowedOrigins["*"] || h.allowedOrigins[origin] {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Vary", "Origin")
+	}
+}
+
 func (h *Handler) handleServePlot(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -125,7 +256,7 @@ func (h *Handler) handleServePlot(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Not found", http.StatusNotFound)
 		return
 	}
-	plotPath := filepath.Join("uploads/plots", name)
+	plotPath := filepath.Join(h.plotsDir, name)
 	info, err := os.Stat(plotPath)
 	if err != nil || info.IsDir() {
 		http.Error(w, "Not found", http.StatusNotFound)
@@ -241,10 +372,10 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 	// Validate content type
 	ct := header.Header.Get("Content-Type")
 	allowedTypes := map[string]bool{
-		"text/csv":                true,
-		"application/csv":         true,
-		"application/json":        true,
-		"text/plain":              true,
+		"text/csv":                 true,
+		"application/csv":          true,
+		"application/json":         true,
+		"text/plain":               true,
 		"application/octet-stream": true,
 	}
 	if ct != "" && !allowedTypes[ct] {
@@ -256,9 +387,9 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 	// Only alphanumeric, hyphens, underscores, and a single dot for extension are permitted.
 	// This prevents Python script injection via crafted filenames.
 	sanitizeFilename := func(name string) string {
-		name = filepath.Base(name)
-		// Remove any null bytes
 		name = strings.ReplaceAll(name, "\x00", "")
+		name = strings.ReplaceAll(name, "/", "_")
+		name = strings.ReplaceAll(name, `\`, "_")
 		// Allow only safe characters: alnum, hyphen, underscore, dot
 		safe := strings.Builder{}
 		for _, r := range name {
@@ -267,6 +398,9 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		name = safe.String()
+		if strings.HasPrefix(name, ".") && filepath.Ext(name) == name {
+			name = "upload" + name
+		}
 		// Trim leading dots (hidden files)
 		name = strings.TrimLeft(name, ".")
 		// Collapse multiple dots to a single one to prevent ".csv" bypass via "....csv"
@@ -395,10 +529,10 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	req := agent.AnalysisRequest{
 		Prompt:     body.Prompt,
 		Datasets:   activeDatasets,
-		TimeoutSec: 30,
+		TimeoutSec: 120,
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
 	defer cancel()
 
 	resp, err := h.analyzer.Analyze(ctx, req)
@@ -419,10 +553,10 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.sendJSON(w, http.StatusOK, map[string]interface{}{
-		"question":  resp.Question,
-		"dataset":   resp.Dataset,
-		"notebook":  resp.Notebook,
-		"plotUrl":   plotURL,
+		"question": resp.Question,
+		"dataset":  resp.Dataset,
+		"notebook": resp.Notebook,
+		"plotUrl":  plotURL,
 		"dashboard": map[string]interface{}{
 			"title":           resp.Dashboard.Title,
 			"kpis":            resp.Dashboard.KPIs,

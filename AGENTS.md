@@ -94,13 +94,15 @@ cd frontend && npm run build
 - `NVIDIA_BASE_URL` — e.g. `https://api.nvcf.nvidia.com/v2/nvcf`
 - `PORT` — default 3000
 - `HOST` — default 127.0.0.1
+- `CORS_ALLOWED_ORIGINS` — comma-separated frontend origins for browser API access
+- `PLOT_RETENTION_HOURS` — hours to keep generated `.py`/`.png` plot artifacts; default 24, 0 disables cleanup
+- `UPLOAD_DIR` — upload directory; default resolves to `<project-root>/uploads`
 
 ## Known Issues / Tech Debt
 
 - Export handler uses `strings.Fields`+`Join` which corrupts data containing spaces
 - In-memory datasets/connections lost on server restart (no DB persistence for them yet)
 - LLM analyzer returns 401 without valid NVIDIA_API_KEY (falls back to deterministic)
-- Python scripts in uploads/plots/ are not cleaned up after execution
 
 ## Instruction Files (role-specific)
 

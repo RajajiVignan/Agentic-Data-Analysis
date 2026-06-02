@@ -26,7 +26,7 @@ type LLMAnalyzer struct {
 func NewLLMAnalyzer(cfg Config) *LLMAnalyzer {
 	timeout := cfg.TimeoutSec
 	if timeout <= 0 {
-		timeout = 30
+		timeout = 120
 	}
 	return &LLMAnalyzer{
 		config: cfg,
@@ -66,6 +66,16 @@ func (a *LLMAnalyzer) Analyze(ctx context.Context, req AnalysisRequest) (Analysi
 	return llmResp, nil
 }
 
+// normalizeBearer strips any "Bearer " prefix and surrounding quotes from the token.
+func normalizeBearer(key string) string {
+	key = strings.TrimSpace(key)
+	key = strings.Trim(key, "\"")
+	key = strings.Trim(key, "'")
+	key = strings.TrimPrefix(key, "Bearer ")
+	key = strings.TrimPrefix(key, "bearer ")
+	return key
+}
+
 func (a *LLMAnalyzer) fallback(ctx context.Context, req AnalysisRequest, reason string) (AnalysisResponse, error) {
 	resp, err := a.deterministic.Analyze(ctx, req)
 	if err != nil {
@@ -102,10 +112,10 @@ Do not include markdown, code fences, or explanations outside the JSON.`
 	}
 
 	payload := map[string]interface{}{
-		"model":       "meta/llama-3.1-8b-instruct",
+		"model":       a.config.Model,
 		"messages":    messages,
-		"max_tokens":  2048,
-		"temperature": 0.1,
+		"max_tokens":  a.config.MaxTokens,
+		"temperature": a.config.Temperature,
 		"stream":      false,
 	}
 
@@ -120,7 +130,7 @@ Do not include markdown, code fences, or explanations outside the JSON.`
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+a.config.NVIDIAAPIKey)
+	httpReq.Header.Set("Authorization", "Bearer "+normalizeBearer(a.config.NVIDIAAPIKey))
 
 	resp, err := a.client.Do(httpReq)
 	if err != nil {

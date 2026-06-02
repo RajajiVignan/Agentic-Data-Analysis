@@ -20,6 +20,41 @@ func NewPythonBridge(plotsDir string) *PythonBridge {
 	return &PythonBridge{plotsDir: plotsDir}
 }
 
+// CleanupOlderThan removes generated Python plot artifacts older than maxAge.
+func (pb *PythonBridge) CleanupOlderThan(maxAge time.Duration) (int, error) {
+	entries, err := os.ReadDir(pb.plotsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+
+	cutoff := time.Now().Add(-maxAge)
+	removed := 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		ext := filepath.Ext(entry.Name())
+		if ext != ".py" && ext != ".png" {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return removed, err
+		}
+		if info.ModTime().After(cutoff) {
+			continue
+		}
+		if err := os.Remove(filepath.Join(pb.plotsDir, entry.Name())); err != nil && !os.IsNotExist(err) {
+			return removed, err
+		}
+		removed++
+	}
+	return removed, nil
+}
+
 // ExecuteScript runs a Python script and returns the path to the generated plot.
 // The script is expected to save a plot as {scriptID}_plot.png in the plots directory.
 // The csvPath is passed as a command-line argument to avoid string interpolation in the script.

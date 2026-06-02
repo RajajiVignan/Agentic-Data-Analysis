@@ -4,6 +4,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 
 	"insightpilot/internal/agent"
 	"insightpilot/internal/api"
@@ -29,12 +31,22 @@ func main() {
 	}
 
 	// Configure the agent layer
-	agentCfg := agent.Config{
-		Enabled:         os.Getenv("NVIDIA_API_KEY") != "" && os.Getenv("NVIDIA_API_KEY") != "YOUR_NVIDIA_API_KEY",
-		NVIDIAAPIKey:    os.Getenv("NVIDIA_API_KEY"),
-		NVIDIABaseURL:   os.Getenv("NVIDIA_BASE_URL"),
-		TimeoutSec:      30,
-		FallbackOnError: true,
+	agentCfg := agent.DefaultConfig()
+	agentCfg.Enabled = os.Getenv("NVIDIA_API_KEY") != "" && os.Getenv("NVIDIA_API_KEY") != "YOUR_NVIDIA_API_KEY"
+	agentCfg.NVIDIAAPIKey = os.Getenv("NVIDIA_API_KEY")
+	agentCfg.NVIDIABaseURL = os.Getenv("NVIDIA_BASE_URL")
+	if v := strings.TrimSpace(os.Getenv("NVIDIA_MODEL")); v != "" {
+		agentCfg.Model = v
+	}
+	if v := strings.TrimSpace(os.Getenv("NVIDIA_MAX_TOKENS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			agentCfg.MaxTokens = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("NVIDIA_TEMPERATURE")); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			agentCfg.Temperature = f
+		}
 	}
 
 	if agentCfg.Enabled {

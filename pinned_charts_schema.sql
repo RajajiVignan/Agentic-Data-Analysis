@@ -4,6 +4,5 @@ CREATE TABLE IF NOT EXISTS pinned_charts (
     chart_type TEXT NOT NULL, -- 'kpi', 'trend', 'segment', 'python_plot'
     label TEXT,
     data JSONB,
-    url TEXT,
-    user_id TEXT -- For multi-user support, otherwise can be a static value
+    url TEXT
 );

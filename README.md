@@ -179,6 +179,9 @@ NVIDIA_BASE_URL=https://api.nvcf.nvidia.com/v2/nvcf
 # Server config
 PORT=3000
 HOST=127.0.0.1
+CORS_ALLOWED_ORIGINS=https://your-frontend.example.com
+PLOT_RETENTION_HOURS=24
+UPLOAD_DIR=uploads
 ```
 
 > **Note:** The app works fully without Supabase or NVIDIA keys — the deterministic analyzer handles all analysis tasks, and chart pinning falls back to in-memory storage.
@@ -202,7 +205,6 @@ HOST=127.0.0.1
 - Export handler uses `strings.Fields` + `Join` which corrupts data containing spaces
 - In-memory datasets and connections are lost on server restart (no DB persistence yet)
 - LLM analyzer returns `401` without a valid `NVIDIA_API_KEY` (falls back to deterministic)
-- Generated Python scripts in `uploads/plots/` are not cleaned up after execution
 - Frontend port conflicts with backend when both default to `3000`
 
 ---

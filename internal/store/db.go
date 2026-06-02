@@ -123,8 +123,7 @@ func (db *DB) initSchema() error {
 			chart_type TEXT NOT NULL,
 			label TEXT,
 			data JSONB,
-			url TEXT,
-			user_id TEXT
+			url TEXT
 		)
 	`)
 	return err
