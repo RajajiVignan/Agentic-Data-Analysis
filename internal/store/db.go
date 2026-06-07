@@ -116,8 +116,8 @@ func extractProjectRef(url string) string {
 }
 
 func (db *DB) initSchema() error {
-	_, err := db.conn.Exec(`
-		CREATE TABLE IF NOT EXISTS pinned_charts (
+	queries := []string{
+		`CREATE TABLE IF NOT EXISTS pinned_charts (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			created_at TIMESTAMPTZ DEFAULT now(),
 			chart_type TEXT NOT NULL,
@@ -125,9 +125,26 @@ func (db *DB) initSchema() error {
 			data JSONB,
 			url TEXT,
 			user_id TEXT
-		)
-	`)
-	return err
+		)`,
+		`CREATE TABLE IF NOT EXISTS datasets (
+			id TEXT PRIMARY KEY,
+			filename TEXT NOT NULL,
+			file_path TEXT,
+			profile JSONB,
+			created_at TIMESTAMPTZ DEFAULT now()
+		)`,
+		`CREATE TABLE IF NOT EXISTS data_sources (
+			id TEXT PRIMARY KEY,
+			source TEXT NOT NULL,
+			connected_at TIMESTAMPTZ DEFAULT now()
+		)`,
+	}
+	for _, q := range queries {
+		if _, err := db.conn.Exec(q); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Close closes the database connection.
@@ -210,16 +227,78 @@ func (db *DB) SaveDataset(id, filename, filePath string, profileJSON []byte) err
 	return err
 }
 
-// InitDatasetsTable creates the datasets table if it doesn't exist.
-func (db *DB) InitDatasetsTable() error {
-	_, err := db.conn.Exec(`
-		CREATE TABLE IF NOT EXISTS datasets (
-			id TEXT PRIMARY KEY,
-			filename TEXT NOT NULL,
-			file_path TEXT,
-			profile JSONB,
-			created_at TIMESTAMPTZ DEFAULT now()
-		)
-	`)
+// LoadDatasets retrieves all datasets from the database.
+func (db *DB) LoadDatasets() ([]DatasetRecord, error) {
+	rows, err := db.conn.Query(
+		`SELECT id, filename, COALESCE(file_path, ''), profile FROM datasets ORDER BY created_at DESC`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query datasets: %w", err)
+	}
+	defer rows.Close()
+
+	var datasets []DatasetRecord
+	for rows.Next() {
+		var d DatasetRecord
+		var profileJSON []byte
+		if err := rows.Scan(&d.ID, &d.Filename, &d.FilePath, &profileJSON); err != nil {
+			return nil, fmt.Errorf("scan dataset: %w", err)
+		}
+		if len(profileJSON) > 0 {
+			json.Unmarshal(profileJSON, &d.Profile)
+		}
+		datasets = append(datasets, d)
+	}
+	return datasets, rows.Err()
+}
+
+// DatasetRecord represents a row in the datasets table.
+type DatasetRecord struct {
+	ID       string        `json:"id"`
+	Filename string        `json:"filename"`
+	FilePath string        `json:"file_path"`
+	Profile  DatasetProfile `json:"profile"`
+}
+
+// DatasetProfile is a lightweight version of data.Profile for DB storage.
+type DatasetProfile struct {
+	RowCount int              `json:"rowCount"`
+	Columns  []DatasetColumn  `json:"columns"`
+}
+
+// DatasetColumn represents a column stored in the profile JSON.
+type DatasetColumn struct {
+	Name     string   `json:"name"`
+	Type     string   `json:"type"`
+	NonEmpty int      `json:"nonEmpty"`
+	Sample   []string `json:"sample"`
+}
+
+// SaveDataSource persists a data source connection to the database.
+func (db *DB) SaveDataSource(id, source string) error {
+	_, err := db.conn.Exec(
+		`INSERT INTO data_sources (id, source) VALUES ($1, $2)
+		 ON CONFLICT (id) DO UPDATE SET source=$2`,
+		id, source,
+	)
 	return err
+}
+
+// LoadDataSources retrieves all data source connections from the database.
+func (db *DB) LoadDataSources() (map[string]string, error) {
+	rows, err := db.conn.Query(`SELECT id, source FROM data_sources`)
+	if err != nil {
+		return nil, fmt.Errorf("query data_sources: %w", err)
+	}
+	defer rows.Close()
+
+	sources := make(map[string]string)
+	for rows.Next() {
+		var id, source string
+		if err := rows.Scan(&id, &source); err != nil {
+			return nil, fmt.Errorf("scan data_source: %w", err)
+		}
+		sources[id] = source
+	}
+	return sources, rows.Err()
 }

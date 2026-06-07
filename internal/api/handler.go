@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"insightpilot/internal/agent"
 	"insightpilot/internal/data"
 	"insightpilot/internal/store"
@@ -55,6 +57,8 @@ func NewHandler(cfg agent.Config) *Handler {
 	// Load pinned charts from database on startup
 	if db != nil {
 		h.loadPinnedChartsFromDB()
+		h.loadDatasetsFromDB()
+		h.loadDataSourcesFromDB()
 	}
 
 	return h
@@ -79,6 +83,55 @@ func (h *Handler) loadPinnedChartsFromDB() {
 		}
 	}
 	fmt.Printf("Loaded %d pinned charts from database\n", len(charts))
+}
+
+func (h *Handler) loadDatasetsFromDB() {
+	records, err := h.db.LoadDatasets()
+	if err != nil {
+		fmt.Printf("Warning: failed to load datasets from DB: %v\n", err)
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, r := range records {
+		// Reconstruct data.Profile from stored profile
+		cols := make([]data.Column, len(r.Profile.Columns))
+		for i, c := range r.Profile.Columns {
+			cols[i] = data.Column{
+				Name:     c.Name,
+				Type:     c.Type,
+				NonEmpty: c.NonEmpty,
+				Sample:   c.Sample,
+			}
+		}
+		h.datasets[r.ID] = &data.Dataset{
+			ID:       r.ID,
+			Filename: r.Filename,
+			FilePath: r.FilePath,
+			Profile: data.Profile{
+				RowCount: r.Profile.RowCount,
+				Columns:  cols,
+			},
+		}
+	}
+	fmt.Printf("Loaded %d datasets from database\n", len(records))
+}
+
+func (h *Handler) loadDataSourcesFromDB() {
+	sources, err := h.db.LoadDataSources()
+	if err != nil {
+		fmt.Printf("Warning: failed to load data sources from DB: %v\n", err)
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for id, source := range sources {
+		h.connections[id] = data.Connection{
+			Source:      source,
+			ConnectedAt: time.Now(),
+		}
+	}
+	fmt.Printf("Loaded %d data sources from database\n", len(sources))
 }
 
 func (h *Handler) Routes() http.Handler {
@@ -210,6 +263,18 @@ func (h *Handler) handleConnectSource(w http.ResponseWriter, r *http.Request) {
 	h.datasets[id] = dataset
 	h.connections[id] = data.Connection{Source: source, ConnectedAt: time.Now()}
 	h.mu.Unlock()
+
+	// Persist to database
+	if h.db != nil {
+		profileJSON, _ := json.Marshal(dataset.Profile)
+		if err := h.db.SaveDataset(id, filename, "", profileJSON); err != nil {
+			fmt.Printf("Warning: failed to save dataset to DB: %v\n", err)
+		}
+		if err := h.db.SaveDataSource(id, source); err != nil {
+			fmt.Printf("Warning: failed to save data source to DB: %v\n", err)
+		}
+	}
+
 	h.sendJSON(w, http.StatusCreated, map[string]interface{}{
 		"datasetId": id,
 		"filename":  filename,
@@ -351,6 +416,14 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	h.datasets[id] = dataset
 	h.mu.Unlock()
+
+	// Persist to database
+	if h.db != nil {
+		profileJSON, _ := json.Marshal(dataset.Profile)
+		if err := h.db.SaveDataset(id, safeName, filePath, profileJSON); err != nil {
+			fmt.Printf("Warning: failed to save dataset to DB: %v\n", err)
+		}
+	}
 
 	h.sendJSON(w, http.StatusCreated, map[string]interface{}{
 		"datasetId": id,
@@ -550,7 +623,7 @@ func (h *Handler) handlePinChart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if pc.ID == "" {
-		pc.ID = fmt.Sprintf("%d", time.Now().UnixNano())
+		pc.ID = uuid.New().String()
 	}
 
 	h.mu.Lock()
