@@ -1,0 +1,168 @@
+package api
+
+import (
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+
+	"insightpilot/internal/data"
+)
+
+// PlotService handles Python plot generation, serving, and cleanup.
+type PlotService struct {
+	plotsDir  string
+	uploadDir string
+	bridge    *PythonBridge
+}
+
+// NewPlotService creates a new PlotService.
+func NewPlotService(plotsDir, uploadDir string, bridge *PythonBridge) *PlotService {
+	return &PlotService{
+		plotsDir:  plotsDir,
+		uploadDir: uploadDir,
+		bridge:    bridge,
+	}
+}
+
+// GeneratePlot generates a Python visualization for the given dataset.
+// It first tries LLM-driven code generation (if configured), then falls back
+// to the deterministic template. Returns the URL path to the generated plot
+// image, or empty string on failure.
+func (ps *PlotService) GeneratePlot(ds *data.Dataset, prompt string) string {
+	scriptID := fmt.Sprintf("auto_%d", time.Now().UnixNano())
+
+	profileJSON, _ := json.Marshal(ds.Profile)
+
+	// Try LLM-driven code generation first
+	llmScript, err := ps.bridge.GeneratePlotScriptLLM(scriptID, prompt, string(profileJSON))
+	if err == nil && llmScript != "" {
+		plotURL, execErr := ps.bridge.ExecuteScript(scriptID, llmScript, ds.FilePath)
+		if execErr == nil {
+			return plotURL
+		}
+		fmt.Printf("LLM-driven plot execution failed for dataset %s: %v, falling back to template\n", ds.ID, execErr)
+	} else if err != nil {
+		fmt.Printf("LLM-driven plot generation failed for dataset %s: %v, falling back to template\n", ds.ID, err)
+	}
+
+	// Fallback to deterministic template
+	scriptContent := ps.bridge.GeneratePlotScript(scriptID, "")
+	plotURL, err := ps.bridge.ExecuteScript(scriptID, scriptContent, ds.FilePath)
+	if err != nil {
+		fmt.Printf("Deterministic plot generation failed for dataset %s: %v\n", ds.ID, err)
+		return ""
+	}
+	return plotURL
+}
+
+// ServePlot serves a generated plot image by filename.
+func (ps *PlotService) ServePlot(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	name := filepath.Base(r.URL.Path)
+	if name == "" || name == "." {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+	plotPath := filepath.Join(ps.plotsDir, name)
+	info, err := os.Stat(plotPath)
+	if err != nil || info.IsDir() {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	http.ServeFile(w, r, plotPath)
+}
+
+// HandlePythonPlot handles the on-demand /api/python-plot endpoint.
+func (ps *PlotService) HandlePythonPlot(w http.ResponseWriter, r *http.Request, datasets map[string]*data.Dataset) {
+	datasetID := r.URL.Query().Get("datasetId")
+	prompt := r.URL.Query().Get("prompt")
+	if datasetID == "" {
+		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "datasetId query parameter required"})
+		return
+	}
+
+	ds, ok := datasets[datasetID]
+	if !ok {
+		SendJSON(w, http.StatusNotFound, map[string]string{"error": "Dataset not found"})
+		return
+	}
+
+	if ds.FilePath == "" {
+		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "Dataset has no file path (in-memory only)"})
+		return
+	}
+
+	plotURL := ps.GeneratePlot(ds, prompt)
+	if plotURL == "" {
+		SendJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to generate plot"})
+		return
+	}
+
+	SendJSON(w, http.StatusOK, map[string]interface{}{
+		"plotUrl": plotURL,
+	})
+}
+
+// StartCleanup starts the background goroutine that periodically removes
+// stale plot artifacts. It also runs an initial cleanup immediately.
+func (ps *PlotService) StartCleanup() {
+	retention := 24 * time.Hour
+	if raw := strings.TrimSpace(os.Getenv("PLOT_RETENTION_HOURS")); raw != "" {
+		hours, err := strconv.Atoi(raw)
+		if err != nil || hours < 0 {
+			log.Printf("api: invalid PLOT_RETENTION_HOURS=%q, using %s", raw, retention)
+		} else if hours == 0 {
+			return
+		} else {
+			retention = time.Duration(hours) * time.Hour
+		}
+	}
+
+	ps.cleanup(retention)
+
+	go func() {
+		ticker := time.NewTicker(time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			ps.cleanup(retention)
+		}
+	}()
+}
+
+func (ps *PlotService) cleanup(retention time.Duration) {
+	if removed, err := ps.bridge.CleanupOlderThan(retention); err != nil {
+		log.Printf("api: plot cleanup failed for %s: %v", ps.plotsDir, err)
+	} else if removed > 0 {
+		log.Printf("api: removed %d stale plot files from %s", removed, ps.plotsDir)
+	}
+
+	// Also clean up legacy plots directory if it exists
+	root, err := projectRoot()
+	if err != nil {
+		return
+	}
+	legacyPlotsDir := filepath.Join(root, "internal", "api", "uploads", "plots")
+	if legacyPlotsDir == ps.plotsDir {
+		return
+	}
+	if info, err := os.Stat(legacyPlotsDir); err != nil || !info.IsDir() {
+		return
+	}
+	legacyBridge := NewPythonBridge(legacyPlotsDir)
+	if removed, err := legacyBridge.CleanupOlderThan(retention); err != nil {
+		log.Printf("api: legacy plot cleanup failed for %s: %v", legacyPlotsDir, err)
+	} else if removed > 0 {
+		log.Printf("api: removed %d stale legacy plot files from %s", removed, legacyPlotsDir)
+	}
+}

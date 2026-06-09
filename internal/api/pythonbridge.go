@@ -1,7 +1,11 @@
 package api
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,15 +13,41 @@ import (
 	"time"
 )
 
+// LLMConfig holds the minimal config needed for LLM-driven code generation.
+type LLMConfig struct {
+	Enabled       bool
+	NVIDIAAPIKey  string
+	NVIDIABaseURL string
+	Model         string
+	MaxTokens     int
+	Temperature   float64
+	TimeoutSec    int
+}
+
 // PythonBridge handles execution of Python visualization scripts.
 type PythonBridge struct {
-	plotsDir string
+	plotsDir    string
+	llmConfig   LLMConfig
+	validator   *SandboxValidator
+	httpClient  *http.Client
 }
 
 // NewPythonBridge creates a new Python bridge with the given plots directory.
 func NewPythonBridge(plotsDir string) *PythonBridge {
 	os.MkdirAll(plotsDir, 0755)
-	return &PythonBridge{plotsDir: plotsDir}
+	return &PythonBridge{
+		plotsDir:  plotsDir,
+		validator: NewSandboxValidator(),
+		httpClient: &http.Client{
+			Timeout: 60 * time.Second,
+		},
+	}
+}
+
+// SetLLMConfig sets the LLM configuration for code generation.
+// If not set or disabled, only the deterministic fallback is used.
+func (pb *PythonBridge) SetLLMConfig(cfg LLMConfig) {
+	pb.llmConfig = cfg
 }
 
 // CleanupOlderThan removes generated Python plot artifacts older than maxAge.
@@ -56,19 +86,17 @@ func (pb *PythonBridge) CleanupOlderThan(maxAge time.Duration) (int, error) {
 }
 
 // ExecuteScript runs a Python script and returns the path to the generated plot.
-// The script is expected to save a plot as {scriptID}_plot.png in the plots directory.
-// The csvPath is passed as a command-line argument to avoid string interpolation in the script.
+// The script receives csvPath as sys.argv[1] and plotPath as sys.argv[2].
 func (pb *PythonBridge) ExecuteScript(scriptID, scriptContent, csvPath string) (string, error) {
-	// Write script to a temp file
 	scriptPath := filepath.Join(pb.plotsDir, fmt.Sprintf("%s.py", scriptID))
 	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0644); err != nil {
 		return "", fmt.Errorf("write script: %w", err)
 	}
 
-	// Execute the script, passing csvPath as a CLI argument
-	cmd := exec.Command("python3", scriptPath, csvPath)
+	plotPath := filepath.Join(pb.plotsDir, fmt.Sprintf("%s_plot.png", scriptID))
 
-	// Set a timeout via context
+	cmd := exec.Command("python3", scriptPath, csvPath, plotPath)
+
 	done := make(chan error, 1)
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
@@ -92,8 +120,6 @@ func (pb *PythonBridge) ExecuteScript(scriptID, scriptContent, csvPath string) (
 		return "", fmt.Errorf("python script timed out after 30s")
 	}
 
-	// Check if the plot was generated
-	plotPath := filepath.Join(pb.plotsDir, fmt.Sprintf("%s_plot.png", scriptID))
 	if _, err := os.Stat(plotPath); os.IsNotExist(err) {
 		return "", fmt.Errorf("plot file not generated at %s, stdout: %s, stderr: %s", plotPath, stdout.String(), stderr.String())
 	}
@@ -101,13 +127,140 @@ func (pb *PythonBridge) ExecuteScript(scriptID, scriptContent, csvPath string) (
 	return fmt.Sprintf("/plots/%s_plot.png", scriptID), nil
 }
 
-// GeneratePlotScript creates a Python script for visualizing the given dataset.
-// The script reads the CSV path from sys.argv[1], eliminating the need for
-// string interpolation and preventing code injection via filenames.
-func (pb *PythonBridge) GeneratePlotScript(scriptID, prompt string) string {
-	plotPath := filepath.Join(pb.plotsDir, fmt.Sprintf("%s_plot.png", scriptID))
+// GeneratePlotScriptLLM asks the LLM to write a Python visualization script
+// based on the dataset profile and user prompt. The generated code is validated
+// by the sandbox validator before being returned.
+//
+// If the LLM is not configured, returns an empty string and nil error
+// (caller should fall back to GeneratePlotScript).
+func (pb *PythonBridge) GeneratePlotScriptLLM(scriptID, prompt string, profileJSON string) (string, error) {
+	if !pb.llmConfig.Enabled || pb.llmConfig.NVIDIAAPIKey == "" || pb.llmConfig.NVIDIABaseURL == "" {
+		return "", nil
+	}
 
-	return fmt.Sprintf(`import sys
+	code, err := pb.callLLMForCode(prompt, profileJSON)
+	if err != nil {
+		return "", fmt.Errorf("LLM code generation failed: %w", err)
+	}
+
+	// Validate the generated code
+	result := pb.validator.Validate(code)
+	if !result.OK {
+		return "", fmt.Errorf("sandbox validation failed: %s", strings.Join(result.Violations, "; "))
+	}
+
+	return code, nil
+}
+
+// callLLMForCode sends a request to the LLM asking for Python visualization code.
+func (pb *PythonBridge) callLLMForCode(prompt, profileJSON string) (string, error) {
+	systemPrompt := `You are a Python data visualization expert. Write a complete, self-contained Python script using pandas, matplotlib, and seaborn.
+
+CRITICAL RULES:
+- The script MUST read the CSV file path from sys.argv[1]
+- The script MUST save the plot to the path in sys.argv[2] using plt.savefig(sys.argv[2], dpi=150, bbox_inches='tight')
+- Use matplotlib.use('Agg') at the very top (after imports)
+- Only use these libraries: pandas, matplotlib, seaborn, numpy, json, sys, datetime
+- Do NOT import: os, subprocess, socket, urllib, requests, shutil, pickle, ctypes, threading, multiprocessing
+- Do NOT use: eval, exec, compile, open(), __import__, globals, locals
+- Do NOT make network calls or access the filesystem except reading sys.argv[1] and saving to sys.argv[2]
+- The script should be a complete runnable .py file (include all imports)
+- Output ONLY the Python code, no markdown, no code fences, no explanations`
+
+	userPrompt := fmt.Sprintf(`User question: %s
+
+Dataset profile (JSON): %s
+
+Write a Python visualization script that best answers the user's question about this data.`, prompt, profileJSON)
+
+	model := pb.llmConfig.Model
+	if model == "" {
+		model = "stepfun-ai/step-3.7-flash"
+	}
+	maxTokens := pb.llmConfig.MaxTokens
+	if maxTokens <= 0 {
+		maxTokens = 4096
+	}
+	temperature := pb.llmConfig.Temperature
+	if temperature == 0 {
+		temperature = 0.3
+	}
+
+	messages := []map[string]interface{}{
+		{"role": "system", "content": systemPrompt},
+		{"role": "user", "content": userPrompt},
+	}
+
+	payload := map[string]interface{}{
+		"model":       model,
+		"messages":    messages,
+		"max_tokens":  maxTokens,
+		"temperature": temperature,
+		"stream":      false,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal request: %w", err)
+	}
+
+	timeout := pb.llmConfig.TimeoutSec
+	if timeout <= 0 {
+		timeout = 60
+	}
+
+	req, err := http.NewRequest(http.MethodPost, pb.llmConfig.NVIDIABaseURL+"/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+normalizeBearer(pb.llmConfig.NVIDIAAPIKey))
+
+	client := pb.httpClient
+	if client.Timeout == 0 {
+		client.Timeout = time.Duration(timeout) * time.Second
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("LLM request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read LLM response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("LLM returned status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var llmResp struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(respBody, &llmResp); err != nil {
+		return "", fmt.Errorf("parse LLM response: %w", err)
+	}
+
+	if len(llmResp.Choices) == 0 {
+		return "", fmt.Errorf("LLM returned no choices")
+	}
+
+	code := llmResp.Choices[0].Message.Content
+	code = stripCodeFences(code)
+	return code, nil
+}
+
+// GeneratePlotScript creates a deterministic Python script for visualizing the given dataset.
+// This is the fallback when LLM is not available or fails.
+func (pb *PythonBridge) GeneratePlotScript(scriptID, prompt string) string {
+	return `import sys
 import pandas as pd
 import matplotlib
 matplotlib.use('Agg')
@@ -115,11 +268,12 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 # Read the dataset path from command-line argument (safe from injection)
-if len(sys.argv) < 2:
-    print("Error: CSV path not provided", file=sys.stderr)
+if len(sys.argv) < 3:
+    print("Error: CSV path or plot path not provided", file=sys.stderr)
     sys.exit(1)
 
 csv_path = sys.argv[1]
+plot_path = sys.argv[2]
 
 # Read the dataset
 try:
@@ -163,7 +317,7 @@ if len(numeric_cols) >= 2:
             plt.xticks(rotation=45)
             # Add value labels on bars
             for container in ax.containers:
-                ax.bar_label(container, fmt='%%.0f', padding=3, fontsize=8)
+                ax.bar_label(container, fmt='%.0f', padding=3, fontsize=8)
         else:
             # Histogram of first numeric column
             plt.hist(data[numeric_cols[0]].dropna(), bins=20, color='#6366f1', edgecolor='white')
@@ -182,7 +336,31 @@ else:
     plt.title('Dataset Overview')
 
 plt.tight_layout()
-plt.savefig('%s', dpi=150, bbox_inches='tight')
-print("Plot saved to %s")
-`, plotPath, plotPath)
+plt.savefig(plot_path, dpi=150, bbox_inches='tight')
+print(f"Plot saved to {plot_path}")
+`
+}
+
+// stripCodeFences removes ```python ... ``` or ``` ... ``` wrappers from LLM output.
+func stripCodeFences(s string) string {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "```") {
+		// Find the newline after the opening ```
+		if idx := strings.Index(s[3:], "\n"); idx >= 0 {
+			s = s[3+idx+1:]
+		}
+		s = strings.TrimSuffix(s, "```")
+		s = strings.TrimSpace(s)
+	}
+	return s
+}
+
+// normalizeBearer strips any "Bearer " prefix and surrounding quotes from the token.
+func normalizeBearer(key string) string {
+	key = strings.TrimSpace(key)
+	key = strings.Trim(key, "\"")
+	key = strings.Trim(key, "'")
+	key = strings.TrimPrefix(key, "Bearer ")
+	key = strings.TrimPrefix(key, "bearer ")
+	return key
 }

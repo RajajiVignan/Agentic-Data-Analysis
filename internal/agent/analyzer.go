@@ -13,11 +13,14 @@ type AnalysisRequest struct {
 }
 
 // AnalysisResponse is the structured output from an analyzer.
-// It matches the contract described in Instructions/Agentic_AI.md.
+// LLM analyzers produce a Plan (instructions); the handler fills
+// in Dashboard from local execution. Deterministic analyzers
+// fill Dashboard directly.
 type AnalysisResponse struct {
 	Question          string                   `json:"question"`
 	Dataset           DatasetSummary           `json:"dataset"`
 	Notebook          []NotebookStep           `json:"notebook"`
+	Plan              *LLMPlan                 `json:"plan,omitempty"`
 	Dashboard         DashboardSpec            `json:"dashboard"`
 	Assumptions       []string                 `json:"assumptions"`
 	Warnings          []string                 `json:"warnings"`
@@ -36,6 +39,22 @@ type NotebookStep struct {
 	Title string `json:"title"`
 	Body  string `json:"body,omitempty"`
 	Code  string `json:"code,omitempty"`
+}
+
+// LLMPlan contains the structured instructions the LLM returns
+// after inspecting dataset metadata. The backend executes this
+// plan locally — raw data never leaves the server.
+type LLMPlan struct {
+	MetricColumn    string   `json:"metricColumn"`
+	CategoryColumn  string   `json:"categoryColumn"`
+	DateColumn      string   `json:"dateColumn"`
+	Aggregation     string   `json:"aggregation"`   // "sum", "avg", "count", "min", "max"
+	ChartTypes      []string `json:"chartTypes"`     // e.g. ["bar", "line", "pie"]
+	GroupBy         string   `json:"groupBy"`
+	Title           string   `json:"title"`
+	Recommendations []string `json:"recommendations"`
+	Assumptions     []string `json:"assumptions"`
+	Reasoning       string   `json:"reasoning"`
 }
 
 // DashboardSpec contains the chart-ready output.
@@ -76,4 +95,13 @@ func DefaultConfig() Config {
 		TimeoutSec:      30,
 		FallbackOnError: true,
 	}
+}
+
+// MetadataFromDatasets extracts privacy-safe metadata from datasets.
+func MetadataFromDatasets(datasets []*data.Dataset) []data.DatasetMetadata {
+	var metas []data.DatasetMetadata
+	for _, ds := range datasets {
+		metas = append(metas, data.ComputeMetadata(ds, 20))
+	}
+	return metas
 }
