@@ -55,7 +55,7 @@ export function MetricTile({ label, value, change, onPin }: KpiProps & { onPin?:
   );
 }
 
-export function PythonPlot({ url, onPin }: { src: string; onPin?: () => void }) {
+export function PythonPlot({ url, onPin }: { url: string; onPin?: () => void }) {
   if (!url) return null;
   return (
     <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4 relative group" data-export-plot="Python Plot">
@@ -74,7 +74,7 @@ export function PythonPlot({ url, onPin }: { src: string; onPin?: () => void }) 
       </div>
       <div className="flex justify-center bg-slate-50 rounded-xl overflow-hidden border border-slate-100">
         <Image
-          src={src}
+          src={url}
           alt="AI Visualization"
           width={600}
           height={400}

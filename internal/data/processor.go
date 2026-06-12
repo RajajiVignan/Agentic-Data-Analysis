@@ -65,7 +65,7 @@ func inferType(values []string) string {
 		if _, err := strconv.ParseFloat(v, 64); err == nil {
 			numericCount++
 		}
-		if _, ok := parseDateValue(v); ok {
+		if _, ok := ParseDateValue(v); ok {
 			dateCount++
 		}
 	}
@@ -80,7 +80,9 @@ func inferType(values []string) string {
 	return "text"
 }
 
-func parseDateValue(value string) (time.Time, bool) {
+// ParseDateValue parses a date string using multiple formats.
+// Exported for use by the agent tools layer.
+func ParseDateValue(value string) (time.Time, bool) {
 	v := strings.TrimSpace(value)
 	if v == "" {
 		return time.Time{}, false
@@ -248,7 +250,7 @@ func BuildTrend(rows []map[string]string, dateCol *Column, metricCol *Column) []
 		dStr := row[dateCol.Name]
 		vStr := row[metricCol.Name]
 
-		t, ok := parseDateValue(dStr)
+		t, ok := ParseDateValue(dStr)
 		if !ok {
 			continue
 		}
