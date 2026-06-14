@@ -51,8 +51,12 @@ func (h *Handler) chiRouter() http.Handler {
 
 	// API routes
 	r.Route("/api", func(r chi.Router) {
-		r.Post("/auth/register", h.handleRegister)
-		r.Post("/auth/login", h.handleLogin)
+		// Rate-limited auth endpoints (register, login)
+		r.Group(func(r chi.Router) {
+			r.Use(h.rateLimitMiddleware)
+			r.Post("/auth/register", h.handleRegister)
+			r.Post("/auth/login", h.handleLogin)
+		})
 		r.Post("/auth/logout", h.handleLogout)
 		r.Get("/auth/me", h.handleMe)
 		r.Get("/health", h.handleHealth)

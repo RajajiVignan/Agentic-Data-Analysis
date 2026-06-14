@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/csv"
@@ -11,7 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -37,8 +38,11 @@ type Handler struct {
 	shareSvc          *ShareService
 	auth              *AuthService
 	duckdb            *data.DuckDBEngine
+	encryptionKey     []byte
+	rateLimiter       *rateLimiter
 	uploadDir         string
 	allowedOrigins    map[string]bool
+	stopCh           chan struct{}
 	mu                sync.RWMutex
 }
 
@@ -72,15 +76,39 @@ func NewHandler(cfg agent.Config) *Handler {
 		dashboardSvc:      NewDashboardService(db),
 		plotService:       NewPlotService(plotsDir, uploadDir, pb),
 		shareSvc:          NewShareService(),
-		auth:              NewAuthService(),
+		auth:              NewAuthService(db),
 		duckdb:            data.NewDuckDBEngine(plotsDir),
+		encryptionKey:     generateEncryptionKey(),
+		rateLimiter:       newRateLimiter(10, time.Minute),
 		uploadDir:         uploadDir,
+		stopCh:            make(chan struct{}),
 	}
 
 	setDuckDBEngine(h.duckdb)
 	h.allowedOrigins = configuredAllowedOrigins()
 
+	// Restore datasets from database on startup
+	if h.db != nil {
+		if records, err := h.db.LoadDatasets(); err == nil && len(records) > 0 {
+			for _, rec := range records {
+				profile := data.Profile{}
+				if len(rec.Profile) > 0 {
+					json.Unmarshal(rec.Profile, &profile)
+				}
+				h.datasets[rec.ID] = &data.Dataset{
+					ID:       rec.ID,
+					Filename: rec.Filename,
+					FilePath: rec.FilePath,
+					Profile:  profile,
+					Rows:     rec.Rows,
+				}
+			}
+			log.Printf("[persist] Restored %d datasets from database", len(records))
+		}
+	}
+
 	h.plotService.StartCleanup()
+	h.startRefreshScheduler()
 
 	return h
 }
@@ -88,6 +116,29 @@ func NewHandler(cfg agent.Config) *Handler {
 // Routes returns the HTTP handler for all API routes.
 func (h *Handler) Routes() http.Handler {
 	return h.chiRouter()
+}
+
+// Shutdown gracefully stops the handler, cleaning up resources.
+func (h *Handler) Shutdown() {
+	log.Println("Shutting down handler services...")
+
+	// Stop the refresh scheduler
+	h.stopRefreshScheduler()
+
+	// Stop cleanup ticker
+	h.plotService.StopCleanup()
+
+	// Close DuckDB engine
+	if h.duckdb != nil {
+		h.duckdb.Close()
+	}
+
+	// Close database connection
+	if h.db != nil {
+		h.db.Close()
+	}
+
+	log.Println("Handler shutdown complete")
 }
 
 func (h *Handler) sendJSON(w http.ResponseWriter, status int, data interface{}) {
@@ -131,7 +182,7 @@ func (h *Handler) handleGetDatasets(w http.ResponseWriter, r *http.Request) {
 			"id":             d.ID,
 			"filename":       d.Filename,
 			"profile":        d.Profile,
-			"liveDb":         d.ConnectionString != "",
+			"liveDb":         d.ConnectionConfigID != "" || d.ConnectionString != "",
 			"tableName":      d.TableName,
 			"connectionInfo": map[string]string{"table": d.TableName},
 		})
@@ -151,7 +202,19 @@ func (h *Handler) handleConnectSource(w http.ResponseWriter, r *http.Request) {
 	if source == "" {
 		source = "Warehouse"
 	}
-	filename := fmt.Sprintf("%s_sample", strings.Join(strings.Fields(strings.ToLower(source)), "_"))
+	safeName := strings.Map(func(r rune) rune {
+		if r == ' ' || r == '-' {
+			return '_'
+		}
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' {
+			return r
+		}
+		return -1
+	}, strings.ToLower(source))
+	if safeName == "" {
+		safeName = "source"
+	}
+	filename := fmt.Sprintf("%s_sample", safeName)
 	id := "sample-id-123"
 	rows := []map[string]string{
 		{"month": "2026-01", "segment": "Enterprise", "revenue": "124000", "customers": "42", "churn_risk": "3.2"},
@@ -178,6 +241,7 @@ func (h *Handler) handleConnectSource(w http.ResponseWriter, r *http.Request) {
 	h.datasets[id] = dataset
 	h.connections[id] = data.Connection{Source: source, ConnectedAt: time.Now()}
 	h.mu.Unlock()
+	h.persistDataset(dataset)
 	h.sendJSON(w, http.StatusCreated, map[string]interface{}{
 		"datasetId": id,
 		"filename":  filename,
@@ -315,6 +379,7 @@ id := newID()
 	h.mu.Lock()
 	h.datasets[id] = dataset
 	h.mu.Unlock()
+	h.persistDataset(dataset)
 
 	h.sendJSON(w, http.StatusCreated, map[string]interface{}{
 		"datasetId": id,
@@ -356,9 +421,17 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Merge multiple datasets into one combined dataset for analysis
+	primary := activeDatasets[0]
+	if len(activeDatasets) > 1 {
+		primary = data.MergeDatasets(activeDatasets)
+		log.Printf("[analyze] Merged %d datasets into one with %d rows and %d columns",
+			len(activeDatasets), primary.Profile.RowCount, len(primary.Profile.Columns))
+	}
+
 	req := agent.AnalysisRequest{
 		Prompt:     body.Prompt,
-		Datasets:   activeDatasets,
+		Datasets:   []*data.Dataset{primary},
 		TimeoutSec: 600,
 	}
 
@@ -374,12 +447,26 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	if resp.Plan != nil {
 		log.Printf("[execPlan] Executing LLM plan: metric=%q category=%q date=%q agg=%q",
 			resp.Plan.MetricColumn, resp.Plan.CategoryColumn, resp.Plan.DateColumn, resp.Plan.Aggregation)
-		execPlan(resp.Plan, activeDatasets[0], &resp)
+		execPlan(resp.Plan, primary, &resp)
 		log.Printf("[execPlan] Done. Dashboard: %d KPIs, %d trend points, %d segments",
 			len(resp.Dashboard.KPIs), len(resp.Dashboard.Trend), len(resp.Dashboard.Segments))
 	} else {
 		log.Printf("[execPlan] No plan (deterministic path). Dashboard: %d KPIs, %d trend points, %d segments",
 			len(resp.Dashboard.KPIs), len(resp.Dashboard.Trend), len(resp.Dashboard.Segments))
+	}
+
+	// If dataset has a live DB connection, run SQL against it for real results
+	if primary.TableName != "" && hasLiveConnection(primary) {
+		metricCol, catCol, dateCol := resolveColumns(primary, resp.Plan)
+		if metricCol != nil {
+			dash, sqls, err := h.execLiveSQL(primary, metricCol, catCol, dateCol, "")
+			if err == nil && dash != nil {
+				resp.Dashboard = *dash
+				resp.SQLQueries = sqls
+			} else if err != nil {
+				log.Printf("[livedb] Failed to execute live SQL: %v", err)
+			}
+		}
 	}
 
 	// Generate Python plot for the first dataset that has a file path
@@ -443,21 +530,23 @@ func (h *Handler) handleExportCsv(w http.ResponseWriter, r *http.Request) {
 	}
 
 	headers := exportHeaders(selected)
-	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="cleaned-data.csv"`)
-	w.WriteHeader(http.StatusOK)
 
-	writer := csv.NewWriter(w)
+	// Buffer the CSV in memory so we can return error status on failure
+	var buf bytes.Buffer
+	writer := csv.NewWriter(&buf)
 	if err := writer.Write(headers); err != nil {
 		log.Printf("[export] Failed to write headers: %v", err)
+		sendInternalError(w, "Failed to generate CSV headers")
 		return
 	}
+
+	totalRecords := 0
+	failedRecords := 0
 	for _, dataset := range selected {
 		for _, row := range dataset.Rows {
 			record := make([]string, len(headers))
 			record[0] = dataset.Filename
 			for i := 1; i < len(headers); i++ {
-				// Safe access with empty string fallback if column missing
 				if val, ok := row[headers[i]]; ok {
 					record[i] = val
 				} else {
@@ -466,14 +555,27 @@ func (h *Handler) handleExportCsv(w http.ResponseWriter, r *http.Request) {
 			}
 			if err := writer.Write(record); err != nil {
 				log.Printf("[export] Failed to write record: %v", err)
+				failedRecords++
 				continue
 			}
+			totalRecords++
 		}
 	}
 	writer.Flush()
 	if err := writer.Error(); err != nil {
-		log.Printf("[export] Failed to flush: %v", err)
+		log.Printf("[export] Failed to flush CSV: %v", err)
+		sendInternalError(w, "Failed to finalize CSV export")
+		return
 	}
+
+	if failedRecords > 0 {
+		log.Printf("[export] Export completed with %d/%d records failed", failedRecords, totalRecords+failedRecords)
+	}
+
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="cleaned-data.csv"`)
+	w.WriteHeader(http.StatusOK)
+	w.Write(buf.Bytes())
 }
 
 func (h *Handler) handleGetPinnedCharts(w http.ResponseWriter, r *http.Request) {
@@ -527,15 +629,21 @@ func (h *Handler) handleRefreshDataset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if ds.ConnectionString == "" || ds.TableName == "" {
-		h.mu.Unlock()
+	tableName := ds.TableName
+	configID := ds.ConnectionConfigID
+	legacyConnStr := ds.ConnectionString
+	h.mu.Unlock()
+
+	if tableName == "" || (configID == "" && legacyConnStr == "") {
 		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "Dataset is not connected to a live database, cannot refresh"})
 		return
 	}
 
-	connStr := ds.ConnectionString
-	tableName := ds.TableName
-	h.mu.Unlock()
+	connStr, ok := h.resolveConnStrByConfigID(configID, legacyConnStr)
+	if !ok {
+		SendJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to resolve connection string"})
+		return
+	}
 
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
@@ -574,6 +682,7 @@ func (h *Handler) handleRefreshDataset(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	h.datasets[id] = newDS
 	h.mu.Unlock()
+	h.persistDataset(newDS)
 
 	log.Printf("[refresh] Refreshed dataset %s (%s) — %d rows", id, ds.Filename, len(rows))
 
@@ -590,291 +699,127 @@ func (h *Handler) handlePythonPlot(w http.ResponseWriter, r *http.Request) {
 	h.plotService.HandlePythonPlot(w, r, datasets)
 }
 
-// --- Helpers (kept in handler.go since they are analysis-specific) ---
-
-func execPlan(plan *agent.LLMPlan, ds *data.Dataset, resp *agent.AnalysisResponse) {
-	var metricCol, catCol, dateCol *data.Column
-	for i := range ds.Profile.Columns {
-		c := &ds.Profile.Columns[i]
-		if c.Name == plan.MetricColumn {
-			metricCol = c
-		}
-		if c.Name == plan.CategoryColumn {
-			catCol = c
-		}
-		if c.Name == plan.DateColumn {
-			dateCol = c
-		}
-	}
-
-	log.Printf("[execPlan] Resolved columns: metric=%v category=%v date=%v (from %d total columns)",
-		colRes(metricCol), colRes(catCol), colRes(dateCol), len(ds.Profile.Columns))
-
-	if metricCol == nil {
-		for i := range ds.Profile.Columns {
-			if ds.Profile.Columns[i].Type == "number" {
-				metricCol = &ds.Profile.Columns[i]
-				break
-			}
-		}
-	}
-
-	if catCol == nil {
-		used := map[string]bool{}
-		if metricCol != nil {
-			used[metricCol.Name] = true
-		}
-		if dateCol != nil {
-			used[dateCol.Name] = true
-		}
-		for i := range ds.Profile.Columns {
-			c := &ds.Profile.Columns[i]
-			if c.Type == "text" && !used[c.Name] {
-				catCol = c
-				break
-			}
-		}
-	}
-
-	if metricCol == nil {
-		title := plan.Title
-		if title == "" {
-			title = "Insights Board"
-		}
-		resp.Dashboard = agent.DashboardSpec{
-			Title:           title,
-			KPIs:            []map[string]string{},
-			Trend:           []map[string]interface{}{},
-			Segments:        []map[string]interface{}{},
-			Recommendations: plan.Recommendations,
-		}
-		if len(plan.Assumptions) > 0 {
-			resp.Assumptions = append(plan.Assumptions, resp.Assumptions...)
-		}
+// persistDataset saves a dataset to the database for recovery on restart.
+func (h *Handler) persistDataset(ds *data.Dataset) {
+	if h.db == nil || ds == nil {
 		return
 	}
-
-	// Check if we can use DuckDB (file-backed dataset with engine available)
-	duckDB := getDuckDBEngine()
-	if ds.FilePath != "" && duckDB != nil {
-		kpis, kpiSQL := duckDBKPI(duckDB, ds, metricCol)
-		trend, trendSQL := duckDBTrend(duckDB, ds, dateCol, metricCol)
-		segments, segSQL := duckDBSegments(duckDB, ds, catCol, metricCol)
-		title := plan.Title
-		if title == "" {
-			title = "Insights Board"
-		}
-		resp.Dashboard = agent.DashboardSpec{
-			Title:           title,
-			KPIs:            kpis,
-			Trend:           trend,
-			Segments:        segments,
-			Recommendations: plan.Recommendations,
-		}
-		sqls := make([]string, 0, 3)
-		if kpiSQL != "" {
-			sqls = append(sqls, kpiSQL)
-		}
-		if trendSQL != "" {
-			sqls = append(sqls, trendSQL)
-		}
-		if segSQL != "" {
-			sqls = append(sqls, segSQL)
-		}
-		resp.SQLQueries = append(resp.SQLQueries, sqls...)
-		if len(plan.Assumptions) > 0 {
-			resp.Assumptions = append(plan.Assumptions, resp.Assumptions...)
-		}
+	profileJSON, err := json.Marshal(ds.Profile)
+	if err != nil {
+		log.Printf("[persist] Failed to marshal profile for dataset %s: %v", ds.ID, err)
 		return
 	}
-
-	kpis := data.BuildKPIs(ds.Rows, metricCol, catCol)
-	trend := data.BuildTrend(ds.Rows, dateCol, metricCol)
-	segments := data.BuildSegments(ds.Rows, catCol, metricCol)
-
-	if plan.Aggregation != "" && plan.Aggregation != "sum" {
-		kpis = applyAggregation(kpis, plan.Aggregation)
+	if err := h.db.SaveDataset(ds.ID, ds.Filename, ds.FilePath, profileJSON); err != nil {
+		log.Printf("[persist] Failed to save dataset %s: %v", ds.ID, err)
+		return
 	}
-
-	title := plan.Title
-	if title == "" {
-		title = "Insights Board"
-	}
-
-	recs := plan.Recommendations
-
-	resp.Dashboard = agent.DashboardSpec{
-		Title:           title,
-		KPIs:            kpis,
-		Trend:           trend,
-		Segments:        segments,
-		Recommendations: recs,
-	}
-
-	if len(plan.Assumptions) > 0 {
-		resp.Assumptions = append(plan.Assumptions, resp.Assumptions...)
-	}
-}
-
-var duckDBEngine *data.DuckDBEngine
-
-func setDuckDBEngine(e *data.DuckDBEngine) {
-	duckDBEngine = e
-}
-
-func getDuckDBEngine() *data.DuckDBEngine {
-	return duckDBEngine
-}
-
-func duckDBKPI(duckDB *data.DuckDBEngine, ds *data.Dataset, metricCol *data.Column) ([]map[string]string, string) {
-	if metricCol == nil {
-		return []map[string]string{}, ""
-	}
-	sql := fmt.Sprintf(`SELECT 
-		SUM(CAST("%s" AS DOUBLE)) as total,
-		AVG(CAST("%s" AS DOUBLE)) as avg_val,
-		MIN(CAST("%s" AS DOUBLE)) as min_val,
-		MAX(CAST("%s" AS DOUBLE)) as max_val,
-		COUNT(*) as row_count
-	FROM data WHERE CAST("%s" AS DOUBLE) IS NOT NULL`,
-		metricCol.Name, metricCol.Name, metricCol.Name, metricCol.Name, metricCol.Name)
-	results, err := duckDB.QueryKPIs(ds.FilePath, metricCol.Name)
-	if err != nil {
-		log.Printf("[duckdb] KPI query failed: %v, falling back to in-memory", err)
-		return data.BuildKPIs(ds.Rows, metricCol, nil), sql
-	}
-	kpis := make([]map[string]string, 0)
-	for _, row := range results {
-		if total, ok := row["total"]; ok && total != "" {
-			kpis = append(kpis, map[string]string{"label": "Total", "value": total, "change": "Sum"})
-		}
-		if avg, ok := row["avg_val"]; ok && avg != "" {
-			kpis = append(kpis, map[string]string{"label": "Average", "value": avg, "change": "Per row"})
-		}
-		if cnt, ok := row["row_count"]; ok && cnt != "" {
-			kpis = append(kpis, map[string]string{"label": "Rows", "value": cnt, "change": "Count"})
-		}
-		break
-	}
-	return kpis, sql
-}
-
-func duckDBTrend(duckDB *data.DuckDBEngine, ds *data.Dataset, dateCol, metricCol *data.Column) ([]map[string]interface{}, string) {
-	if metricCol == nil || dateCol == nil {
-		return []map[string]interface{}{}, ""
-	}
-	sql := fmt.Sprintf(`SELECT 
-		CAST("%s" AS VARCHAR) as label,
-		SUM(CAST("%s" AS DOUBLE)) as value
-	FROM data 
-	WHERE CAST("%s" AS DOUBLE) IS NOT NULL AND "%s" IS NOT NULL
-	GROUP BY "%s"
-	ORDER BY label
-	LIMIT 20`,
-		dateCol.Name, metricCol.Name, metricCol.Name, dateCol.Name, dateCol.Name)
-	results, err := duckDB.QueryTrend(ds.FilePath, dateCol.Name, metricCol.Name)
-	if err != nil {
-		log.Printf("[duckdb] Trend query failed: %v, falling back to in-memory", err)
-		return data.BuildTrend(ds.Rows, dateCol, metricCol), sql
-	}
-	out := make([]map[string]interface{}, len(results))
-	for i, r := range results {
-		out[i] = make(map[string]interface{})
-		for k, v := range r {
-			out[i][k] = v
+	if len(ds.Rows) > 0 {
+		if err := h.db.SaveDatasetRows(ds.ID, ds.Rows); err != nil {
+			log.Printf("[persist] Failed to save rows for dataset %s: %v", ds.ID, err)
 		}
 	}
-	return out, sql
 }
 
-func duckDBSegments(duckDB *data.DuckDBEngine, ds *data.Dataset, catCol, metricCol *data.Column) ([]map[string]interface{}, string) {
-	if metricCol == nil || catCol == nil {
-		return []map[string]interface{}{}, ""
-	}
-	sql := fmt.Sprintf(`SELECT 
-		CAST("%s" AS VARCHAR) as label,
-		SUM(CAST("%s" AS DOUBLE)) as value
-	FROM data 
-	WHERE CAST("%s" AS DOUBLE) IS NOT NULL AND "%s" IS NOT NULL AND CAST("%s" AS VARCHAR) != ''
-	GROUP BY "%s"
-	ORDER BY value DESC
-	LIMIT 10`,
-		catCol.Name, metricCol.Name, metricCol.Name, catCol.Name, catCol.Name, catCol.Name)
-	results, err := duckDB.QuerySegments(ds.FilePath, catCol.Name, metricCol.Name)
-	if err != nil {
-		log.Printf("[duckdb] Segment query failed: %v, falling back to in-memory", err)
-		return data.BuildSegments(ds.Rows, catCol, metricCol), sql
-	}
-	out := make([]map[string]interface{}, len(results))
-	for i, r := range results {
-		out[i] = make(map[string]interface{})
-		for k, v := range r {
-			out[i][k] = v
+// --- Helpers moved to analysis.go ---
+
+// startRefreshScheduler starts a background goroutine that periodically
+// refreshes datasets connected to live databases. Interval is configured
+// via REFRESH_INTERVAL_MIN env var (default 15 minutes).
+func (h *Handler) startRefreshScheduler() {
+	interval := 15
+	if v := os.Getenv("REFRESH_INTERVAL_MIN"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			interval = n
 		}
 	}
-	return out, sql
-}
-
-func applyAggregation(kpis []map[string]string, agg string) []map[string]string {
-	if len(kpis) == 0 {
-		return kpis
+	if interval <= 0 {
+		return
 	}
-	switch agg {
-	case "avg":
-		for i := range kpis {
-			if kpis[i]["label"] == "Total" || (len(kpis[i]["label"]) > 6 && kpis[i]["label"][:6] == "Total ") {
-				kpis[i]["label"] = "Average"
-				kpis[i]["change"] = "Per row (avg)"
+	ticker := time.NewTicker(time.Duration(interval) * time.Minute)
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				h.refreshConnectedDatasets()
+			case <-h.stopCh:
+				ticker.Stop()
+				return
 			}
 		}
-	case "count":
-		for i := range kpis {
-			kpis[i]["label"] = "Count"
-			kpis[i]["change"] = "Total rows"
-		}
-	case "min", "max":
-		for i := range kpis {
-			kpis[i]["label"] = strings.ToUpper(agg) + " value"
-			kpis[i]["change"] = "Dataset range"
-		}
-	}
-	return kpis
+	}()
+	log.Printf("[refresh] Started background refresh scheduler (every %d min)", interval)
 }
 
-func exportHeaders(datasets []*data.Dataset) []string {
-	seen := map[string]bool{"source_dataset": true}
-	headers := []string{"source_dataset"}
-	for _, dataset := range datasets {
-		for _, column := range dataset.Profile.Columns {
-			if !seen[column.Name] {
-				seen[column.Name] = true
-				headers = append(headers, column.Name)
-			}
-		}
-	}
-	if len(headers) == 1 {
-		keys := make([]string, 0)
-		for _, dataset := range datasets {
-			for _, row := range dataset.Rows {
-				for key := range row {
-					if !seen[key] {
-						seen[key] = true
-						keys = append(keys, key)
-					}
-				}
-			}
-		}
-		sort.Strings(keys)
-		headers = append(headers, keys...)
-	}
-	return headers
+// stopRefreshScheduler signals the refresh scheduler to stop.
+func (h *Handler) stopRefreshScheduler() {
+	close(h.stopCh)
 }
 
-func colRes(c *data.Column) string {
-	if c == nil {
-		return "<nil>"
+// refreshConnectedDatasets refreshes all datasets that have a live database connection.
+func (h *Handler) refreshConnectedDatasets() {
+	h.mu.RLock()
+	type refreshTask struct {
+		id             string
+		tableName      string
+		filename       string
+		configID       string
+		legacyConnStr  string
 	}
-	return c.Name
+	tasks := make([]refreshTask, 0)
+	for id, ds := range h.datasets {
+		if ds.TableName == "" || !hasLiveConnection(ds) {
+			continue
+		}
+		tasks = append(tasks, refreshTask{
+			id:            id,
+			tableName:     ds.TableName,
+			filename:      ds.Filename,
+			configID:      ds.ConnectionConfigID,
+			legacyConnStr: ds.ConnectionString,
+		})
+	}
+	h.mu.RUnlock()
+
+	for _, t := range tasks {
+		connStr, ok := h.resolveConnStrByConfigID(t.configID, t.legacyConnStr)
+		if !ok {
+			continue
+		}
+		db, err := sql.Open("postgres", connStr)
+		if err != nil {
+			log.Printf("[refresh] Failed to open connection for dataset %s: %v", t.id, err)
+			continue
+		}
+
+		rows, _, err := fetchTableData(db, t.tableName, 1000)
+		db.Close()
+
+		if err != nil {
+			log.Printf("[refresh] Failed to fetch data for dataset %s: %v", t.id, err)
+			continue
+		}
+
+		if len(rows) == 0 {
+			continue
+		}
+
+		cols := detectColumns(rows)
+
+		h.mu.Lock()
+		if existing, ok := h.datasets[t.id]; ok {
+			existing.Rows = rows
+			existing.Profile = data.Profile{RowCount: len(rows), Columns: cols}
+		}
+		h.mu.Unlock()
+
+		log.Printf("[refresh] Refreshed dataset %s (%s) — %d rows", t.id, t.filename, len(rows))
+	}
+}
+
+func (h *Handler) getDataset(id string) *data.Dataset {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.datasets[id]
 }
 
 // --- Package-level helpers ---

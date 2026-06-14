@@ -16,17 +16,19 @@ import (
 
 // PlotService handles Python plot generation, serving, and cleanup.
 type PlotService struct {
-	plotsDir  string
-	uploadDir string
-	bridge    *PythonBridge
+	plotsDir     string
+	uploadDir    string
+	bridge       *PythonBridge
+	stopCleanup  chan struct{}
 }
 
 // NewPlotService creates a new PlotService.
 func NewPlotService(plotsDir, uploadDir string, bridge *PythonBridge) *PlotService {
 	return &PlotService{
-		plotsDir:  plotsDir,
-		uploadDir: uploadDir,
-		bridge:    bridge,
+		plotsDir:    plotsDir,
+		uploadDir:   uploadDir,
+		bridge:      bridge,
+		stopCleanup: make(chan struct{}),
 	}
 }
 
@@ -131,13 +133,23 @@ func (ps *PlotService) StartCleanup() {
 
 	ps.cleanup(retention)
 
+	ticker := time.NewTicker(time.Hour)
 	go func() {
-		ticker := time.NewTicker(time.Hour)
 		defer ticker.Stop()
-		for range ticker.C {
-			ps.cleanup(retention)
+		for {
+			select {
+			case <-ticker.C:
+				ps.cleanup(retention)
+			case <-ps.stopCleanup:
+				return
+			}
 		}
 	}()
+}
+
+// StopCleanup stops the background cleanup goroutine.
+func (ps *PlotService) StopCleanup() {
+	close(ps.stopCleanup)
 }
 
 func (ps *PlotService) cleanup(retention time.Duration) {

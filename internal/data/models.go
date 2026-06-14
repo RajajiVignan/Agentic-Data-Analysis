@@ -10,14 +10,15 @@ import (
 
 // Dataset represents an uploaded or connected dataset.
 type Dataset struct {
-	ID               string
-	Filename         string
-	FilePath         string // empty for connected sources
-	Profile          Profile
-	Rows             []map[string]string
-	ConnectionString string // PostgreSQL connection string for live DB connections
-	TableName        string // source table name for DB connections
-	OwnerID          string // authenticated user ID for scoping
+	ID                string
+	Filename          string
+	FilePath          string // empty for connected sources
+	Profile           Profile
+	Rows              []map[string]string
+	ConnectionString  string // PostgreSQL connection string for live DB connections
+	ConnectionConfigID string // reference to ConnectionConfig for encrypted password resolution
+	TableName         string // source table name for DB connections
+	OwnerID           string // authenticated user ID for scoping
 }
 
 // Profile represents the column profile of a dataset.

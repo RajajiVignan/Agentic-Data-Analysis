@@ -35,8 +35,6 @@ import {
   createShareLink,
   fetchMe,
   logout as apiLogout,
-  getAuthToken,
-  setAuthToken,
 } from "@/lib/api";
 import type { AuthUser } from "@/lib/api";
 import { exportPlotsAsSvg, exportPlotsAsPdf } from "@/lib/export";

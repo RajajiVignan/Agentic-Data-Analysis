@@ -2,17 +2,20 @@ package api
 
 import (
 	"context"
-	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/crypto/bcrypt"
+
+	"insightpilot/internal/store"
 )
 
 type User struct {
@@ -25,108 +28,176 @@ type User struct {
 type userRecord struct {
 	User
 	PasswordHash string
-	Salt         string
+}
+
+type customClaims struct {
+	jwt.RegisteredClaims
+	UserID string `json:"sub"`
 }
 
 type AuthService struct {
-	users     map[string]*userRecord
-	tokens    map[string]string
-	jwtSecret []byte
-	mu        sync.RWMutex
+	users         map[string]*userRecord
+	revokedTokens map[string]bool
+	jwtSecret     []byte
+	db            *store.DB
+	mu            sync.RWMutex
 }
 
-func NewAuthService() *AuthService {
-	secret := make([]byte, 32)
-	rand.Read(secret)
-	return &AuthService{
-		users:     make(map[string]*userRecord),
-		tokens:    make(map[string]string),
-		jwtSecret: secret,
+func NewAuthService(db *store.DB) *AuthService {
+	var secret []byte
+
+	// Try to load existing JWT secret from database
+	if db != nil {
+		if stored, err := db.LoadJWTSecret(); err == nil && len(stored) == 32 {
+			secret = stored
+		}
 	}
+
+	// Generate a new secret if none was loaded
+	if len(secret) != 32 {
+		secret = make([]byte, 32)
+		rand.Read(secret)
+		// Persist the new secret
+		if db != nil {
+			if err := db.SaveJWTSecret(secret); err != nil {
+				log.Printf("[auth] Failed to persist JWT secret: %v", err)
+			}
+		}
+	}
+
+	svc := &AuthService{
+		users:         make(map[string]*userRecord),
+		revokedTokens: make(map[string]bool),
+		jwtSecret:     secret,
+		db:            db,
+	}
+
+	// Load users from database on startup
+	if db != nil {
+		if records, err := db.LoadUsers(); err == nil {
+			for _, rec := range records {
+				svc.users[rec.Email] = &userRecord{
+					User: User{
+						ID:        rec.ID,
+						Email:     rec.Email,
+						Name:      rec.Name,
+						CreatedAt: rec.CreatedAt,
+					},
+					PasswordHash: rec.PasswordHash,
+				}
+			}
+			if len(records) > 0 {
+				log.Printf("[auth] Restored %d users from database", len(records))
+			}
+		}
+	}
+
+	return svc
 }
 
 type contextKey string
 
 const userContextKey contextKey = "auth_user"
 
-func hashPassword(password, salt string) string {
-	h := sha256.New()
-	h.Write([]byte(salt))
-	h.Write([]byte(password))
-	return hex.EncodeToString(h.Sum(nil))
+func hashPassword(password string) (string, error) {
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(bytes), nil
 }
 
-func generateSalt() string {
-	b := make([]byte, 16)
-	rand.Read(b)
-	return hex.EncodeToString(b)
+var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
+
+func validateEmail(email string) bool {
+	return emailRegex.MatchString(email)
 }
 
 func (a *AuthService) createToken(userID string) string {
-	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256"}`))
-	now := time.Now().Unix()
-	exp := time.Now().Add(72 * time.Hour).Unix()
-	payload := base64.RawURLEncoding.EncodeToString([]byte(
-		fmt.Sprintf(`{"sub":"%s","iat":%d,"exp":%d}`, userID, now, exp),
-	))
-	mac := hmac.New(sha256.New, a.jwtSecret)
-	mac.Write([]byte(header + "." + payload))
-	sig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
-	return header + "." + payload + "." + sig
+	claims := customClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(72 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ID:        userID + "_" + fmt.Sprint(time.Now().UnixNano()),
+		},
+		UserID: userID,
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, _ := token.SignedString(a.jwtSecret)
+	return tokenString
 }
 
-func (a *AuthService) validateToken(token string) (string, error) {
-	parts := strings.SplitN(token, ".", 3)
-	if len(parts) != 3 {
-		return "", fmt.Errorf("invalid token format")
+func (a *AuthService) validateToken(tokenString string) (string, error) {
+	if a.isRevoked(tokenString) {
+		return "", fmt.Errorf("token has been revoked")
 	}
-	mac := hmac.New(sha256.New, a.jwtSecret)
-	mac.Write([]byte(parts[0] + "." + parts[1]))
-	expected := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
-	if !hmac.Equal([]byte(parts[2]), []byte(expected)) {
-		return "", fmt.Errorf("invalid token signature")
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	token, err := jwt.ParseWithClaims(tokenString, &customClaims{}, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return a.jwtSecret, nil
+	})
 	if err != nil {
-		return "", fmt.Errorf("invalid token payload: %w", err)
+		return "", err
 	}
-	var claims struct {
-		Sub string `json:"sub"`
-		Exp int64  `json:"exp"`
+	claims, ok := token.Claims.(*customClaims)
+	if !ok || !token.Valid {
+		return "", fmt.Errorf("invalid token")
 	}
-	if err := json.Unmarshal(payload, &claims); err != nil {
-		return "", fmt.Errorf("invalid token claims: %w", err)
-	}
-	if time.Now().Unix() > claims.Exp {
-		return "", fmt.Errorf("token expired")
-	}
-	return claims.Sub, nil
+	return claims.UserID, nil
+}
+
+func (a *AuthService) RevokeToken(tokenString string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.revokedTokens[tokenString] = true
+}
+
+func (a *AuthService) isRevoked(tokenString string) bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.revokedTokens[tokenString]
 }
 
 func (a *AuthService) Register(email, password, name string) (*User, string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
+	if !validateEmail(email) {
+		return nil, "", fmt.Errorf("invalid email format")
+	}
 	if _, exists := a.users[email]; exists {
 		return nil, "", fmt.Errorf("email already registered")
 	}
-	if len(password) < 4 {
-		return nil, "", fmt.Errorf("password must be at least 4 characters")
+	if len(password) < 8 {
+		return nil, "", fmt.Errorf("password must be at least 8 characters")
+	}
+
+	hash, err := hashPassword(password)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to hash password")
 	}
 
 	id := newID()
-	salt := generateSalt()
+	now := time.Now()
 	rec := &userRecord{
 		User: User{
 			ID:        id,
 			Email:     email,
 			Name:      name,
-			CreatedAt: time.Now(),
+			CreatedAt: now,
 		},
-		PasswordHash: hashPassword(password, salt),
-		Salt:         salt,
+		PasswordHash: hash,
 	}
 	a.users[email] = rec
+
+	// Persist to database
+	if a.db != nil {
+		if err := a.db.SaveUser(id, email, name, hash, now); err != nil {
+			log.Printf("[auth] Failed to persist user %s: %v", email, err)
+		}
+	}
+
 	token := a.createToken(id)
 	return &rec.User, token, nil
 }
@@ -139,7 +210,7 @@ func (a *AuthService) Login(email, password string) (*User, string, error) {
 	if !ok {
 		return nil, "", fmt.Errorf("invalid email or password")
 	}
-	if rec.PasswordHash != hashPassword(password, rec.Salt) {
+	if err := bcrypt.CompareHashAndPassword([]byte(rec.PasswordHash), []byte(password)); err != nil {
 		return nil, "", fmt.Errorf("invalid email or password")
 	}
 	token := a.createToken(rec.ID)
@@ -167,13 +238,8 @@ func (a *AuthService) ValidateToken(token string) (*User, error) {
 
 func (h *Handler) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		auth := r.Header.Get("Authorization")
-		if auth == "" {
-			next.ServeHTTP(w, r)
-			return
-		}
-		token := strings.TrimPrefix(auth, "Bearer ")
-		if token == auth {
+		token := extractTokenFromRequest(r)
+		if token == "" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -209,6 +275,49 @@ func (h *Handler) currentUserID(r *http.Request) string {
 	return ""
 }
 
+// setAuthCookie sets an HttpOnly cookie with the JWT token.
+func setAuthCookie(w http.ResponseWriter, token string) {
+	if token == "" {
+		return
+	}
+	secure := isProduction()
+	http.SetCookie(w, &http.Cookie{
+		Name:     "auth_token",
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		Secure:   secure,
+		MaxAge:   72 * 60 * 60,
+	})
+}
+
+// clearAuthCookie clears the auth cookie (used on logout).
+func clearAuthCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "auth_token",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   -1,
+	})
+}
+
+// extractTokenFromRequest extracts a JWT token from the Authorization header
+// or from an HttpOnly cookie as a fallback.
+func extractTokenFromRequest(r *http.Request) string {
+	auth := r.Header.Get("Authorization")
+	token := strings.TrimPrefix(auth, "Bearer ")
+	if token != auth && token != "" {
+		return token
+	}
+	if cookie, err := r.Cookie("auth_token"); err == nil && cookie.Value != "" {
+		return cookie.Value
+	}
+	return ""
+}
+
 func (h *Handler) handleRegister(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Email    string `json:"email"`
@@ -229,9 +338,15 @@ func (h *Handler) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 	user, token, err := h.auth.Register(body.Email, body.Password, body.Name)
 	if err != nil {
-		h.sendJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		status := http.StatusConflict
+		msg := err.Error()
+		if strings.Contains(msg, "invalid email") || strings.Contains(msg, "password must be") {
+			status = http.StatusBadRequest
+		}
+		h.sendJSON(w, status, map[string]string{"error": msg})
 		return
 	}
+	setAuthCookie(w, token)
 	h.sendJSON(w, http.StatusCreated, map[string]interface{}{
 		"user":  user,
 		"token": token,
@@ -257,6 +372,7 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		h.sendJSON(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})
 		return
 	}
+	setAuthCookie(w, token)
 	h.sendJSON(w, http.StatusOK, map[string]interface{}{
 		"user":  user,
 		"token": token,
@@ -273,6 +389,11 @@ func (h *Handler) handleMe(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleLogout(w http.ResponseWriter, r *http.Request) {
+	token := extractTokenFromRequest(r)
+	if token != "" {
+		h.auth.RevokeToken(token)
+	}
+	clearAuthCookie(w)
 	h.sendJSON(w, http.StatusOK, map[string]interface{}{"ok": true})
 }
 

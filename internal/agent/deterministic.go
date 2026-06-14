@@ -39,7 +39,7 @@ func (a *DeterministicAnalyzer) Analyze(ctx context.Context, req AnalysisRequest
 
 	// Generate SQL queries if the dataset has a live database connection
 	var sqlQueries []string
-	if primary.ConnectionString != "" && primary.TableName != "" {
+	if primary.TableName != "" && (primary.ConnectionConfigID != "" || primary.ConnectionString != "") {
 		sqlQueries = generateSQLQueries(primary.TableName, metricCol, catCol, dateCol)
 	}
 

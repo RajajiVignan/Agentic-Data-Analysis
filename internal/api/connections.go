@@ -16,6 +16,13 @@ import (
 	_ "github.com/lib/pq"
 )
 
+// copyConnectionConfig returns a copy of cfg with the password stripped for safe JSON serialization.
+func copyConnectionConfig(cfg *ConnectionConfig) ConnectionConfig {
+	c := *cfg
+	c.Password = ""
+	return c
+}
+
 // ConnectionConfig holds user-provided connection parameters.
 type ConnectionConfig struct {
 	ID          string `json:"id"`
@@ -42,9 +49,9 @@ func (h *Handler) handleConnectionList(w http.ResponseWriter, r *http.Request) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	list := make([]*ConnectionConfig, 0, len(h.connectionConfigs))
+	list := make([]ConnectionConfig, 0, len(h.connectionConfigs))
 	for _, cfg := range h.connectionConfigs {
-		list = append(list, cfg)
+		list = append(list, copyConnectionConfig(cfg))
 	}
 	SendJSON(w, http.StatusOK, map[string]interface{}{"connections": list})
 }
@@ -137,18 +144,23 @@ func (h *Handler) handleConnectionCreate(w http.ResponseWriter, r *http.Request)
 	}
 
 	ds := &data.Dataset{
-		ID:               dsID,
-		Filename:         filename,
-		Profile:          data.Profile{RowCount: len(rows), Columns: cols},
-		Rows:             rows,
-		ConnectionString: connStr,
-		TableName:        tableName,
+		ID:                dsID,
+		Filename:          filename,
+		Profile:           data.Profile{RowCount: len(rows), Columns: cols},
+		Rows:              rows,
+		ConnectionConfigID: connID,
+		TableName:         tableName,
 	}
 	cfg.DatasetID = dsID
 	cfg.Filename = filename
 	cfg.ID = connID
 	cfg.Connected = true
 	cfg.ConnectedAt = time.Now().Format(time.RFC3339)
+
+	// Encrypt the password before storing
+	if encrypted, err := encrypt(cfg.Password, h.encryptionKey); err == nil {
+		cfg.Password = encrypted
+	}
 
 	h.mu.Lock()
 	h.datasets[dsID] = ds
@@ -163,7 +175,7 @@ func (h *Handler) handleConnectionCreate(w http.ResponseWriter, r *http.Request)
 		connID, cfg.Provider, cfg.Database, tableName, len(rows))
 
 	SendJSON(w, http.StatusCreated, map[string]interface{}{
-		"connection": cfg,
+		"connection": copyConnectionConfig(&cfg),
 		"datasetId":  dsID,
 		"filename":   filename,
 		"tableName":  tableName,
@@ -202,6 +214,8 @@ func (h *Handler) handleConnectionDelete(w http.ResponseWriter, r *http.Request)
 // --- Helpers ---
 
 // buildPostgresConnStr builds a PostgreSQL connection string from config.
+// It attempts to decrypt the password if it was stored encrypted;
+// if decryption fails the password is used as-is (for backward compatibility).
 func buildPostgresConnStr(cfg *ConnectionConfig) string {
 	port := cfg.Port
 	if port == "" {
@@ -213,6 +227,43 @@ func buildPostgresConnStr(cfg *ConnectionConfig) string {
 	}
 	return fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s",
 		cfg.Username, cfg.Password, cfg.Host, port, cfg.Database, sslMode)
+}
+
+// resolveConnStrByConfigID looks up a connection config by ID, decrypts the stored
+// password, and builds the PostgreSQL connection string. Falls back to legacyConnStr
+// if the config ID is empty or not found. This method acquires its own lock.
+func (h *Handler) resolveConnStrByConfigID(configID, legacyConnStr string) (string, bool) {
+	if configID != "" {
+		h.mu.RLock()
+		cfg, ok := h.connectionConfigs[configID]
+		h.mu.RUnlock()
+		if ok {
+			password := cfg.Password
+			if decrypted, err := decrypt(password, h.encryptionKey); err == nil {
+				password = decrypted
+			}
+			port := cfg.Port
+			if port == "" {
+				port = "5432"
+			}
+			sslMode := "disable"
+			if cfg.UseSSL {
+				sslMode = "require"
+			}
+			connStr := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s",
+				cfg.Username, password, cfg.Host, port, cfg.Database, sslMode)
+			return connStr, true
+		}
+	}
+	if legacyConnStr != "" {
+		return legacyConnStr, true
+	}
+	return "", false
+}
+
+// hasLiveConnection returns true if the dataset has a live database connection.
+func hasLiveConnection(ds *data.Dataset) bool {
+	return ds.ConnectionConfigID != "" || ds.ConnectionString != ""
 }
 
 func testConnection(cfg *ConnectionConfig) error {

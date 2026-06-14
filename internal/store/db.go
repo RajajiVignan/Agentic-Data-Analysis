@@ -137,7 +137,13 @@ func (db *DB) initSchema() error {
 	if _, err := db.conn.Exec(pinnedChartsSchemaSQL()); err != nil {
 		return err
 	}
-	return db.initDashboardsTable()
+	if err := db.initDashboardsTable(); err != nil {
+		return err
+	}
+	if err := db.InitDatasetsTable(); err != nil {
+		return err
+	}
+	return db.initUsersTable()
 }
 
 // Close closes the database connection.
@@ -208,6 +214,92 @@ func (db *DB) DeletePinnedChart(id string) error {
 	return err
 }
 
+// --- Users ---
+
+// UserRecord represents a persisted user.
+type UserRecord struct {
+	ID           string    `json:"id"`
+	Email        string    `json:"email"`
+	Name         string    `json:"name"`
+	PasswordHash string    `json:"password_hash"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+func (db *DB) initUsersTable() error {
+	_, err := db.conn.Exec(`
+		CREATE TABLE IF NOT EXISTS users (
+			id TEXT PRIMARY KEY,
+			email TEXT NOT NULL UNIQUE,
+			name TEXT NOT NULL,
+			password_hash TEXT NOT NULL,
+			created_at TIMESTAMPTZ DEFAULT now()
+		)
+	`)
+	if err != nil {
+		return err
+	}
+	_, err = db.conn.Exec(`
+		CREATE TABLE IF NOT EXISTS app_config (
+			key TEXT PRIMARY KEY,
+			value TEXT NOT NULL
+		)
+	`)
+	return err
+}
+
+// SaveUser persists a user to the database.
+func (db *DB) SaveUser(id, email, name, passwordHash string, createdAt time.Time) error {
+	_, err := db.conn.Exec(
+		`INSERT INTO users (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, $5)
+		 ON CONFLICT (id) DO UPDATE SET email=$2, name=$3, password_hash=$4`,
+		id, email, name, passwordHash, createdAt,
+	)
+	return err
+}
+
+// LoadUsers retrieves all users from the database.
+func (db *DB) LoadUsers() ([]UserRecord, error) {
+	rows, err := db.conn.Query(
+		`SELECT id, email, name, password_hash, created_at FROM users ORDER BY created_at ASC`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query users: %w", err)
+	}
+	defer rows.Close()
+
+	var users []UserRecord
+	for rows.Next() {
+		var u UserRecord
+		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan user: %w", err)
+		}
+		users = append(users, u)
+	}
+	return users, rows.Err()
+}
+
+// SaveJWTSecret persists the JWT signing secret to the database.
+func (db *DB) SaveJWTSecret(secret []byte) error {
+	_, err := db.conn.Exec(
+		`INSERT INTO app_config (key, value) VALUES ('jwt_secret', $1)
+		 ON CONFLICT (key) DO UPDATE SET value=$1`,
+		string(secret),
+	)
+	return err
+}
+
+// LoadJWTSecret retrieves the JWT signing secret from the database.
+func (db *DB) LoadJWTSecret() ([]byte, error) {
+	var value string
+	err := db.conn.QueryRow(
+		`SELECT value FROM app_config WHERE key = 'jwt_secret'`,
+	).Scan(&value)
+	if err != nil {
+		return nil, err
+	}
+	return []byte(value), nil
+}
+
 // --- Datasets ---
 
 // SaveDataset persists a dataset reference to the database.
@@ -220,6 +312,62 @@ func (db *DB) SaveDataset(id, filename, filePath string, profileJSON []byte) err
 	return err
 }
 
+// SaveDatasetRows persists the row data for a dataset.
+func (db *DB) SaveDatasetRows(id string, rows []map[string]string) error {
+	rowsJSON, err := json.Marshal(rows)
+	if err != nil {
+		return fmt.Errorf("marshal rows: %w", err)
+	}
+	_, err = db.conn.Exec(
+		`UPDATE datasets SET rows_data = $1 WHERE id = $2`,
+		rowsJSON, id,
+	)
+	return err
+}
+
+// DatasetRecord represents a persisted dataset with its row data.
+type DatasetRecord struct {
+	ID       string              `json:"id"`
+	Filename string              `json:"filename"`
+	FilePath string              `json:"file_path"`
+	Profile  json.RawMessage     `json:"profile"`
+	Rows     []map[string]string `json:"rows"`
+}
+
+// LoadDatasets retrieves all datasets from the database.
+func (db *DB) LoadDatasets() ([]DatasetRecord, error) {
+	rows, err := db.conn.Query(
+		`SELECT id, filename, COALESCE(file_path, ''), COALESCE(profile, '{}'::jsonb), COALESCE(rows_data, '[]'::jsonb) FROM datasets ORDER BY created_at ASC`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query datasets: %w", err)
+	}
+	defer rows.Close()
+
+	var datasets []DatasetRecord
+	for rows.Next() {
+		var d DatasetRecord
+		var rowsJSON []byte
+		if err := rows.Scan(&d.ID, &d.Filename, &d.FilePath, &d.Profile, &rowsJSON); err != nil {
+			return nil, fmt.Errorf("scan dataset: %w", err)
+		}
+		if len(rowsJSON) > 0 {
+			json.Unmarshal(rowsJSON, &d.Rows)
+		}
+		if d.Rows == nil {
+			d.Rows = []map[string]string{}
+		}
+		datasets = append(datasets, d)
+	}
+	return datasets, rows.Err()
+}
+
+// DeleteDataset removes a dataset by ID.
+func (db *DB) DeleteDataset(id string) error {
+	_, err := db.conn.Exec(`DELETE FROM datasets WHERE id = $1`, id)
+	return err
+}
+
 // InitDatasetsTable creates the datasets table if it doesn't exist.
 func (db *DB) InitDatasetsTable() error {
 	_, err := db.conn.Exec(`
@@ -228,6 +376,7 @@ func (db *DB) InitDatasetsTable() error {
 			filename TEXT NOT NULL,
 			file_path TEXT,
 			profile JSONB,
+			rows_data JSONB DEFAULT '[]'::jsonb,
 			created_at TIMESTAMPTZ DEFAULT now()
 		)
 	`)

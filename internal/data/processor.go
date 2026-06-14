@@ -374,3 +374,68 @@ func BuildSegments(rows []map[string]string, categoryCol *Column, metricCol *Col
 	}
 	return result
 }
+
+// MergeDatasets combines multiple datasets into one by merging their column schemas
+// and concatenating all rows. Columns not present in a dataset are filled with empty strings.
+// The merged dataset's profile is recomputed from the combined rows.
+func MergeDatasets(datasets []*Dataset) *Dataset {
+	if len(datasets) == 0 {
+		return nil
+	}
+	if len(datasets) == 1 {
+		return datasets[0]
+	}
+
+	allCols := make(map[string]bool)
+	colOrder := make([]string, 0)
+	for _, ds := range datasets {
+		for _, col := range ds.Profile.Columns {
+			if !allCols[col.Name] {
+				allCols[col.Name] = true
+				colOrder = append(colOrder, col.Name)
+			}
+		}
+		for _, row := range ds.Rows {
+			for k := range row {
+				if !allCols[k] {
+					allCols[k] = true
+					colOrder = append(colOrder, k)
+				}
+			}
+		}
+	}
+
+	totalRows := 0
+	for _, ds := range datasets {
+		totalRows += len(ds.Rows)
+	}
+
+	mergedRows := make([]map[string]string, 0, totalRows)
+	for _, ds := range datasets {
+		for _, row := range ds.Rows {
+			merged := make(map[string]string, len(colOrder))
+			for _, col := range colOrder {
+				merged[col] = row[col]
+			}
+			mergedRows = append(mergedRows, merged)
+		}
+	}
+
+	profileRows := make([][]string, totalRows+1)
+	profileRows[0] = colOrder
+	for i, row := range mergedRows {
+		vals := make([]string, len(colOrder))
+		for j, col := range colOrder {
+			vals[j] = row[col]
+		}
+		profileRows[i+1] = vals
+	}
+	mergedProfile := ProfileRows(profileRows)
+
+	return &Dataset{
+		ID:       datasets[0].ID,
+		Filename: fmt.Sprintf("merged_%d_datasets", len(datasets)),
+		Profile:  mergedProfile,
+		Rows:     mergedRows,
+	}
+}

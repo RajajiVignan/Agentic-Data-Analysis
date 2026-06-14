@@ -100,39 +100,16 @@ export type AuthUser = {
   created_at: string;
 };
 
-let authToken: string | null = null;
-
-export function setAuthToken(token: string | null) {
-  authToken = token;
-  if (token) {
-    localStorage.setItem("auth_token", token);
-  } else {
-    localStorage.removeItem("auth_token");
-  }
-}
-
-export function getAuthToken(): string | null {
-  if (authToken) return authToken;
-  const stored = localStorage.getItem("auth_token");
-  if (stored) {
-    authToken = stored;
-    return stored;
-  }
-  return null;
-}
-
-function authHeaders(): Record<string, string> {
-  const token = getAuthToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
-  const headers = {
+  const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    ...authHeaders(),
-    ...(options.headers || {}),
+    ...(options.headers as Record<string, string> || {}),
   };
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers,
+    credentials: "include",
+  });
   return res;
 }
 
@@ -142,9 +119,7 @@ export async function register(email: string, password: string, name: string): P
     body: JSON.stringify({ email, password, name }),
   });
   if (!res.ok) throw new Error((await res.json()).error ?? "Registration failed");
-  const data = await res.json();
-  setAuthToken(data.token);
-  return data;
+  return res.json();
 }
 
 export async function login(email: string, password: string): Promise<{ user: AuthUser; token: string }> {
@@ -153,9 +128,7 @@ export async function login(email: string, password: string): Promise<{ user: Au
     body: JSON.stringify({ email, password }),
   });
   if (!res.ok) throw new Error((await res.json()).error ?? "Login failed");
-  const data = await res.json();
-  setAuthToken(data.token);
-  return data;
+  return res.json();
 }
 
 export async function logout(): Promise<void> {
@@ -164,15 +137,11 @@ export async function logout(): Promise<void> {
   } catch {
     // ignore
   }
-  setAuthToken(null);
 }
 
 export async function fetchMe(): Promise<AuthUser | null> {
-  const token = getAuthToken();
-  if (!token) return null;
   const res = await apiFetch("/auth/me");
   if (!res.ok) {
-    setAuthToken(null);
     return null;
   }
   return res.json();
@@ -198,9 +167,7 @@ export async function fetchDatasets(): Promise<Dataset[]> {
 export async function uploadFile(file: File): Promise<{ datasetId: string; filename: string }> {
   const formData = new FormData();
   formData.append("file", file);
-  const token = getAuthToken();
-  const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-  const res = await fetch(`${API_BASE}/upload`, { method: "POST", body: formData, headers });
+  const res = await fetch(`${API_BASE}/upload`, { method: "POST", body: formData, credentials: "include" });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error ?? "Upload failed");
   return { datasetId: data.datasetId, filename: data.filename };

@@ -313,6 +313,267 @@ func TestUploadRejectsPathTraversalInFilename(t *testing.T) {
 	}
 }
 
+func TestAuthRegisterInvalidEmail(t *testing.T) {
+	handler := NewHandler(agent.DefaultConfig())
+	mux := handler.Routes()
+
+	tests := []struct {
+		name  string
+		body  string
+		code  int
+	}{
+		{"missing @", `{"email":"invalid","password":"secret123","name":"Test"}`, http.StatusBadRequest},
+		{"missing domain", `{"email":"user@","password":"secret123","name":"Test"}`, http.StatusBadRequest},
+		{"missing tld", `{"email":"user@domain","password":"secret123","name":"Test"}`, http.StatusBadRequest},
+		{"valid email", `{"email":"valid@example.com","password":"secret123","name":"Test"}`, http.StatusCreated},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/api/auth/register", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			if rec.Code != tt.code {
+				t.Fatalf("status = %d, want %d, body = %s", rec.Code, tt.code, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestAuthRegisterWeakPassword(t *testing.T) {
+	handler := NewHandler(agent.DefaultConfig())
+	mux := handler.Routes()
+
+	body := `{"email":"test@example.com","password":"short","name":"Test"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/register", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("weak password status = %d, want 400, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAuthRegisterAndLogin(t *testing.T) {
+	handler := NewHandler(agent.DefaultConfig())
+	mux := handler.Routes()
+
+	// Register
+	registerBody := `{"email":"test@example.com","password":"secret123","name":"Test User"}`
+	regReq := httptest.NewRequest(http.MethodPost, "/api/auth/register", strings.NewReader(registerBody))
+	regReq.Header.Set("Content-Type", "application/json")
+	regRec := httptest.NewRecorder()
+	mux.ServeHTTP(regRec, regReq)
+
+	if regRec.Code != http.StatusCreated {
+		t.Fatalf("register status = %d, body = %s", regRec.Code, regRec.Body.String())
+	}
+	var regResp struct {
+		User  User   `json:"user"`
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(regRec.Body.Bytes(), &regResp); err != nil {
+		t.Fatal(err)
+	}
+	if regResp.User.Email != "test@example.com" {
+		t.Fatalf("email = %q, want %q", regResp.User.Email, "test@example.com")
+	}
+	if regResp.Token == "" {
+		t.Fatal("expected non-empty token")
+	}
+	// Verify HttpOnly cookie is set
+	cookies := regRec.Result().Cookies()
+	foundCookie := false
+	for _, c := range cookies {
+		if c.Name == "auth_token" {
+			foundCookie = true
+			if c.Value == "" {
+				t.Fatal("auth_token cookie value is empty")
+			}
+			if !c.HttpOnly {
+				t.Fatal("auth_token cookie should be HttpOnly")
+			}
+			break
+		}
+	}
+	if !foundCookie {
+		t.Fatal("expected auth_token cookie to be set")
+	}
+
+	// Login with same credentials
+	loginBody := `{"email":"test@example.com","password":"secret123"}`
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(loginBody))
+	loginReq.Header.Set("Content-Type", "application/json")
+	loginRec := httptest.NewRecorder()
+	mux.ServeHTTP(loginRec, loginReq)
+
+	if loginRec.Code != http.StatusOK {
+		t.Fatalf("login status = %d, body = %s", loginRec.Code, loginRec.Body.String())
+	}
+	var loginResp struct {
+		User  User   `json:"user"`
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(loginRec.Body.Bytes(), &loginResp); err != nil {
+		t.Fatal(err)
+	}
+	if loginResp.User.ID != regResp.User.ID {
+		t.Fatalf("login user ID = %q, want %q", loginResp.User.ID, regResp.User.ID)
+	}
+	if loginResp.Token == "" {
+		t.Fatal("expected non-empty token")
+	}
+}
+
+func TestAuthRegisterDuplicateEmail(t *testing.T) {
+	handler := NewHandler(agent.DefaultConfig())
+	mux := handler.Routes()
+
+	body := `{"email":"dup@example.com","password":"secret123","name":"Dup"}`
+	req1 := httptest.NewRequest(http.MethodPost, "/api/auth/register", strings.NewReader(body))
+	req1.Header.Set("Content-Type", "application/json")
+	rec1 := httptest.NewRecorder()
+	mux.ServeHTTP(rec1, req1)
+	if rec1.Code != http.StatusCreated {
+		t.Fatalf("first register status = %d", rec1.Code)
+	}
+
+	req2 := httptest.NewRequest(http.MethodPost, "/api/auth/register", strings.NewReader(body))
+	req2.Header.Set("Content-Type", "application/json")
+	rec2 := httptest.NewRecorder()
+	mux.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusConflict {
+		t.Fatalf("duplicate register status = %d, want 409", rec2.Code)
+	}
+}
+
+func TestAuthLoginInvalidCredentials(t *testing.T) {
+	handler := NewHandler(agent.DefaultConfig())
+	mux := handler.Routes()
+
+	// Register first
+	regBody := `{"email":"valid@example.com","password":"correct123","name":"Valid"}`
+	regReq := httptest.NewRequest(http.MethodPost, "/api/auth/register", strings.NewReader(regBody))
+	regReq.Header.Set("Content-Type", "application/json")
+	regRec := httptest.NewRecorder()
+	mux.ServeHTTP(regRec, regReq)
+	if regRec.Code != http.StatusCreated {
+		t.Fatalf("register status = %d", regRec.Code)
+	}
+
+	// Login with wrong password
+	loginBody := `{"email":"valid@example.com","password":"wrong"}`
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(loginBody))
+	loginReq.Header.Set("Content-Type", "application/json")
+	loginRec := httptest.NewRecorder()
+	mux.ServeHTTP(loginRec, loginReq)
+	if loginRec.Code != http.StatusUnauthorized {
+		t.Fatalf("bad login status = %d, want 401, body = %s", loginRec.Code, loginRec.Body.String())
+	}
+}
+
+func TestAuthMeAuthenticated(t *testing.T) {
+	handler := NewHandler(agent.DefaultConfig())
+	mux := handler.Routes()
+
+	// Register
+	regBody := `{"email":"me_test@example.com","password":"secret123","name":"Me Test"}`
+	regReq := httptest.NewRequest(http.MethodPost, "/api/auth/register", strings.NewReader(regBody))
+	regReq.Header.Set("Content-Type", "application/json")
+	regRec := httptest.NewRecorder()
+	mux.ServeHTTP(regRec, regReq)
+	if regRec.Code != http.StatusCreated {
+		t.Fatalf("register status = %d", regRec.Code)
+	}
+	var regResp struct {
+		Token string `json:"token"`
+	}
+	json.Unmarshal(regRec.Body.Bytes(), &regResp)
+
+	// Test /api/auth/me with Authorization header
+	meReq := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	meReq.Header.Set("Authorization", "Bearer "+regResp.Token)
+	meRec := httptest.NewRecorder()
+	mux.ServeHTTP(meRec, meReq)
+	if meRec.Code != http.StatusOK {
+		t.Fatalf("me (header) status = %d, body = %s", meRec.Code, meRec.Body.String())
+	}
+	var meUser User
+	if err := json.Unmarshal(meRec.Body.Bytes(), &meUser); err != nil {
+		t.Fatal(err)
+	}
+	if meUser.Email != "me_test@example.com" {
+		t.Fatalf("me email = %q", meUser.Email)
+	}
+
+	// Test /api/auth/me with HttpOnly cookie (no Authorization header)
+	cookieReq := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	cookieReq.AddCookie(&http.Cookie{Name: "auth_token", Value: regResp.Token})
+	cookieRec := httptest.NewRecorder()
+	mux.ServeHTTP(cookieRec, cookieReq)
+	if cookieRec.Code != http.StatusOK {
+		t.Fatalf("me (cookie) status = %d, body = %s", cookieRec.Code, cookieRec.Body.String())
+	}
+	var cookieUser User
+	if err := json.Unmarshal(cookieRec.Body.Bytes(), &cookieUser); err != nil {
+		t.Fatal(err)
+	}
+	if cookieUser.Email != "me_test@example.com" {
+		t.Fatalf("me cookie email = %q", cookieUser.Email)
+	}
+}
+
+func TestAuthMeUnauthenticated(t *testing.T) {
+	handler := NewHandler(agent.DefaultConfig())
+	mux := handler.Routes()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated me status = %d, want 401", rec.Code)
+	}
+}
+
+func TestAuthLogout(t *testing.T) {
+	handler := NewHandler(agent.DefaultConfig())
+	mux := handler.Routes()
+
+	// Register
+	regBody := `{"email":"logout_test@example.com","password":"secret123","name":"Logout"}`
+	regReq := httptest.NewRequest(http.MethodPost, "/api/auth/register", strings.NewReader(regBody))
+	regReq.Header.Set("Content-Type", "application/json")
+	regRec := httptest.NewRecorder()
+	mux.ServeHTTP(regRec, regReq)
+	if regRec.Code != http.StatusCreated {
+		t.Fatalf("register status = %d", regRec.Code)
+	}
+	var regResp struct {
+		Token string `json:"token"`
+	}
+	json.Unmarshal(regRec.Body.Bytes(), &regResp)
+
+	// Logout
+	logoutReq := httptest.NewRequest(http.MethodPost, "/api/auth/logout", nil)
+	logoutReq.Header.Set("Authorization", "Bearer "+regResp.Token)
+	logoutRec := httptest.NewRecorder()
+	mux.ServeHTTP(logoutRec, logoutReq)
+	if logoutRec.Code != http.StatusOK {
+		t.Fatalf("logout status = %d", logoutRec.Code)
+	}
+
+	// Verify token is revoked — should not be able to access /me
+	meReq := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	meReq.Header.Set("Authorization", "Bearer "+regResp.Token)
+	meRec := httptest.NewRecorder()
+	mux.ServeHTTP(meRec, meReq)
+	if meRec.Code != http.StatusUnauthorized {
+		t.Fatalf("me after logout status = %d, want 401", meRec.Code)
+	}
+}
+
 func TestUploadRejectsFilenameWithPythonInjection(t *testing.T) {
 	handler := NewHandler(agent.DefaultConfig())
 	mux := handler.Routes()

@@ -16,7 +16,7 @@ Prompt-driven BI application. Go backend + Next.js frontend. User uploads CSV/JS
 │   ├── agent/
 │   │   ├── analyzer.go         # Analyzer interface + request/response structs
 │   │   ├── deterministic.go    # Deterministic (no LLM) analyzer
-│   │   ├── llm.go              # NVIDIA NIM LLM analyzer
+│   │   ├── llm.go              # OpenRouter LLM analyzer
 │   │   ├── tools.go            # Agent tools (profile, aggregate, group, trend)
 │   │   ├── guardrails.go       # Response validation + sanitization
 │   │   └── agent_test.go       # Agent tests
@@ -33,7 +33,7 @@ Prompt-driven BI application. Go backend + Next.js frontend. User uploads CSV/JS
 │       └── Sidebar.tsx         # Navigation sidebar
 ├── uploads/                    # Uploaded files
 ├── uploads/plots/              # Generated Python plot images (.py + .png)
-├── .env                        # SUPABASE_URL, SUPABASE_KEY, NVIDIA_API_KEY, NVIDIA_BASE_URL
+├── .env                        # SUPABASE_URL, SUPABASE_KEY, OPENROUTER_API_KEY, OPENROUTER_BASE_URL
 ├── server_bin                  # Pre-built Go binary
 ├── go.mod                      # Module: insightpilot (deps: godotenv, lib/pq)
 └── pinned_charts_schema.sql    # Supabase pinned_charts table schema
@@ -90,8 +90,12 @@ cd frontend && npm run build
 - `SUPABASE_URL` — e.g. `https://xxxx.supabase.co`
 - `SUPABASE_KEY` — publishable/anon key
 - `SUPABASE_DB_PASSWORD` — DB password (falls back to SUPABASE_KEY)
-- `NVIDIA_API_KEY` — LLM API key (optional, falls back to deterministic)
-- `NVIDIA_BASE_URL` — e.g. `https://api.nvcf.nvidia.com/v2/nvcf`
+- `OPENROUTER_API_KEY` — LLM API key (optional, falls back to deterministic)
+- `OPENROUTER_BASE_URL` — e.g. `https://openrouter.ai/api/v1`
+- `OPENROUTER_MODEL` — model name (default: openrouter/owl-alpha)
+- `OPENROUTER_MAX_TOKENS` — max tokens (default: 16384)
+- `OPENROUTER_TEMPERATURE` — temperature (default: 1.0)
+- `OPENROUTER_TIMEOUT_SEC` — HTTP client timeout (default: 120)
 - `PORT` — default 3000
 - `HOST` — default 127.0.0.1
 - `CORS_ALLOWED_ORIGINS` — comma-separated frontend origins for browser API access
@@ -100,9 +104,8 @@ cd frontend && npm run build
 
 ## Known Issues / Tech Debt
 
-- Export handler uses `strings.Fields`+`Join` which corrupts data containing spaces
 - In-memory datasets/connections lost on server restart (no DB persistence for them yet)
-- LLM analyzer returns 401 without valid NVIDIA_API_KEY (falls back to deterministic)
+- LLM analyzer returns 401 without valid OPENROUTER_API_KEY (falls back to deterministic)
 
 ## Instruction Files (role-specific)
 

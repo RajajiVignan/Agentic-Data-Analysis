@@ -1,11 +1,15 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
+	"time"
 
 	"insightpilot/internal/agent"
 	"insightpilot/internal/api"
@@ -69,6 +73,31 @@ func main() {
 		Handler: handler.Routes(),
 	}
 
-	log.Printf("InsightPilot running at http://%s:%s", host, port)
-	log.Fatal(server.ListenAndServe())
+	// Start server in a goroutine
+	go func() {
+		log.Printf("InsightPilot running at http://%s:%s", host, port)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("HTTP server error: %v", err)
+		}
+	}()
+
+	// Wait for shutdown signal
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	sig := <-sigCh
+	log.Printf("Received signal %v, shutting down...", sig)
+
+	// Create a context with timeout for shutdown
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer shutdownCancel()
+
+	// Shutdown handler (stop schedulers, close DB, clean up Python processes)
+	handler.Shutdown()
+
+	// Shutdown HTTP server
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Printf("HTTP server shutdown error: %v", err)
+	}
+
+	log.Println("Server stopped gracefully")
 }
