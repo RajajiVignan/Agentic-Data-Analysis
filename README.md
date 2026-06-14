@@ -1,13 +1,13 @@
-# ✨ InsightPilot — AI-Powered Business Intelligence
+# InsightPilot — AI-Powered Business Intelligence
 
 <p align="center">
   <b>Full-stack, prompt-driven BI application</b><br>
-  Upload your data → Ask questions in plain English → Get KPIs, charts & AI visualizations
+  Upload your data → Ask questions in plain English → Get KPIs & AI-generated visualizations
 </p>
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -18,7 +18,7 @@
 ├──────────────────────┼───────────────────────────────────┤
 │  REST API            │  Upload CSV/JSON                  │
 │  CSV/JSON profiling  │  Interactive dashboards           │
-│  Deterministic &     │  Metric tiles, trends, pie charts │
+│  Deterministic &     │  Metric tiles                     │
 │  LLM analyzers       │  Python-generated matplotlib plots│
 │  Supabase DB layer   │  Pin / unpin charts               │
 │  Python viz bridge   │                                   │
@@ -29,7 +29,7 @@ The backend is a **Go module** — Node.js is only used inside `frontend/` for t
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 .
@@ -38,12 +38,14 @@ The backend is a **Go module** — Node.js is only used inside `frontend/` for t
 ├── internal/
 │   ├── api/
 │   │   ├── handler.go              # HTTP handlers, routes, CORS
+│   │   ├── routes.go               # Chi router + static frontend serving
 │   │   ├── pythonbridge.go         # Python viz bridge (executes matplotlib scripts)
+│   │   ├── plots.go                # Plot service (LLM + deterministic)
 │   │   └── handler_test.go         # API handler tests
 │   ├── agent/
 │   │   ├── analyzer.go             # Analyzer interface + request/response structs
 │   │   ├── deterministic.go        # Deterministic (no LLM) analyzer
-│   │   ├── llm.go                  # NVIDIA NIM LLM-backed analyzer
+│   │   ├── llm.go                  # LLM-backed analyzer (OpenAI-compatible)
 │   │   ├── tools.go                # Agent tools (profile, aggregate, group, trend)
 │   │   ├── guardrails.go           # Response validation + sanitization
 │   │   └── agent_test.go           # Agent tests
@@ -57,8 +59,13 @@ The backend is a **Go module** — Node.js is only used inside `frontend/` for t
 ├── frontend/
 │   ├── src/app/page.tsx            # Main workspace page (upload, analyze, dashboard)
 │   └── src/components/
-│       ├── Charts.tsx              # MetricTile, TrendChart, SegmentChart, PythonPlot
-│       └── Sidebar.tsx             # Navigation sidebar
+│       ├── Charts.tsx              # MetricTile, PythonPlot
+│       ├── DashboardView.tsx       # Dashboard renderer (KPIs + Python plot)
+│       ├── Sidebar.tsx             # Navigation sidebar
+│       ├── UploadArea.tsx          # File upload + dataset selection
+│       ├── AnalysisPrompt.tsx      # Question input + run button
+│       ├── PinnedDashboard.tsx     # Pinned charts view
+│       └── DataConnections.tsx     # Data source connections
 │
 ├── samples/                        # Sample CSV / JSON datasets
 ├── uploads/                        # Uploaded user files
@@ -72,14 +79,14 @@ The backend is a **Go module** — Node.js is only used inside `frontend/` for t
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
 - **Go** 1.21+ — [Install Go](https://go.dev/dl/)
 - **Node.js** 18+ — [Install Node](https://nodejs.org/)
 - (Optional) Supabase account for DB-persisted pinned charts
-- (Optional) NVIDIA NIM API key for LLM-powered analysis
+- (Optional) OpenRouter API key for LLM-powered analysis
 
 ### 1. Start the Backend
 
@@ -97,11 +104,20 @@ The server defaults to **`http://127.0.0.1:3000`**. To use a custom port:
 PORT=3001 ./server_bin
 ```
 
-### 2. Start the Frontend
+### 2. Build the Frontend
 
 ```bash
 cd frontend
 npm install
+npm run build
+```
+
+The Go server serves the built frontend from `frontend/out/` automatically — no separate dev server needed for production.
+
+For development with hot-reload:
+
+```bash
+cd frontend
 npm run dev
 ```
 
@@ -109,14 +125,14 @@ Open the URL printed by Next.js (usually **`http://localhost:3001`**).
 
 ---
 
-## 🔌 API Reference
+## API Reference
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/api/health` | Health check (includes DB connectivity status) |
 | `GET` | `/api/datasets` | List all uploaded datasets |
 | `POST` | `/api/upload` | Upload a CSV or JSON file |
-| `POST` | `/api/analyze` | Run analysis — returns KPIs, trends, segments & plot URL |
+| `POST` | `/api/analyze` | Run analysis — returns KPIs & plot URL |
 | `POST` | `/api/connect-source` | Connect a data source (creates a sample dataset) |
 | `GET` | `/api/export/cleaned-csv` | Export a cleaned version of the uploaded CSV |
 | `GET` | `/api/pinned-charts` | List all pinned dashboard charts |
@@ -125,7 +141,7 @@ Open the URL printed by Next.js (usually **`http://localhost:3001`**).
 | `GET` | `/api/python-plot?datasetId=` | Generate a matplotlib plot on demand |
 | `GET` | `/plots/{filename}` | Serve a generated plot image |
 
-### 📊 Data Flow
+### Data Flow
 
 ```
 User uploads CSV/JSON
@@ -153,7 +169,7 @@ User uploads CSV/JSON
 
 ---
 
-## 🧪 Running Tests
+## Running Tests
 
 ```bash
 # Backend Go tests (all packages)
@@ -162,7 +178,7 @@ go test ./cmd/server ./internal/...
 
 ---
 
-## 🔧 Environment Variables
+## Environment Variables
 
 Create a `.env` file in the project root:
 
@@ -172,9 +188,10 @@ SUPABASE_URL=https://xxxx.supabase.co
 SUPABASE_KEY=your-publishable-anon-key
 SUPABASE_DB_PASSWORD=your-db-password
 
-# NVIDIA NIM LLM (optional — graceful deterministic fallback)
-NVIDIA_API_KEY=your-nvidia-api-key
-NVIDIA_BASE_URL=https://api.nvcf.nvidia.com/v2/nvcf
+# OpenRouter LLM (optional — graceful deterministic fallback)
+OPENROUTER_API_KEY=your-openrouter-api-key
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_MODEL=openrouter/owl-alpha
 
 # Server config
 PORT=3000
@@ -184,45 +201,46 @@ PLOT_RETENTION_HOURS=24
 UPLOAD_DIR=uploads
 ```
 
-> **Note:** The app works fully without Supabase or NVIDIA keys — the deterministic analyzer handles all analysis tasks, and chart pinning falls back to in-memory storage.
+> **Note:** The app works fully without Supabase or OpenRouter keys — the deterministic analyzer handles all analysis tasks, and chart pinning falls back to in-memory storage.
 
 ---
 
-## 🧩 Key Design Patterns
+## Key Design Patterns
 
 | Pattern | Description |
 |---------|-------------|
 | **Analyzer interface** | `internal/agent/analyzer.go` — `Analyze(ctx, req) (resp, err)` — swappable deterministic / LLM implementations |
+| **LLM tool-call loop** | LLM can call `get_dataset_profile`, `aggregate_metric`, `group_by_dimension`, `build_trend` tools before producing a final plan |
+| **Privacy-safe LLM** | Only dataset metadata (schema + statistics) is sent to the LLM — never raw row data |
 | **Graceful fallback** | LLM → deterministic analyzer → in-memory pin storage → Supabase; never breaks without paid keys |
 | **Python bridge** | Generates self-contained matplotlib scripts → executes `python3` → serves `/plots/*.png` |
 | **Thread-safe state** | All handler maps use `sync.RWMutex` for safe concurrent access |
 | **Nano-second IDs** | Uses `time.Now().UnixNano()` to avoid PID-based collisions |
+| **Single-server deploy** | Go serves API, plots, and the built Next.js static export on one port |
 
 ---
 
-## 🐛 Known Issues & Tech Debt
+## Known Issues & Tech Debt
 
 - Export handler uses `strings.Fields` + `Join` which corrupts data containing spaces
 - In-memory datasets and connections are lost on server restart (no DB persistence yet)
-- LLM analyzer returns `401` without a valid `NVIDIA_API_KEY` (falls back to deterministic)
-- Frontend port conflicts with backend when both default to `3000`
+- LLM analyzer falls back to deterministic without a valid API key
 
 ---
 
-## 📋 Roadmap / Milestones
+## Roadmap / Milestones
 
 - [ ] Migrate in-memory datasets to DB persistence
 - [ ] Add governed SQL generation via LLM agent
 - [ ] Implement richer dashboard spec output
-- [ ] Add agentic AI multi-step analysis (see `Instructions/Agentic_AI.md`)
 - [ ] Improve Python visualization templates (see `Instructions/Python_Visualizations.md`)
 
 ---
 
-## 📄 License
+## License
 
 Internal prototype — all rights reserved.
 
 ---
 
-> 💡 **Tip:** Check the `Instructions/` directory for role-specific guides (Developer, Tester, Agentic AI, Python Visualizations).
+> **Tip:** Check the `Instructions/` directory for role-specific guides (Developer, Tester, Agentic AI, Python Visualizations).
