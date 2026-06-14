@@ -23,15 +23,16 @@ import (
 // Handler is the top-level HTTP handler. It delegates to specialized services
 // for pinned charts and plot generation.
 type Handler struct {
-	datasets       map[string]*data.Dataset
-	connections    map[string]data.Connection
-	analyzer       agent.Analyzer
-	db             *store.DB
-	pinnedSvc      *PinnedChartService
-	plotService    *PlotService
-	uploadDir      string
-	allowedOrigins map[string]bool
-	mu             sync.RWMutex
+	datasets         map[string]*data.Dataset
+	connections      map[string]data.Connection
+	connectionConfigs map[string]*ConnectionConfig
+	analyzer         agent.Analyzer
+	db               *store.DB
+	pinnedSvc        *PinnedChartService
+	plotService      *PlotService
+	uploadDir        string
+	allowedOrigins   map[string]bool
+	mu               sync.RWMutex
 }
 
 // NewHandler creates a new Handler with all services initialized.
@@ -44,9 +45,9 @@ func NewHandler(cfg agent.Config) *Handler {
 
 	// Configure LLM-driven visualization if credentials are available
 	llmCfg := LLMConfig{
-		Enabled:       cfg.Enabled && cfg.NVIDIAAPIKey != "" && cfg.NVIDIABaseURL != "",
-		NVIDIAAPIKey:  cfg.NVIDIAAPIKey,
-		NVIDIABaseURL: cfg.NVIDIABaseURL,
+		Enabled:       cfg.Enabled && cfg.APIKey != "" && cfg.BaseURL != "",
+		APIKey:        cfg.APIKey,
+		BaseURL:       cfg.BaseURL,
 		Model:         cfg.Model,
 		MaxTokens:     4096,
 		Temperature:   0.3,
@@ -55,14 +56,15 @@ func NewHandler(cfg agent.Config) *Handler {
 	pb.SetLLMConfig(llmCfg)
 
 	h := &Handler{
-		datasets:       make(map[string]*data.Dataset),
-		connections:    make(map[string]data.Connection),
-		analyzer:       agent.NewLLMAnalyzer(cfg),
-		db:             db,
-		pinnedSvc:      NewPinnedChartService(db),
-		plotService:    NewPlotService(plotsDir, uploadDir, pb),
-		uploadDir:      uploadDir,
-		allowedOrigins: configuredAllowedOrigins(),
+		datasets:         make(map[string]*data.Dataset),
+		connections:      make(map[string]data.Connection),
+		connectionConfigs: make(map[string]*ConnectionConfig),
+		analyzer:         agent.NewLLMAnalyzer(cfg),
+		db:               db,
+		pinnedSvc:        NewPinnedChartService(db),
+		plotService:      NewPlotService(plotsDir, uploadDir, pb),
+		uploadDir:        uploadDir,
+		allowedOrigins:   configuredAllowedOrigins(),
 	}
 
 	h.plotService.StartCleanup()
@@ -234,7 +236,7 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := fmt.Sprintf("%d", time.Now().UnixNano())
+id := fmt.Sprintf("%d", time.Now().UnixNano())
 	safeName := sanitizeFilename(header.Filename)
 	ext := strings.ToLower(filepath.Ext(safeName))
 	if ext != ".csv" && ext != ".json" {
@@ -423,18 +425,32 @@ func (h *Handler) handleExportCsv(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 
 	writer := csv.NewWriter(w)
-	_ = writer.Write(headers)
+	if err := writer.Write(headers); err != nil {
+		log.Printf("[export] Failed to write headers: %v", err)
+		return
+	}
 	for _, dataset := range selected {
 		for _, row := range dataset.Rows {
 			record := make([]string, len(headers))
 			record[0] = dataset.Filename
 			for i := 1; i < len(headers); i++ {
-				record[i] = row[headers[i]]
+				// Safe access with empty string fallback if column missing
+				if val, ok := row[headers[i]]; ok {
+					record[i] = val
+				} else {
+					record[i] = ""
+				}
 			}
-			_ = writer.Write(record)
+			if err := writer.Write(record); err != nil {
+				log.Printf("[export] Failed to write record: %v", err)
+				continue
+			}
 		}
 	}
 	writer.Flush()
+	if err := writer.Error(); err != nil {
+		log.Printf("[export] Failed to flush: %v", err)
+	}
 }
 
 func (h *Handler) handleGetPinnedCharts(w http.ResponseWriter, r *http.Request) {
@@ -540,12 +556,6 @@ func execPlan(plan *agent.LLMPlan, ds *data.Dataset, resp *agent.AnalysisRespons
 	}
 
 	recs := plan.Recommendations
-	if len(recs) == 0 {
-		recs = []string{
-			"Add business definitions for metrics to ensure consistency.",
-			"Publish this board after validating with the data owner.",
-		}
-	}
 
 	resp.Dashboard = agent.DashboardSpec{
 		Title:           title,
@@ -579,7 +589,7 @@ func applyAggregation(kpis []map[string]string, agg string) []map[string]string 
 		}
 	case "min", "max":
 		for i := range kpis {
-			kpis[i]["label"] = strings.Title(agg) + " value"
+			kpis[i]["label"] = strings.ToUpper(agg) + " value"
 			kpis[i]["change"] = "Dataset range"
 		}
 	}

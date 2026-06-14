@@ -41,7 +41,7 @@ func ProfileRows(rows [][]string) Profile {
 
 		cols[i] = Column{
 			Name:     name,
-			Type:     inferType(values),
+			Type:     inferTypeWithName(name, values),
 			NonEmpty: len(values),
 			Sample:   getSample(values, 3),
 		}
@@ -80,6 +80,50 @@ func inferType(values []string) string {
 	return "text"
 }
 
+// inferTypeWithName is like inferType but also considers the column name
+// as a secondary signal. If the column name looks like a date dimension
+// (e.g. "month", "year", "date", "created_at") and a majority of values
+// are parseable as dates, classify it as "date" even if the ratio is below
+// the strict 0.8 threshold. This helps with small datasets or columns with
+// some missing values.
+func inferTypeWithName(colName string, values []string) string {
+	baseType := inferType(values)
+	if baseType != "text" {
+		return baseType
+	}
+	// Only apply name-based heuristic for text-typed columns
+	if !looksLikeDateColumnName(colName) {
+		return "text"
+	}
+	// Check if at least 50% of non-empty values parse as dates
+	if len(values) == 0 {
+		return "text"
+	}
+	dateCount := 0
+	for _, v := range values {
+		if _, ok := ParseDateValue(v); ok {
+			dateCount++
+		}
+	}
+	if float64(dateCount)/float64(len(values)) >= 0.5 {
+		return "date"
+	}
+	return "text"
+}
+
+// looksLikeDateColumnName returns true if the column name suggests
+// it contains date/time data.
+func looksLikeDateColumnName(name string) bool {
+	n := strings.ToLower(strings.TrimSpace(name))
+	datePatterns := []string{"date", "month", "year", "week", "day", "time", "period", "quarter", "dt", "created", "updated", "timestamp"}
+	for _, p := range datePatterns {
+		if strings.Contains(n, p) {
+			return true
+		}
+	}
+	return false
+}
+
 // ParseDateValue parses a date string using multiple formats.
 // Exported for use by the agent tools layer.
 func ParseDateValue(value string) (time.Time, bool) {
@@ -93,6 +137,13 @@ func ParseDateValue(value string) (time.Time, bool) {
 		"2006/01/02",
 		"2006-01",
 		"2006/01",
+		"01/02/2006",
+		"01-02-2006",
+		"January 2, 2006",
+		"Jan 2, 2006",
+		"2 Jan 2006",
+		"2006-01-02T15:04:05Z",
+		"2006-01-02 15:04:05",
 	}
 	for _, format := range formats {
 		if t, err := time.Parse(format, v); err == nil {

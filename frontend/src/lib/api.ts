@@ -1,4 +1,6 @@
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:3000/api").replace(/\/$/, "");
+// All API calls use relative paths since Go serves both the SPA and the API
+// on the same host:port. No NEXT_PUBLIC_API_BASE needed.
+const API_BASE = "/api";
 
 // --- Types ---
 
@@ -44,6 +46,26 @@ export type PinnedChart = {
   label: string;
   data: unknown;
   url?: string;
+};
+
+export type ConnectionConfig = {
+  id: string;
+  provider: string;
+  host?: string;
+  port?: string;
+  database: string;
+  username?: string;
+  password?: string;
+  projectId?: string;
+  accountId?: string;
+  warehouse?: string;
+  role?: string;
+  region?: string;
+  useSsl?: boolean;
+  connected: boolean;
+  datasetId?: string;
+  filename?: string;
+  connectedAt?: string;
 };
 
 export type BackendStatus = "checking" | "online" | "offline";
@@ -147,6 +169,43 @@ export async function pinChart(chart: Omit<PinnedChart, "id">): Promise<PinnedCh
 
 export async function unpinChart(id: string): Promise<void> {
   const res = await fetch(`${API_BASE}/unpin-chart?id=${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+}
+
+// --- Connection API ---
+
+export async function fetchConnections(): Promise<ConnectionConfig[]> {
+  const res = await fetch(`${API_BASE}/connections`);
+  if (!res.ok) throw new Error(await parseError(res));
+  const data = await res.json();
+  return data.connections as ConnectionConfig[];
+}
+
+export async function testConnection(cfg: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(`${API_BASE}/connections/test`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(cfg),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function createConnection(cfg: Record<string, unknown>): Promise<{ connection: ConnectionConfig; datasetId: string; filename: string }> {
+  const res = await fetch(`${API_BASE}/connections`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(cfg),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error ?? "Failed to create connection");
+  return data;
+}
+
+export async function deleteConnection(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/connections?id=${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
   if (!res.ok) throw new Error(await parseError(res));

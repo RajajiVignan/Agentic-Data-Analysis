@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// LLMAnalyzer implements Analyzer by calling an NVIDIA NIM endpoint
+// LLMAnalyzer implements Analyzer by calling an LLM endpoint
 // (OpenAI-compatible chat completions API). It sends only dataset
 // metadata (schema + statistics) to the LLM — never raw row data.
 //
@@ -53,12 +53,13 @@ func NewLLMAnalyzer(cfg Config) *LLMAnalyzer {
 // Analyze tries the LLM first. If the LLM is not configured or fails,
 // it falls back to the deterministic analyzer.
 func (a *LLMAnalyzer) Analyze(ctx context.Context, req AnalysisRequest) (AnalysisResponse, error) {
-	if a.config.NVIDIAAPIKey == "" || a.config.NVIDIABaseURL == "" {
+	if a.config.APIKey == "" || a.config.BaseURL == "" {
 		return a.fallback(ctx, req, "LLM not configured, using deterministic analyzer")
 	}
 
 	llmResp, err := a.runToolLoop(ctx, req)
 	if err != nil {
+		log.Printf("[LLM] runToolLoop failed: %v", err)
 		if a.config.FallbackOnError {
 			return a.fallback(ctx, req, fmt.Sprintf("LLM error: %v, falling back", err))
 		}
@@ -67,10 +68,16 @@ func (a *LLMAnalyzer) Analyze(ctx context.Context, req AnalysisRequest) (Analysi
 
 	violations := a.guard.ValidateResponse(llmResp)
 	if len(violations) > 0 {
+		log.Printf("[LLM] Guardrail violations: %v", violations)
 		if a.config.FallbackOnError {
 			return a.fallback(ctx, req, fmt.Sprintf("guardrail violations: %v, falling back", violations))
 		}
 		llmResp.Warnings = append(llmResp.Warnings, violations...)
+	}
+
+	if llmResp.Plan != nil {
+		log.Printf("[LLM] Returning plan: metric=%q category=%q date=%q agg=%q",
+			llmResp.Plan.MetricColumn, llmResp.Plan.CategoryColumn, llmResp.Plan.DateColumn, llmResp.Plan.Aggregation)
 	}
 
 	llmResp.UsedDeterministic = false
@@ -113,10 +120,12 @@ func (a *LLMAnalyzer) runToolLoop(ctx context.Context, req AnalysisRequest) (Ana
 
 You have access to tools that can compute aggregations, group data, and build trends on the server side. Use these tools to gather evidence before producing your final analysis.
 
-Workflow:
+MANDATORY workflow — you MUST call these tools before responding:
 1. First, call get_dataset_profile to understand the available columns.
-2. Use aggregate_metric, group_by_dimension, and build_trend to gather data insights.
-3. When you have enough evidence, respond with ONLY valid JSON matching this exact shape (no tool calls, no markdown):
+2. Call aggregate_metric with the user's target numeric column to get sum/avg/min/max.
+3. If the user asks about categories or breakdowns, call group_by_dimension with a category column and the metric column.
+4. If the user asks about time trends, call build_trend with a date column and the metric column.
+5. When you have enough evidence, respond with ONLY valid JSON matching this exact shape (no tool calls, no markdown):
 
 {
   "metricColumn": "column_name",
@@ -138,7 +147,8 @@ Rules:
 - aggregation must be one of: sum, avg, count, min, max
 - chartTypes must be from: bar, line, pie, scatter, histogram
 - Do NOT include markdown, code fences, or explanations outside the JSON
-- Base your column choices on actual tool results, not guesses`
+- Base your column choices on actual tool results, not guesses
+- IMPORTANT: Always call aggregate_metric at least once with the metric column. Always call build_trend if there is a date column. Always call group_by_dimension if there is a category column.`
 
 	// Build metadata-only prompt (no raw rows)
 	metas := MetadataFromDatasets(req.Datasets)
@@ -228,6 +238,16 @@ Rules:
 					})
 				}
 			}
+
+			// After the first round of tool calls, remind the LLM to stop
+			// calling tools and produce the final JSON plan.
+			if i == 0 {
+				messages = append(messages, map[string]interface{}{
+					"role":    "user",
+					"content": "You have gathered enough data. Now respond with ONLY the final JSON plan — no more tool calls. Use the exact JSON shape specified in the system prompt.",
+				})
+			}
+
 			continue
 		}
 
@@ -317,13 +337,13 @@ func (a *LLMAnalyzer) chatCompletion(ctx context.Context, messages []map[string]
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, a.config.NVIDIABaseURL+"/chat/completions", bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, a.config.BaseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+normalizeBearer(a.config.NVIDIAAPIKey))
+	httpReq.Header.Set("Authorization", "Bearer "+normalizeBearer(a.config.APIKey))
 
 	resp, err := a.client.Do(httpReq)
 	if err != nil {

@@ -12,6 +12,7 @@ import { UploadArea } from "@/components/UploadArea";
 import { AnalysisPrompt } from "@/components/AnalysisPrompt";
 import { DashboardView, AnalysisSkeleton } from "@/components/DashboardView";
 import { PinnedDashboard } from "@/components/PinnedDashboard";
+import { DataConnections } from "@/components/DataConnections";
 import {
   checkBackend,
   fetchDatasets,
@@ -22,6 +23,7 @@ import {
   fetchPinnedCharts,
   pinChart as apiPinChart,
   unpinChart as apiUnpinChart,
+  fetchConnections,
 } from "@/lib/api";
 import { exportPlotsAsSvg, exportPlotsAsPdf } from "@/lib/export";
 import type {
@@ -29,7 +31,10 @@ import type {
   Dataset,
   BackendStatus,
   PinnedChart,
+  ConnectionConfig,
 } from "@/lib/api";
+
+type NavTab = "explore" | "dashboards" | "data" | "context" | "share";
 
 export default function Workspace() {
   const dashboardRef = useRef<HTMLDivElement | null>(null);
@@ -43,8 +48,8 @@ export default function Workspace() {
   const [backendStatus, setBackendStatus] = useState<BackendStatus>("checking");
   const [error, setError] = useState<string | null>(null);
   const [pinnedCharts, setPinnedCharts] = useState<PinnedChart[]>([]);
-  const [showPinned, setShowPinned] = useState(false);
-  const [activeNav, setActiveNav] = useState("explore");
+  const [activeNav, setActiveNav] = useState<NavTab>("explore");
+  const [connections, setConnections] = useState<ConnectionConfig[]>([]);
 
   // --- Initialization ---
 
@@ -55,7 +60,7 @@ export default function Workspace() {
 
   async function init() {
     setBackendStatus(await checkBackend());
-    await Promise.all([loadDatasets(), loadPinnedCharts()]);
+    await Promise.all([loadDatasets(), loadPinnedCharts(), loadConnections()]);
   }
 
   async function loadDatasets() {
@@ -71,6 +76,14 @@ export default function Workspace() {
       setPinnedCharts(await fetchPinnedCharts());
     } catch (e) {
       console.error("Failed to fetch pinned charts", e);
+    }
+  }
+
+  async function loadConnections() {
+    try {
+      setConnections(await fetchConnections());
+    } catch (e) {
+      console.error("Failed to fetch connections", e);
     }
   }
 
@@ -175,6 +188,11 @@ export default function Workspace() {
     }
   }
 
+  function handleConnectionCreated(datasetId: string, filename: string) {
+    loadDatasets();
+    setSelectedDatasetIds((prev) => [...prev, datasetId]);
+  }
+
   function downloadBlob(blob: Blob, filename: string) {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -186,6 +204,16 @@ export default function Workspace() {
     URL.revokeObjectURL(url);
   }
 
+  // --- Nav-based page title ---
+
+  const pageTitle: Record<NavTab, { subtitle: string; title: string }> = {
+    explore: { subtitle: "Explore Workspace", title: "AI Data Analyst" },
+    dashboards: { subtitle: "Dashboards", title: "Pinned Dashboards" },
+    data: { subtitle: "Data Sources", title: "Connections & Datasets" },
+    context: { subtitle: "Context", title: "Verified Context" },
+    share: { subtitle: "Share", title: "Share & Export" },
+  };
+
   // --- Render ---
 
   return (
@@ -196,33 +224,23 @@ export default function Workspace() {
         onToggleDataset={toggleDataset}
         onConnectSource={handleConnectSource}
         activeNav={activeNav}
-        onNavChange={setActiveNav}
+        onNavChange={(nav) => setActiveNav(nav as NavTab)}
       />
 
       <main className="flex-1 overflow-y-auto">
         <header className="px-8 py-6 flex justify-between items-center border-b border-slate-200 bg-white">
           <div className="flex items-center gap-4">
             <div>
-              <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Explore Workspace</p>
-              <h1 className="text-2xl font-bold text-slate-900">AI Data Analyst</h1>
+              <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">
+                {pageTitle[activeNav].subtitle}
+              </p>
+              <h1 className="text-2xl font-bold text-slate-900">
+                {pageTitle[activeNav].title}
+              </h1>
             </div>
-            <button
-              onClick={() => {
-                setShowPinned(!showPinned);
-                setActiveNav(showPinned ? "explore" : "dashboards");
-              }}
-              className={`ml-4 px-3 py-1 rounded-full text-xs font-bold uppercase flex items-center gap-1.5 transition-all ${
-                showPinned
-                  ? "bg-indigo-600 text-white shadow-md"
-                  : "bg-slate-100 text-slate-500 hover:bg-slate-200"
-              }`}
-            >
-              <LayoutDashboard size={12} />
-              {showPinned ? "Exit Dashboard" : "Pinned Dashboard"}
-            </button>
           </div>
           <div className="flex items-center gap-3">
-            {!showPinned && (
+            {activeNav === "explore" && (
               <>
                 <button
                   onClick={handleExportCsv}
@@ -265,13 +283,15 @@ export default function Workspace() {
         </header>
 
         <div className="p-8 max-w-6xl mx-auto space-y-8">
-          {!showPinned ? (
+          {/* --- EXPLORE TAB --- */}
+          {activeNav === "explore" && (
             <>
               <UploadArea
                 datasets={availableDatasets}
                 selectedDatasetIds={selectedDatasetIds}
                 onToggleDataset={toggleDataset}
                 onFileUpload={handleFileUpload}
+                onConnectDatabase={() => setActiveNav("data")}
                 uploadLoading={uploadLoading}
               />
 
@@ -294,8 +314,76 @@ export default function Workspace() {
                 />
               )}
             </>
-          ) : (
+          )}
+
+          {/* --- DASHBOARDS TAB --- */}
+          {activeNav === "dashboards" && (
             <PinnedDashboard charts={pinnedCharts} onUnpin={handleUnpinChart} />
+          )}
+
+          {/* --- DATA TAB --- */}
+          {activeNav === "data" && (
+            <DataConnections
+              connections={connections}
+              onRefreshConnections={loadConnections}
+              onConnectionCreated={handleConnectionCreated}
+            />
+          )}
+
+          {/* --- CONTEXT TAB --- */}
+          {activeNav === "context" && (
+            <div className="space-y-4">
+              <h2 className="text-lg font-bold text-slate-900">Verified Context</h2>
+              <div className="p-4 rounded-xl bg-slate-800/50 border border-slate-200 space-y-2">
+                <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
+                  <span>Business Rules</span>
+                  <span className="px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-600 text-[10px]">Verified</span>
+                </div>
+                <ul className="text-sm space-y-1 text-slate-600 list-disc pl-4">
+                  <li>Revenue excludes failed payments.</li>
+                  <li>Enterprise is ARR &gt; $50k.</li>
+                  <li>Churn risk is measured as a percentage.</li>
+                </ul>
+              </div>
+            </div>
+          )}
+
+          {/* --- SHARE TAB --- */}
+          {activeNav === "share" && (
+            <div className="space-y-4">
+              <h2 className="text-lg font-bold text-slate-900">Share & Export</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <button
+                  onClick={handleExportCsv}
+                  className="p-6 bg-white rounded-xl border border-slate-200 shadow-sm hover:border-indigo-300 hover:shadow-md transition-all text-left"
+                >
+                  <FileDown size={24} className="text-indigo-500 mb-2" />
+                  <div className="text-sm font-semibold text-slate-800">Export Cleaned CSV</div>
+                  <div className="text-xs text-slate-400 mt-1">Download selected datasets as CSV</div>
+                </button>
+                <button
+                  onClick={handleExportSvg}
+                  className="p-6 bg-white rounded-xl border border-slate-200 shadow-sm hover:border-indigo-300 hover:shadow-md transition-all text-left"
+                >
+                  <FileType2 size={24} className="text-indigo-500 mb-2" />
+                  <div className="text-sm font-semibold text-slate-800">Export SVG</div>
+                  <div className="text-xs text-slate-400 mt-1">Save dashboard plots as SVG</div>
+                </button>
+                <button
+                  onClick={handleExportPdf}
+                  className="p-6 bg-white rounded-xl border border-slate-200 shadow-sm hover:border-indigo-300 hover:shadow-md transition-all text-left"
+                >
+                  <Download size={24} className="text-indigo-500 mb-2" />
+                  <div className="text-sm font-semibold text-slate-800">Export PDF</div>
+                  <div className="text-xs text-slate-400 mt-1">Save dashboard as PDF report</div>
+                </button>
+                <div className="p-6 bg-white rounded-xl border border-slate-200 shadow-sm opacity-50">
+                  <LayoutDashboard size={24} className="text-slate-300 mb-2" />
+                  <div className="text-sm font-semibold text-slate-400">Share Link</div>
+                  <div className="text-xs text-slate-300 mt-1">Coming soon</div>
+                </div>
+              </div>
+            </div>
           )}
         </div>
       </main>

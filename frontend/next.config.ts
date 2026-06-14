@@ -1,13 +1,15 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  turbopack: {
-    root: process.cwd(),
+  // Static export: no SSR, no API routes, no server components
+  // All pages are pre-rendered to HTML at build time
+  output: "export",
+  // Output directory for static export
+  distDir: "out",
+  // Disable image optimization for static output
+  images: {
+    unoptimized: true,
   },
 };
-
-module.exports = {
-  allowedDevOrigins: ['192.168.0.112'],
-}
 
 export default nextConfig;

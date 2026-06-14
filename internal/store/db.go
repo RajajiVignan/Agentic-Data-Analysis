@@ -115,17 +115,26 @@ func extractProjectRef(url string) string {
 	return ref
 }
 
-func (db *DB) initSchema() error {
-	_, err := db.conn.Exec(`
+func buildSupabaseConnStr(projectRef, dbPassword string) string {
+	host := fmt.Sprintf("db.%s.supabase.co", projectRef)
+	return fmt.Sprintf("postgresql://postgres:***@%s:5432/postgres?sslmode=require", host)
+}
+
+func pinnedChartsSchemaSQL() string {
+	return `
 		CREATE TABLE IF NOT EXISTS pinned_charts (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			id TEXT PRIMARY KEY,
 			created_at TIMESTAMPTZ DEFAULT now(),
 			chart_type TEXT NOT NULL,
 			label TEXT,
 			data JSONB,
 			url TEXT
 		)
-	`)
+	`
+}
+
+func (db *DB) initSchema() error {
+	_, err := db.conn.Exec(pinnedChartsSchemaSQL())
 	return err
 }
 

@@ -76,8 +76,8 @@ type Analyzer interface {
 // Config holds configuration for the agent layer.
 type Config struct {
 	Enabled         bool
-	NVIDIAAPIKey    string
-	NVIDIABaseURL   string
+	APIKey          string
+	BaseURL         string
 	Model           string
 	MaxTokens       int
 	Temperature     float64
@@ -92,7 +92,7 @@ func DefaultConfig() Config {
 		Model:           "stepfun-ai/step-3.7-flash",
 		MaxTokens:       16384,
 		Temperature:     1.0,
-		TimeoutSec:      30,
+		TimeoutSec:      120,
 		FallbackOnError: true,
 	}
 }

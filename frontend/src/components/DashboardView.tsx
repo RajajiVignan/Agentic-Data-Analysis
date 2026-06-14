@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { MetricTile, TrendChart, SegmentChart, PythonPlot } from "@/components/Charts";
+import { MetricTile, PythonPlot } from "@/components/Charts";
 import type { AnalysisResult, PinnedChart } from "@/lib/api";
 
 type DashboardViewProps = {
@@ -19,10 +19,6 @@ function AnalysisSkeleton() {
         ))}
       </div>
       <div className="h-64 rounded-2xl border border-slate-200 bg-slate-100 animate-pulse" />
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="h-64 rounded-2xl border border-slate-200 bg-slate-100 animate-pulse" />
-        <div className="h-64 rounded-2xl border border-slate-200 bg-slate-100 animate-pulse" />
-      </div>
     </div>
   );
 }
@@ -50,17 +46,6 @@ export function DashboardView({ result, dashboardRef, onPinChart }: DashboardVie
           }
         />
       )}
-
-      <TrendChart
-        data={result.dashboard.trend}
-        onPin={() => onPinChart("trend", "Revenue Trend", result.dashboard.trend)}
-      />
-
-      <SegmentChart
-        data={result.dashboard.segments}
-        recommendations={result.dashboard.recommendations}
-        onPin={() => onPinChart("segment", "Segment Mix", result.dashboard.segments)}
-      />
 
       {result.warnings && result.warnings.length > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-700 space-y-1">

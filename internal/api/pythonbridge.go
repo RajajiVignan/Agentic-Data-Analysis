@@ -16,8 +16,8 @@ import (
 // LLMConfig holds the minimal config needed for LLM-driven code generation.
 type LLMConfig struct {
 	Enabled       bool
-	NVIDIAAPIKey  string
-	NVIDIABaseURL string
+	APIKey        string
+	BaseURL       string
 	Model         string
 	MaxTokens     int
 	Temperature   float64
@@ -134,7 +134,7 @@ func (pb *PythonBridge) ExecuteScript(scriptID, scriptContent, csvPath string) (
 // If the LLM is not configured, returns an empty string and nil error
 // (caller should fall back to GeneratePlotScript).
 func (pb *PythonBridge) GeneratePlotScriptLLM(scriptID, prompt string, profileJSON string) (string, error) {
-	if !pb.llmConfig.Enabled || pb.llmConfig.NVIDIAAPIKey == "" || pb.llmConfig.NVIDIABaseURL == "" {
+	if !pb.llmConfig.Enabled || pb.llmConfig.APIKey == "" || pb.llmConfig.BaseURL == "" {
 		return "", nil
 	}
 
@@ -209,17 +209,17 @@ Write a Python visualization script that best answers the user's question about 
 		timeout = 60
 	}
 
-	req, err := http.NewRequest(http.MethodPost, pb.llmConfig.NVIDIABaseURL+"/chat/completions", bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, pb.llmConfig.BaseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+normalizeBearer(pb.llmConfig.NVIDIAAPIKey))
+	req.Header.Set("Authorization", "Bearer "+normalizeBearer(pb.llmConfig.APIKey))
 
-	client := pb.httpClient
-	if client.Timeout == 0 {
-		client.Timeout = time.Duration(timeout) * time.Second
+	client := &http.Client{
+		Timeout: time.Duration(timeout) * time.Second,
+		Transport: pb.httpClient.Transport,
 	}
 
 	resp, err := client.Do(req)

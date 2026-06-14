@@ -159,6 +159,13 @@ func parseDateStr(s string) (time.Time, error) {
 		"2006-01",
 		"2006/01",
 		"2006",
+		"01/02/2006",
+		"01-02-2006",
+		"January 2, 2006",
+		"Jan 2, 2006",
+		"2 Jan 2006",
+		"2006-01-02T15:04:05Z",
+		"2006-01-02 15:04:05",
 	}
 	for _, f := range formats {
 		if t, err := time.Parse(f, s); err == nil {

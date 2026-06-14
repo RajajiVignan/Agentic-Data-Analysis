@@ -32,25 +32,30 @@ func main() {
 
 	// Configure the agent layer
 	agentCfg := agent.DefaultConfig()
-	agentCfg.Enabled = os.Getenv("NVIDIA_API_KEY") != "" && os.Getenv("NVIDIA_API_KEY") != "YOUR_NVIDIA_API_KEY"
-	agentCfg.NVIDIAAPIKey = os.Getenv("NVIDIA_API_KEY")
-	agentCfg.NVIDIABaseURL = os.Getenv("NVIDIA_BASE_URL")
-	if v := strings.TrimSpace(os.Getenv("NVIDIA_MODEL")); v != "" {
+	agentCfg.Enabled = os.Getenv("OPENROUTER_API_KEY") != "" && os.Getenv("OPENROUTER_API_KEY") != "YOUR_OPENROUTER_API_KEY"
+	agentCfg.APIKey = os.Getenv("OPENROUTER_API_KEY")
+	agentCfg.BaseURL = os.Getenv("OPENROUTER_BASE_URL")
+	if v := strings.TrimSpace(os.Getenv("OPENROUTER_MODEL")); v != "" {
 		agentCfg.Model = v
 	}
-	if v := strings.TrimSpace(os.Getenv("NVIDIA_MAX_TOKENS")); v != "" {
+	if v := strings.TrimSpace(os.Getenv("OPENROUTER_MAX_TOKENS")); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			agentCfg.MaxTokens = n
 		}
 	}
-	if v := strings.TrimSpace(os.Getenv("NVIDIA_TEMPERATURE")); v != "" {
+	if v := strings.TrimSpace(os.Getenv("OPENROUTER_TEMPERATURE")); v != "" {
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
 			agentCfg.Temperature = f
 		}
 	}
+	if v := strings.TrimSpace(os.Getenv("OPENROUTER_TIMEOUT_SEC")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			agentCfg.TimeoutSec = n
+		}
+	}
 
 	if agentCfg.Enabled {
-		log.Println("LLM analyzer enabled (NVIDIA API key configured)")
+		log.Println("LLM analyzer enabled (OpenRouter API key configured)")
 	} else {
 		log.Println("LLM analyzer disabled, using deterministic analyzer")
 	}
