@@ -59,6 +59,19 @@ func (ps *PinnedChartService) loadFromDB() {
 	fmt.Printf("Loaded %d pinned charts from database\n", len(records))
 }
 
+// GetByIDs returns pinned charts matching the given IDs.
+func (ps *PinnedChartService) GetByIDs(ids []string) []*PinnedChart {
+	ps.mu.RLock()
+	defer ps.mu.RUnlock()
+	result := make([]*PinnedChart, 0, len(ids))
+	for _, id := range ids {
+		if pc, ok := ps.charts[id]; ok {
+			result = append(result, pc)
+		}
+	}
+	return result
+}
+
 // GetAll returns all pinned charts.
 func (ps *PinnedChartService) GetAll() []*PinnedChart {
 	ps.mu.RLock()
@@ -76,7 +89,7 @@ func (ps *PinnedChartService) Add(chartType, label string, data any, urlStr stri
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 
-	id := fmt.Sprintf("%d", time.Now().UnixNano())
+	id := newID()
 	pc := &PinnedChart{
 		ID:        id,
 		ChartType: chartType,

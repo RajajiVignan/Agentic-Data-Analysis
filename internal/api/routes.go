@@ -46,8 +46,15 @@ func (h *Handler) chiRouter() http.Handler {
 		})
 	})
 
+	// Auth middleware
+	r.Use(h.authMiddleware)
+
 	// API routes
 	r.Route("/api", func(r chi.Router) {
+		r.Post("/auth/register", h.handleRegister)
+		r.Post("/auth/login", h.handleLogin)
+		r.Post("/auth/logout", h.handleLogout)
+		r.Get("/auth/me", h.handleMe)
 		r.Get("/health", h.handleHealth)
 		r.Get("/datasets", h.handleGetDatasets)
 		r.Post("/upload", h.handleUpload)
@@ -62,6 +69,15 @@ func (h *Handler) chiRouter() http.Handler {
 		r.Post("/connections", h.handleConnectionCreate)
 		r.Delete("/connections", h.handleConnectionDelete)
 		r.Get("/python-plot", h.handlePythonPlot)
+		r.Post("/refresh-dataset", h.handleRefreshDataset)
+		r.Get("/dashboards", h.handleListDashboards)
+		r.Post("/dashboards", h.handleCreateDashboard)
+		r.Put("/dashboards/{id}", h.handleRenameDashboard)
+		r.Delete("/dashboards/{id}", h.handleDeleteDashboard)
+		r.Post("/dashboards/{id}/charts", h.handleAddChartToDashboard)
+		r.Delete("/dashboards/{id}/charts/{chartId}", h.handleRemoveChartFromDashboard)
+		r.Post("/share", h.handleCreateShareLink)
+		r.Get("/shared/{token}", h.handleGetSharedDashboard)
 	})
 
 	// Generated plots
@@ -240,7 +256,7 @@ func corsMiddleware(allowedOrigins map[string]bool) func(http.Handler) http.Hand
 				}
 			}
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 			if r.Method == "OPTIONS" {
 				w.WriteHeader(http.StatusNoContent)
 				return

@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { FileText, CheckCircle2, Database } from "lucide-react";
+import { FileText, CheckCircle2, Database, RefreshCw, Loader2 } from "lucide-react";
 import type { Dataset } from "@/lib/api";
 
 type UploadAreaProps = {
@@ -10,6 +10,8 @@ type UploadAreaProps = {
   onToggleDataset: (id: string) => void;
   onFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onConnectDatabase: () => void;
+  onRefreshDataset?: (id: string) => Promise<void>;
+  refreshingId?: string | null;
   uploadLoading: boolean;
 };
 
@@ -19,6 +21,8 @@ export function UploadArea({
   onToggleDataset,
   onFileUpload,
   onConnectDatabase,
+  onRefreshDataset,
+  refreshingId,
   uploadLoading,
 }: UploadAreaProps) {
   return (
@@ -72,6 +76,20 @@ export function UploadArea({
                 <div className="w-3.5 h-3.5 rounded-full border-2 border-slate-300" />
               )}
               {ds.filename}
+              {ds.liveDb && onRefreshDataset && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onRefreshDataset(ds.id); }}
+                  disabled={refreshingId === ds.id}
+                  className="ml-1 p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                  title="Refresh data from database"
+                >
+                  {refreshingId === ds.id ? (
+                    <Loader2 size={12} className="animate-spin" />
+                  ) : (
+                    <RefreshCw size={12} />
+                  )}
+                </button>
+              )}
             </div>
           ))
         )}

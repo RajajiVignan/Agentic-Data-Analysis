@@ -6,3 +6,10 @@ CREATE TABLE IF NOT EXISTS pinned_charts (
     data JSONB,
     url TEXT
 );
+
+CREATE TABLE IF NOT EXISTS dashboards (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    chart_ids JSONB DEFAULT '[]'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT now()
+);

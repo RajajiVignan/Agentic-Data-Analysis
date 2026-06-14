@@ -37,6 +37,21 @@ func (a *DeterministicAnalyzer) Analyze(ctx context.Context, req AnalysisRequest
 
 	narrative := buildNarrative(req.Prompt, primary, metricCol, catCol, dateCol)
 
+	// Generate SQL queries if the dataset has a live database connection
+	var sqlQueries []string
+	if primary.ConnectionString != "" && primary.TableName != "" {
+		sqlQueries = generateSQLQueries(primary.TableName, metricCol, catCol, dateCol)
+	}
+
+	notebook := []NotebookStep{
+		{Title: "Data Profile", Body: fmt.Sprintf("Dataset %q has %d rows and %d columns.", primary.Filename, primary.Profile.RowCount, len(primary.Profile.Columns))},
+		{Title: "Column Selection", Body: fmt.Sprintf("Metric: %s, Category: %s, Date: %s", colName(metricCol), colName(catCol), colName(dateCol))},
+		{Title: "Analysis", Body: narrative},
+	}
+	if len(sqlQueries) > 0 {
+		notebook = append(notebook, NotebookStep{Title: "Generated SQL", Body: strings.Join(sqlQueries, "\n\n")})
+	}
+
 	return AnalysisResponse{
 		Question: req.Prompt,
 		Dataset: DatasetSummary{
@@ -44,11 +59,8 @@ func (a *DeterministicAnalyzer) Analyze(ctx context.Context, req AnalysisRequest
 			Filename: primary.Filename,
 			RowCount: primary.Profile.RowCount,
 		},
-		Notebook: []NotebookStep{
-			{Title: "Data Profile", Body: fmt.Sprintf("Dataset %q has %d rows and %d columns.", primary.Filename, primary.Profile.RowCount, len(primary.Profile.Columns))},
-			{Title: "Column Selection", Body: fmt.Sprintf("Metric: %s, Category: %s, Date: %s", colName(metricCol), colName(catCol), colName(dateCol))},
-			{Title: "Analysis", Body: narrative},
-		},
+		Notebook:  notebook,
+		SQLQueries: sqlQueries,
 		Dashboard: DashboardSpec{
 			Title:           "Insights Board",
 			KPIs:            kpis,
@@ -60,6 +72,39 @@ func (a *DeterministicAnalyzer) Analyze(ctx context.Context, req AnalysisRequest
 		Warnings:          warnings,
 		UsedDeterministic: true,
 	}, nil
+}
+
+// generateSQLQueries generates SQL that matches the deterministic analysis logic.
+func generateSQLQueries(tableName string, metricCol, catCol, dateCol *data.Column) []string {
+	var queries []string
+
+	if metricCol != nil {
+		queries = append(queries,
+			fmt.Sprintf("-- Total metric\nSELECT SUM(%s) AS total, AVG(%s) AS average, MIN(%s) AS min, MAX(%s) AS max\nFROM %s;",
+				quoteCol(metricCol.Name), quoteCol(metricCol.Name), quoteCol(metricCol.Name), quoteCol(metricCol.Name), quoteIdent(tableName)))
+	}
+
+	if catCol != nil && metricCol != nil {
+		queries = append(queries,
+			fmt.Sprintf("-- Breakdown by %s\nSELECT %s, SUM(%s) AS total\nFROM %s\nGROUP BY %s\nORDER BY total DESC;",
+				catCol.Name, quoteCol(catCol.Name), quoteCol(metricCol.Name), quoteIdent(tableName), quoteCol(catCol.Name)))
+	}
+
+	if dateCol != nil && metricCol != nil {
+		queries = append(queries,
+			fmt.Sprintf("-- Trend over %s\nSELECT %s, SUM(%s) AS total\nFROM %s\nGROUP BY %s\nORDER BY %s;",
+				dateCol.Name, quoteCol(dateCol.Name), quoteCol(metricCol.Name), quoteIdent(tableName), quoteCol(dateCol.Name), quoteCol(dateCol.Name)))
+	}
+
+	return queries
+}
+
+func quoteIdent(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
+
+func quoteCol(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
 
 func buildNarrative(prompt string, ds *data.Dataset, metricCol, catCol, dateCol *data.Column) string {

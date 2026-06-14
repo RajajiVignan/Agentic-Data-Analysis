@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 
 	"insightpilot/internal/data"
 )
@@ -72,7 +71,7 @@ func HandleUpload(w http.ResponseWriter, r *http.Request, cfg UploadConfig, data
 		return
 	}
 
-	id := fmt.Sprintf("%d", time.Now().UnixNano())
+	id := newID()
 	filePath := filepath.Join(cfg.UploadDir, fmt.Sprintf("%s-%s", id, safeName))
 	if err := os.WriteFile(filePath, content, 0644); err != nil {
 		SendJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to save file"})

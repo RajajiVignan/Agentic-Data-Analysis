@@ -117,7 +117,7 @@ func extractProjectRef(url string) string {
 
 func buildSupabaseConnStr(projectRef, dbPassword string) string {
 	host := fmt.Sprintf("db.%s.supabase.co", projectRef)
-	return fmt.Sprintf("postgresql://postgres:***@%s:5432/postgres?sslmode=require", host)
+	return fmt.Sprintf("postgresql://postgres:%s@%s:5432/postgres?sslmode=require", dbPassword, host)
 }
 
 func pinnedChartsSchemaSQL() string {
@@ -134,8 +134,10 @@ func pinnedChartsSchemaSQL() string {
 }
 
 func (db *DB) initSchema() error {
-	_, err := db.conn.Exec(pinnedChartsSchemaSQL())
-	return err
+	if _, err := db.conn.Exec(pinnedChartsSchemaSQL()); err != nil {
+		return err
+	}
+	return db.initDashboardsTable()
 }
 
 // Close closes the database connection.
@@ -229,5 +231,75 @@ func (db *DB) InitDatasetsTable() error {
 			created_at TIMESTAMPTZ DEFAULT now()
 		)
 	`)
+	return err
+}
+
+// --- Dashboards ---
+
+// DashboardRecord represents a row in the dashboards table.
+type DashboardRecord struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	ChartIDs  []string  `json:"chart_ids"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func (db *DB) initDashboardsTable() error {
+	_, err := db.conn.Exec(`
+		CREATE TABLE IF NOT EXISTS dashboards (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			chart_ids JSONB DEFAULT '[]'::jsonb,
+			created_at TIMESTAMPTZ DEFAULT now()
+		)
+	`)
+	return err
+}
+
+// SaveDashboard inserts or updates a dashboard.
+func (db *DB) SaveDashboard(id, name string, chartIDs []string) error {
+	idsJSON, err := json.Marshal(chartIDs)
+	if err != nil {
+		return fmt.Errorf("marshal chart IDs: %w", err)
+	}
+	_, err = db.conn.Exec(
+		`INSERT INTO dashboards (id, name, chart_ids) VALUES ($1, $2, $3)
+		 ON CONFLICT (id) DO UPDATE SET name=$2, chart_ids=$3`,
+		id, name, idsJSON,
+	)
+	return err
+}
+
+// GetDashboards retrieves all dashboards from the database.
+func (db *DB) GetDashboards() ([]DashboardRecord, error) {
+	rows, err := db.conn.Query(
+		`SELECT id, name, COALESCE(chart_ids, '[]'::jsonb), created_at FROM dashboards ORDER BY created_at ASC`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query dashboards: %w", err)
+	}
+	defer rows.Close()
+
+	var dashboards []DashboardRecord
+	for rows.Next() {
+		var d DashboardRecord
+		var idsJSON []byte
+		if err := rows.Scan(&d.ID, &d.Name, &idsJSON, &d.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan dashboard: %w", err)
+		}
+		if len(idsJSON) > 0 {
+			json.Unmarshal(idsJSON, &d.ChartIDs)
+		}
+		if d.ChartIDs == nil {
+			d.ChartIDs = []string{}
+		}
+		dashboards = append(dashboards, d)
+	}
+	return dashboards, rows.Err()
+}
+
+// DeleteDashboard removes a dashboard by ID.
+func (db *DB) DeleteDashboard(id string) error {
+	_, err := db.conn.Exec(`DELETE FROM dashboards WHERE id = $1`, id)
 	return err
 }

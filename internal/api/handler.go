@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
@@ -18,21 +19,27 @@ import (
 	"insightpilot/internal/agent"
 	"insightpilot/internal/data"
 	"insightpilot/internal/store"
+
+	_ "github.com/lib/pq"
 )
 
 // Handler is the top-level HTTP handler. It delegates to specialized services
 // for pinned charts and plot generation.
 type Handler struct {
-	datasets         map[string]*data.Dataset
-	connections      map[string]data.Connection
+	datasets          map[string]*data.Dataset
+	connections       map[string]data.Connection
 	connectionConfigs map[string]*ConnectionConfig
-	analyzer         agent.Analyzer
-	db               *store.DB
-	pinnedSvc        *PinnedChartService
-	plotService      *PlotService
-	uploadDir        string
-	allowedOrigins   map[string]bool
-	mu               sync.RWMutex
+	analyzer          agent.Analyzer
+	db                *store.DB
+	pinnedSvc         *PinnedChartService
+	dashboardSvc      *DashboardService
+	plotService       *PlotService
+	shareSvc          *ShareService
+	auth              *AuthService
+	duckdb            *data.DuckDBEngine
+	uploadDir         string
+	allowedOrigins    map[string]bool
+	mu                sync.RWMutex
 }
 
 // NewHandler creates a new Handler with all services initialized.
@@ -56,16 +63,22 @@ func NewHandler(cfg agent.Config) *Handler {
 	pb.SetLLMConfig(llmCfg)
 
 	h := &Handler{
-		datasets:         make(map[string]*data.Dataset),
-		connections:      make(map[string]data.Connection),
+		datasets:          make(map[string]*data.Dataset),
+		connections:       make(map[string]data.Connection),
 		connectionConfigs: make(map[string]*ConnectionConfig),
-		analyzer:         agent.NewLLMAnalyzer(cfg),
-		db:               db,
-		pinnedSvc:        NewPinnedChartService(db),
-		plotService:      NewPlotService(plotsDir, uploadDir, pb),
-		uploadDir:        uploadDir,
-		allowedOrigins:   configuredAllowedOrigins(),
+		analyzer:          agent.NewLLMAnalyzer(cfg),
+		db:                db,
+		pinnedSvc:         NewPinnedChartService(db),
+		dashboardSvc:      NewDashboardService(db),
+		plotService:       NewPlotService(plotsDir, uploadDir, pb),
+		shareSvc:          NewShareService(),
+		auth:              NewAuthService(),
+		duckdb:            data.NewDuckDBEngine(plotsDir),
+		uploadDir:         uploadDir,
 	}
+
+	setDuckDBEngine(h.duckdb)
+	h.allowedOrigins = configuredAllowedOrigins()
 
 	h.plotService.StartCleanup()
 
@@ -106,14 +119,21 @@ func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleGetDatasets(w http.ResponseWriter, r *http.Request) {
+	userID := h.currentUserID(r)
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	list := make([]map[string]interface{}, 0, len(h.datasets))
 	for _, d := range h.datasets {
+		if d.OwnerID != "" && d.OwnerID != userID {
+			continue
+		}
 		list = append(list, map[string]interface{}{
-			"id":       d.ID,
-			"filename": d.Filename,
-			"profile":  d.Profile,
+			"id":             d.ID,
+			"filename":       d.Filename,
+			"profile":        d.Profile,
+			"liveDb":         d.ConnectionString != "",
+			"tableName":      d.TableName,
+			"connectionInfo": map[string]string{"table": d.TableName},
 		})
 	}
 	h.sendJSON(w, http.StatusOK, map[string]interface{}{"datasets": list})
@@ -141,6 +161,7 @@ func (h *Handler) handleConnectSource(w http.ResponseWriter, r *http.Request) {
 	dataset := &data.Dataset{
 		ID:       id,
 		Filename: filename,
+		OwnerID:  h.currentUserID(r),
 		Profile: data.Profile{
 			RowCount: len(rows),
 			Columns: []data.Column{
@@ -236,7 +257,7 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-id := fmt.Sprintf("%d", time.Now().UnixNano())
+id := newID()
 	safeName := sanitizeFilename(header.Filename)
 	ext := strings.ToLower(filepath.Ext(safeName))
 	if ext != ".csv" && ext != ".json" {
@@ -288,6 +309,7 @@ id := fmt.Sprintf("%d", time.Now().UnixNano())
 		FilePath: filePath,
 		Profile:  profile,
 		Rows:     rowObjects,
+		OwnerID:  h.currentUserID(r),
 	}
 
 	h.mu.Lock()
@@ -387,6 +409,7 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		"assumptions":        resp.Assumptions,
 		"warnings":           resp.Warnings,
 		"used_deterministic": resp.UsedDeterministic,
+		"sqlQueries":         resp.SQLQueries,
 	})
 }
 
@@ -489,6 +512,77 @@ func (h *Handler) handleUnpinChart(w http.ResponseWriter, r *http.Request) {
 	h.sendJSON(w, http.StatusOK, map[string]interface{}{"ok": true})
 }
 
+func (h *Handler) handleRefreshDataset(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "id query parameter required"})
+		return
+	}
+
+	h.mu.Lock()
+	ds, ok := h.datasets[id]
+	if !ok {
+		h.mu.Unlock()
+		SendJSON(w, http.StatusNotFound, map[string]string{"error": "Dataset not found"})
+		return
+	}
+
+	if ds.ConnectionString == "" || ds.TableName == "" {
+		h.mu.Unlock()
+		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "Dataset is not connected to a live database, cannot refresh"})
+		return
+	}
+
+	connStr := ds.ConnectionString
+	tableName := ds.TableName
+	h.mu.Unlock()
+
+	db, err := sql.Open("postgres", connStr)
+	if err != nil {
+		SendJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to open database: " + err.Error()})
+		return
+	}
+	defer db.Close()
+	db.SetConnMaxLifetime(10 * time.Second)
+
+	rows, _, err := fetchTableData(db, tableName, 1000)
+	if err != nil {
+		SendJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to fetch data: " + err.Error()})
+		return
+	}
+
+	if len(rows) == 0 {
+		SendJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "message": "Table is empty", "rowCount": 0})
+		return
+	}
+
+	cols := detectColumns(rows)
+
+	newDS := &data.Dataset{
+		ID:               ds.ID,
+		Filename:         ds.Filename,
+		FilePath:         ds.FilePath,
+		Profile:          data.Profile{RowCount: len(rows), Columns: cols},
+		Rows:             rows,
+		ConnectionString: connStr,
+		TableName:        tableName,
+	}
+	if ds.FilePath != "" {
+		newDS.FilePath = ds.FilePath
+	}
+
+	h.mu.Lock()
+	h.datasets[id] = newDS
+	h.mu.Unlock()
+
+	log.Printf("[refresh] Refreshed dataset %s (%s) — %d rows", id, ds.Filename, len(rows))
+
+	SendJSON(w, http.StatusOK, map[string]interface{}{
+		"ok":       true,
+		"rowCount": len(rows),
+	})
+}
+
 func (h *Handler) handlePythonPlot(w http.ResponseWriter, r *http.Request) {
 	h.mu.RLock()
 	datasets := h.datasets
@@ -542,6 +636,58 @@ func execPlan(plan *agent.LLMPlan, ds *data.Dataset, resp *agent.AnalysisRespons
 		}
 	}
 
+	if metricCol == nil {
+		title := plan.Title
+		if title == "" {
+			title = "Insights Board"
+		}
+		resp.Dashboard = agent.DashboardSpec{
+			Title:           title,
+			KPIs:            []map[string]string{},
+			Trend:           []map[string]interface{}{},
+			Segments:        []map[string]interface{}{},
+			Recommendations: plan.Recommendations,
+		}
+		if len(plan.Assumptions) > 0 {
+			resp.Assumptions = append(plan.Assumptions, resp.Assumptions...)
+		}
+		return
+	}
+
+	// Check if we can use DuckDB (file-backed dataset with engine available)
+	duckDB := getDuckDBEngine()
+	if ds.FilePath != "" && duckDB != nil {
+		kpis, kpiSQL := duckDBKPI(duckDB, ds, metricCol)
+		trend, trendSQL := duckDBTrend(duckDB, ds, dateCol, metricCol)
+		segments, segSQL := duckDBSegments(duckDB, ds, catCol, metricCol)
+		title := plan.Title
+		if title == "" {
+			title = "Insights Board"
+		}
+		resp.Dashboard = agent.DashboardSpec{
+			Title:           title,
+			KPIs:            kpis,
+			Trend:           trend,
+			Segments:        segments,
+			Recommendations: plan.Recommendations,
+		}
+		sqls := make([]string, 0, 3)
+		if kpiSQL != "" {
+			sqls = append(sqls, kpiSQL)
+		}
+		if trendSQL != "" {
+			sqls = append(sqls, trendSQL)
+		}
+		if segSQL != "" {
+			sqls = append(sqls, segSQL)
+		}
+		resp.SQLQueries = append(resp.SQLQueries, sqls...)
+		if len(plan.Assumptions) > 0 {
+			resp.Assumptions = append(plan.Assumptions, resp.Assumptions...)
+		}
+		return
+	}
+
 	kpis := data.BuildKPIs(ds.Rows, metricCol, catCol)
 	trend := data.BuildTrend(ds.Rows, dateCol, metricCol)
 	segments := data.BuildSegments(ds.Rows, catCol, metricCol)
@@ -568,6 +714,105 @@ func execPlan(plan *agent.LLMPlan, ds *data.Dataset, resp *agent.AnalysisRespons
 	if len(plan.Assumptions) > 0 {
 		resp.Assumptions = append(plan.Assumptions, resp.Assumptions...)
 	}
+}
+
+var duckDBEngine *data.DuckDBEngine
+
+func setDuckDBEngine(e *data.DuckDBEngine) {
+	duckDBEngine = e
+}
+
+func getDuckDBEngine() *data.DuckDBEngine {
+	return duckDBEngine
+}
+
+func duckDBKPI(duckDB *data.DuckDBEngine, ds *data.Dataset, metricCol *data.Column) ([]map[string]string, string) {
+	if metricCol == nil {
+		return []map[string]string{}, ""
+	}
+	sql := fmt.Sprintf(`SELECT 
+		SUM(CAST("%s" AS DOUBLE)) as total,
+		AVG(CAST("%s" AS DOUBLE)) as avg_val,
+		MIN(CAST("%s" AS DOUBLE)) as min_val,
+		MAX(CAST("%s" AS DOUBLE)) as max_val,
+		COUNT(*) as row_count
+	FROM data WHERE CAST("%s" AS DOUBLE) IS NOT NULL`,
+		metricCol.Name, metricCol.Name, metricCol.Name, metricCol.Name, metricCol.Name)
+	results, err := duckDB.QueryKPIs(ds.FilePath, metricCol.Name)
+	if err != nil {
+		log.Printf("[duckdb] KPI query failed: %v, falling back to in-memory", err)
+		return data.BuildKPIs(ds.Rows, metricCol, nil), sql
+	}
+	kpis := make([]map[string]string, 0)
+	for _, row := range results {
+		if total, ok := row["total"]; ok && total != "" {
+			kpis = append(kpis, map[string]string{"label": "Total", "value": total, "change": "Sum"})
+		}
+		if avg, ok := row["avg_val"]; ok && avg != "" {
+			kpis = append(kpis, map[string]string{"label": "Average", "value": avg, "change": "Per row"})
+		}
+		if cnt, ok := row["row_count"]; ok && cnt != "" {
+			kpis = append(kpis, map[string]string{"label": "Rows", "value": cnt, "change": "Count"})
+		}
+		break
+	}
+	return kpis, sql
+}
+
+func duckDBTrend(duckDB *data.DuckDBEngine, ds *data.Dataset, dateCol, metricCol *data.Column) ([]map[string]interface{}, string) {
+	if metricCol == nil || dateCol == nil {
+		return []map[string]interface{}{}, ""
+	}
+	sql := fmt.Sprintf(`SELECT 
+		CAST("%s" AS VARCHAR) as label,
+		SUM(CAST("%s" AS DOUBLE)) as value
+	FROM data 
+	WHERE CAST("%s" AS DOUBLE) IS NOT NULL AND "%s" IS NOT NULL
+	GROUP BY "%s"
+	ORDER BY label
+	LIMIT 20`,
+		dateCol.Name, metricCol.Name, metricCol.Name, dateCol.Name, dateCol.Name)
+	results, err := duckDB.QueryTrend(ds.FilePath, dateCol.Name, metricCol.Name)
+	if err != nil {
+		log.Printf("[duckdb] Trend query failed: %v, falling back to in-memory", err)
+		return data.BuildTrend(ds.Rows, dateCol, metricCol), sql
+	}
+	out := make([]map[string]interface{}, len(results))
+	for i, r := range results {
+		out[i] = make(map[string]interface{})
+		for k, v := range r {
+			out[i][k] = v
+		}
+	}
+	return out, sql
+}
+
+func duckDBSegments(duckDB *data.DuckDBEngine, ds *data.Dataset, catCol, metricCol *data.Column) ([]map[string]interface{}, string) {
+	if metricCol == nil || catCol == nil {
+		return []map[string]interface{}{}, ""
+	}
+	sql := fmt.Sprintf(`SELECT 
+		CAST("%s" AS VARCHAR) as label,
+		SUM(CAST("%s" AS DOUBLE)) as value
+	FROM data 
+	WHERE CAST("%s" AS DOUBLE) IS NOT NULL AND "%s" IS NOT NULL AND CAST("%s" AS VARCHAR) != ''
+	GROUP BY "%s"
+	ORDER BY value DESC
+	LIMIT 10`,
+		catCol.Name, metricCol.Name, metricCol.Name, catCol.Name, catCol.Name, catCol.Name)
+	results, err := duckDB.QuerySegments(ds.FilePath, catCol.Name, metricCol.Name)
+	if err != nil {
+		log.Printf("[duckdb] Segment query failed: %v, falling back to in-memory", err)
+		return data.BuildSegments(ds.Rows, catCol, metricCol), sql
+	}
+	out := make([]map[string]interface{}, len(results))
+	for i, r := range results {
+		out[i] = make(map[string]interface{})
+		for k, v := range r {
+			out[i][k] = v
+		}
+	}
+	return out, sql
 }
 
 func applyAggregation(kpis []map[string]string, agg string) []map[string]string {

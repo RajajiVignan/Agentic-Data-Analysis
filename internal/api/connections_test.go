@@ -10,7 +10,7 @@ import (
 	"insightpilot/internal/agent"
 )
 
-func TestConnectionTestMySQL(t *testing.T) {
+func TestConnectionTestMySQLUnsupported(t *testing.T) {
 	handler := NewHandler(agent.DefaultConfig())
 	mux := handler.Routes()
 
@@ -32,8 +32,12 @@ func TestConnectionTestMySQL(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("json parse error: %v, body=%s", err, rec.Body.String())
 	}
-	if resp["ok"] != true {
-		t.Fatalf("ok = %v, want true", resp["ok"])
+	// MySQL is now rejected with an error since we don't have a MySQL driver
+	if resp["ok"] != false {
+		t.Fatalf("ok = %v, want false (MySQL not supported without driver)", resp["ok"])
+	}
+	if resp["error"] == nil {
+		t.Fatal("expected error message for unsupported MySQL")
 	}
 }
 

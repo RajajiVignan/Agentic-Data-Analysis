@@ -25,6 +25,7 @@ type AnalysisResponse struct {
 	Assumptions       []string                 `json:"assumptions"`
 	Warnings          []string                 `json:"warnings"`
 	UsedDeterministic bool                     `json:"used_deterministic"`
+	SQLQueries        []string                 `json:"sqlQueries,omitempty"` // generated SQL for DB-connected datasets
 }
 
 // DatasetSummary describes the primary dataset used in analysis.

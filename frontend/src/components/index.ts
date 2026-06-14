@@ -1,5 +1,5 @@
 export { Sidebar } from "./Sidebar";
-export { MetricTile, PythonPlot } from "./Charts";
+export { MetricTile, PythonPlot, TrendChart, SegmentChart } from "./Charts";
 export { UploadArea } from "./UploadArea";
 export { AnalysisPrompt } from "./AnalysisPrompt";
 export { DashboardView, AnalysisSkeleton } from "./DashboardView";

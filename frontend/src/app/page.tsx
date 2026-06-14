@@ -8,6 +8,7 @@ import {
   FileType2,
 } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
+import { AuthOverlay } from "@/components/AuthOverlay";
 import { UploadArea } from "@/components/UploadArea";
 import { AnalysisPrompt } from "@/components/AnalysisPrompt";
 import { DashboardView, AnalysisSkeleton } from "@/components/DashboardView";
@@ -24,7 +25,20 @@ import {
   pinChart as apiPinChart,
   unpinChart as apiUnpinChart,
   fetchConnections,
+  fetchDashboards,
+  createDashboard as apiCreateDashboard,
+  renameDashboard as apiRenameDashboard,
+  deleteDashboard as apiDeleteDashboard,
+  addChartToDashboard as apiAddChartToDashboard,
+  removeChartFromDashboard as apiRemoveChartFromDashboard,
+  refreshDataset as apiRefreshDataset,
+  createShareLink,
+  fetchMe,
+  logout as apiLogout,
+  getAuthToken,
+  setAuthToken,
 } from "@/lib/api";
+import type { AuthUser } from "@/lib/api";
 import { exportPlotsAsSvg, exportPlotsAsPdf } from "@/lib/export";
 import type {
   AnalysisResult,
@@ -32,6 +46,8 @@ import type {
   BackendStatus,
   PinnedChart,
   ConnectionConfig,
+  Dashboard,
+  SharedDashboardData,
 } from "@/lib/api";
 
 type NavTab = "explore" | "dashboards" | "data" | "context" | "share";
@@ -50,6 +66,13 @@ export default function Workspace() {
   const [pinnedCharts, setPinnedCharts] = useState<PinnedChart[]>([]);
   const [activeNav, setActiveNav] = useState<NavTab>("explore");
   const [connections, setConnections] = useState<ConnectionConfig[]>([]);
+  const [dashboards, setDashboards] = useState<Dashboard[]>([]);
+  const [activeDashboardId, setActiveDashboardId] = useState<string | null>(null);
+  const [refreshingId, setRefreshingId] = useState<string | null>(null);
+  const [shareLink, setShareLink] = useState<string | null>(null);
+  const [shareLoading, setShareLoading] = useState(false);
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
 
   // --- Initialization ---
 
@@ -60,7 +83,26 @@ export default function Workspace() {
 
   async function init() {
     setBackendStatus(await checkBackend());
-    await Promise.all([loadDatasets(), loadPinnedCharts(), loadConnections()]);
+    const existingUser = await fetchMe();
+    setUser(existingUser);
+    setAuthLoading(false);
+    if (existingUser) {
+      await Promise.all([loadDatasets(), loadPinnedCharts(), loadConnections(), loadDashboards()]);
+    }
+  }
+
+  function handleAuth(user: AuthUser) {
+    setUser(user);
+    Promise.all([loadDatasets(), loadPinnedCharts(), loadConnections(), loadDashboards()]);
+  }
+
+  async function handleLogout() {
+    await apiLogout();
+    setUser(null);
+    setResult(null);
+    setPinnedCharts([]);
+    setAvailableDatasets([]);
+    setDashboards([]);
   }
 
   async function loadDatasets() {
@@ -84,6 +126,14 @@ export default function Workspace() {
       setConnections(await fetchConnections());
     } catch (e) {
       console.error("Failed to fetch connections", e);
+    }
+  }
+
+  async function loadDashboards() {
+    try {
+      setDashboards(await fetchDashboards());
+    } catch (e) {
+      console.error("Failed to fetch dashboards", e);
     }
   }
 
@@ -174,6 +224,10 @@ export default function Workspace() {
     try {
       const saved = await apiPinChart({ chart_type: type, label, data, url });
       setPinnedCharts((prev) => [...prev, saved]);
+      if (activeDashboardId) {
+        await apiAddChartToDashboard(activeDashboardId, saved.id);
+        await loadDashboards();
+      }
     } catch (e) {
       console.error("Pinning failed", e);
     }
@@ -183,8 +237,75 @@ export default function Workspace() {
     try {
       await apiUnpinChart(id);
       setPinnedCharts((prev) => prev.filter((c) => c.id !== id));
+      if (activeDashboardId) {
+        await apiRemoveChartFromDashboard(activeDashboardId, id);
+        await loadDashboards();
+      }
     } catch (e) {
       console.error("Unpin failed", e);
+    }
+  }
+
+  async function handleCreateShareLink() {
+    setShareLoading(true);
+    setError(null);
+    try {
+      const chartIds = pinnedCharts.map((c) => c.id);
+      if (chartIds.length === 0) {
+        setError("Pin some charts first before creating a share link.");
+        setShareLoading(false);
+        return;
+      }
+      const data = await createShareLink(chartIds);
+      setShareLink(data.url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create share link");
+    } finally {
+      setShareLoading(false);
+    }
+  }
+
+  async function handleRefreshDataset(id: string) {
+    setRefreshingId(id);
+    try {
+      await apiRefreshDataset(id);
+      await loadDatasets();
+    } catch (e) {
+      console.error("Refresh failed", e);
+      setError(e instanceof Error ? e.message : "Refresh failed");
+    } finally {
+      setRefreshingId(null);
+    }
+  }
+
+  async function handleCreateDashboard(name: string) {
+    try {
+      const d = await apiCreateDashboard(name);
+      setDashboards((prev) => [...prev, d]);
+      setActiveDashboardId(d.id);
+    } catch (e) {
+      console.error("Failed to create dashboard", e);
+    }
+  }
+
+  async function handleRenameDashboard(id: string, name: string) {
+    try {
+      await apiRenameDashboard(id, name);
+      setDashboards((prev) => prev.map((d) => (d.id === id ? { ...d, name } : d)));
+    } catch (e) {
+      console.error("Failed to rename dashboard", e);
+    }
+  }
+
+  async function handleDeleteDashboard(id: string) {
+    try {
+      await apiDeleteDashboard(id);
+      setDashboards((prev) => prev.filter((d) => d.id !== id));
+      if (activeDashboardId === id) {
+        setActiveDashboardId(null);
+      }
+    } catch (e) {
+      console.error("Failed to delete dashboard", e);
     }
   }
 
@@ -215,6 +336,18 @@ export default function Workspace() {
   };
 
   // --- Render ---
+
+  if (authLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-slate-50">
+        <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <AuthOverlay onAuth={handleAuth} />;
+  }
 
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900">
@@ -265,19 +398,35 @@ export default function Workspace() {
                 </button>
               </>
             )}
-            <div
-              className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase flex items-center gap-1.5 ${
-                backendStatus === "online"
-                  ? "bg-emerald-100 text-emerald-600"
-                  : "bg-red-100 text-red-600"
-              }`}
-            >
-              <span
-                className={`w-1.5 h-1.5 rounded-full ${
-                  backendStatus === "online" ? "bg-emerald-500" : "bg-red-500"
+            <div className="flex items-center gap-3">
+              {user && (
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 rounded-full">
+                  <div className="w-5 h-5 bg-indigo-600 rounded-full flex items-center justify-center text-[10px] font-bold text-white">
+                    {user.name.charAt(0).toUpperCase()}
+                  </div>
+                  <span className="text-xs font-medium text-slate-600">{user.name}</span>
+                  <button
+                    onClick={handleLogout}
+                    className="text-[10px] text-slate-400 hover:text-red-500 transition-colors font-medium"
+                  >
+                    Logout
+                  </button>
+                </div>
+              )}
+              <div
+                className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase flex items-center gap-1.5 ${
+                  backendStatus === "online"
+                    ? "bg-emerald-100 text-emerald-600"
+                    : "bg-red-100 text-red-600"
                 }`}
-              />
-              Backend {backendStatus}
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    backendStatus === "online" ? "bg-emerald-500" : "bg-red-500"
+                  }`}
+                />
+                Backend {backendStatus}
+              </div>
             </div>
           </div>
         </header>
@@ -292,6 +441,8 @@ export default function Workspace() {
                 onToggleDataset={toggleDataset}
                 onFileUpload={handleFileUpload}
                 onConnectDatabase={() => setActiveNav("data")}
+                onRefreshDataset={handleRefreshDataset}
+                refreshingId={refreshingId}
                 uploadLoading={uploadLoading}
               />
 
@@ -318,7 +469,16 @@ export default function Workspace() {
 
           {/* --- DASHBOARDS TAB --- */}
           {activeNav === "dashboards" && (
-            <PinnedDashboard charts={pinnedCharts} onUnpin={handleUnpinChart} />
+            <PinnedDashboard
+              charts={pinnedCharts}
+              dashboards={dashboards}
+              activeDashboardId={activeDashboardId}
+              onSelectDashboard={setActiveDashboardId}
+              onCreateDashboard={handleCreateDashboard}
+              onRenameDashboard={handleRenameDashboard}
+              onDeleteDashboard={handleDeleteDashboard}
+              onUnpin={handleUnpinChart}
+            />
           )}
 
           {/* --- DATA TAB --- */}
@@ -377,12 +537,45 @@ export default function Workspace() {
                   <div className="text-sm font-semibold text-slate-800">Export PDF</div>
                   <div className="text-xs text-slate-400 mt-1">Save dashboard as PDF report</div>
                 </button>
-                <div className="p-6 bg-white rounded-xl border border-slate-200 shadow-sm opacity-50">
-                  <LayoutDashboard size={24} className="text-slate-300 mb-2" />
-                  <div className="text-sm font-semibold text-slate-400">Share Link</div>
-                  <div className="text-xs text-slate-300 mt-1">Coming soon</div>
-                </div>
+                <button
+                  onClick={handleCreateShareLink}
+                  disabled={shareLoading || pinnedCharts.length === 0}
+                  className="p-6 bg-white rounded-xl border border-slate-200 shadow-sm hover:border-indigo-300 hover:shadow-md transition-all text-left disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <LayoutDashboard size={24} className="text-indigo-500 mb-2" />
+                  <div className="text-sm font-semibold text-slate-800">Share Dashboard</div>
+                  <div className="text-xs text-slate-400 mt-1">
+                    {pinnedCharts.length === 0
+                      ? "Pin charts first to create a share link"
+                      : "Generate a view-only share link"}
+                  </div>
+                </button>
               </div>
+              {shareLink && (
+                <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-xl">
+                  <div className="text-sm font-semibold text-indigo-800 mb-2">Share Link Ready</div>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={shareLink}
+                      className="flex-1 p-2 text-sm bg-white border border-indigo-200 rounded-lg text-slate-700"
+                      onClick={(e) => e.currentTarget.select()}
+                    />
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(shareLink);
+                      }}
+                      className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+                    >
+                      Copy
+                    </button>
+                  </div>
+                  <p className="text-xs text-indigo-600 mt-2">
+                    Link expires in 7 days. Anyone with this link can view the shared charts.
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </div>

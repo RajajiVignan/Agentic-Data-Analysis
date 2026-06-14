@@ -35,7 +35,7 @@ func NewPlotService(plotsDir, uploadDir string, bridge *PythonBridge) *PlotServi
 // to the deterministic template. Returns the URL path to the generated plot
 // image, or empty string on failure.
 func (ps *PlotService) GeneratePlot(ds *data.Dataset, prompt string) string {
-	scriptID := fmt.Sprintf("auto_%d", time.Now().UnixNano())
+	scriptID := "auto_" + newID()
 
 	profileJSON, _ := json.Marshal(ds.Profile)
 
