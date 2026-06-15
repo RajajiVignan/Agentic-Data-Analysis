@@ -116,6 +116,8 @@ func (a *LLMAnalyzer) runToolLoop(ctx context.Context, req AnalysisRequest) (Ana
 		})
 	}
 
+	isFollowUp := len(req.History) > 0
+
 	systemPrompt := `You are InsightPilot, an AI data analyst. You receive dataset metadata (schema and statistics) but NEVER raw row data.
 
 You have access to tools that can compute aggregations, group data, and build trends on the server side. Use these tools to gather evidence before producing your final analysis.
@@ -137,7 +139,8 @@ MANDATORY workflow — you MUST call these tools before responding:
   "title": "short analysis title",
   "recommendations": ["actionable insight 1", "actionable insight 2"],
   "assumptions": ["assumption 1"],
-  "reasoning": "brief explanation of column choices and what the data showed"
+  "reasoning": "brief explanation of column choices and what the data showed",
+  "filters": [{"column": "col_name", "operator": "eq", "value": "val"}]
 }
 
 Rules:
@@ -146,23 +149,40 @@ Rules:
 - dateColumn MUST be a date column from the metadata (or "" if none suitable)
 - aggregation must be one of: sum, avg, count, min, max
 - chartTypes must be from: bar, line, pie, scatter, histogram
+- filters is an OPTIONAL array of filter clauses. operator can be: eq, neq, gt, gte, lt, lte, contains, in
 - Do NOT include markdown, code fences, or explanations outside the JSON
 - Base your column choices on actual tool results, not guesses
 - IMPORTANT: Always call aggregate_metric at least once with the metric column. Always call build_trend if there is a date column. Always call group_by_dimension if there is a category column.`
+
+	if isFollowUp {
+		systemPrompt += "\n\nNOTE: This is a FOLLOW-UP question. Use the conversation history provided below to understand context. If the user says 'filter by X', 'only show Y', 'drill down into Z', 'go back', or 'group by W', respond with the appropriate columns and filters."
+	}
 
 	// Build metadata-only prompt (no raw rows)
 	metas := MetadataFromDatasets(req.Datasets)
 	metasJSON, _ := json.Marshal(metas)
 
-	userPrompt := fmt.Sprintf("User question: %s\n\nDataset metadata (JSON):\n%s",
-		SanitizeForPrompt(req.Prompt, 500), string(metasJSON))
-
-	log.Printf("[LLM] Starting tool-call loop for %d dataset(s), prompt: %q", len(metas), SanitizeForPrompt(req.Prompt, 100))
+	log.Printf("[LLM] Starting tool-call loop for %d dataset(s), prompt: %q, history: %d turns",
+		len(metas), SanitizeForPrompt(req.Prompt, 100), len(req.History))
 
 	messages := []map[string]interface{}{
 		{"role": "system", "content": systemPrompt},
-		{"role": "user", "content": userPrompt},
 	}
+
+	// Insert conversation history as user/assistant message pairs (before current question)
+	if isFollowUp {
+		for _, turn := range req.History {
+			messages = append(messages,
+				map[string]interface{}{"role": "user", "content": SanitizeForPrompt(turn.Prompt, 300)},
+				map[string]interface{}{"role": "assistant", "content": "I analyzed that query and returned KPIs, charts, and recommendations."},
+			)
+		}
+	}
+
+	// Current user question with dataset metadata
+	userContent := fmt.Sprintf("User question: %s\n\nDataset metadata (JSON):\n%s",
+		SanitizeForPrompt(req.Prompt, 500), string(metasJSON))
+	messages = append(messages, map[string]interface{}{"role": "user", "content": userContent})
 
 	notebook := []NotebookStep{
 		{Title: "Data Profile", Body: fmt.Sprintf("Dataset %q has %d rows and %d columns. Analysis uses tool-call loop — no raw data sent to LLM.", primary.Filename, primary.Profile.RowCount, len(primary.Profile.Columns))},

@@ -30,6 +30,7 @@ type Handler struct {
 	datasets          map[string]*data.Dataset
 	connections       map[string]data.Connection
 	connectionConfigs map[string]*ConnectionConfig
+	sessions          map[string]*agent.ConversationSession
 	analyzer          agent.Analyzer
 	db                *store.DB
 	pinnedSvc         *PinnedChartService
@@ -44,6 +45,7 @@ type Handler struct {
 	allowedOrigins    map[string]bool
 	stopCh           chan struct{}
 	mu                sync.RWMutex
+	sessionMu         sync.RWMutex
 }
 
 // NewHandler creates a new Handler with all services initialized.
@@ -70,6 +72,7 @@ func NewHandler(cfg agent.Config) *Handler {
 		datasets:          make(map[string]*data.Dataset),
 		connections:       make(map[string]data.Connection),
 		connectionConfigs: make(map[string]*ConnectionConfig),
+		sessions:          make(map[string]*agent.ConversationSession),
 		analyzer:          agent.NewLLMAnalyzer(cfg),
 		db:                db,
 		pinnedSvc:         NewPinnedChartService(db),
@@ -99,6 +102,7 @@ func NewHandler(cfg agent.Config) *Handler {
 					ID:       rec.ID,
 					Filename: rec.Filename,
 					FilePath: rec.FilePath,
+					OwnerID:  rec.OwnerID,
 					Profile:  profile,
 					Rows:     rec.Rows,
 				}
@@ -109,6 +113,7 @@ func NewHandler(cfg agent.Config) *Handler {
 
 	h.plotService.StartCleanup()
 	h.startRefreshScheduler()
+	h.startGuestCleanup()
 
 	return h
 }
@@ -171,11 +176,17 @@ func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleGetDatasets(w http.ResponseWriter, r *http.Request) {
 	userID := h.currentUserID(r)
+	isGuest := userID != "" && isGuestUser(userID)
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	list := make([]map[string]interface{}, 0, len(h.datasets))
 	for _, d := range h.datasets {
-		if d.OwnerID != "" && d.OwnerID != userID {
+		// Unclaimed datasets (empty OwnerID) are only visible to non-guest authenticated users
+		if d.OwnerID == "" {
+			if isGuest || userID == "" {
+				continue
+			}
+		} else if d.OwnerID != userID {
 			continue
 		}
 		list = append(list, map[string]interface{}{
@@ -393,6 +404,7 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		DatasetId  string   `json:"datasetId"`
 		DatasetIds []string `json:"datasetIds"`
 		Prompt     string   `json:"prompt"`
+		SessionId  string   `json:"sessionId,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		h.sendJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
@@ -429,10 +441,40 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 			len(activeDatasets), primary.Profile.RowCount, len(primary.Profile.Columns))
 	}
 
+	// --- Session / Conversation Management ---
+	var sessionID string
+	var history []agent.ConversationTurn
+	var activeContext *agent.ConversationContext
+
+	if body.SessionId != "" {
+		h.sessionMu.RLock()
+		sess, ok := h.sessions[body.SessionId]
+		h.sessionMu.RUnlock()
+		if ok {
+			sessionID = sess.ID
+			history = sess.History
+			activeContext = sess.ActiveContext
+			log.Printf("[analyze] Continuing session %s with %d previous turns", sessionID, len(history))
+		} else {
+			log.Printf("[analyze] Session %s not found, starting new session", body.SessionId)
+		}
+	}
+
+	if sessionID == "" {
+		sessionID = newID()
+		h.sessionMu.Lock()
+		h.sessions[sessionID] = agent.NewSession(sessionID, targetIds)
+		h.sessionMu.Unlock()
+		log.Printf("[analyze] Created new session %s", sessionID)
+	}
+
 	req := agent.AnalysisRequest{
 		Prompt:     body.Prompt,
 		Datasets:   []*data.Dataset{primary},
 		TimeoutSec: 600,
+		SessionID:  sessionID,
+		History:    history,
+		Context:    activeContext,
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 600*time.Second)
@@ -444,15 +486,30 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Use context from the response if provided (deterministic sets it), otherwise build from plan
+	if resp.Context == nil && resp.Plan != nil {
+		resp.Context = &agent.ConversationContext{
+			MetricCol:   resp.Plan.MetricColumn,
+			CategoryCol: resp.Plan.CategoryColumn,
+			DateCol:     resp.Plan.DateColumn,
+			Filters:     resp.Plan.Filters,
+		}
+	}
+
 	if resp.Plan != nil {
-		log.Printf("[execPlan] Executing LLM plan: metric=%q category=%q date=%q agg=%q",
-			resp.Plan.MetricColumn, resp.Plan.CategoryColumn, resp.Plan.DateColumn, resp.Plan.Aggregation)
+		log.Printf("[execPlan] Executing LLM plan: metric=%q category=%q date=%q agg=%q filters=%v",
+			resp.Plan.MetricColumn, resp.Plan.CategoryColumn, resp.Plan.DateColumn, resp.Plan.Aggregation, resp.Plan.Filters)
 		execPlan(resp.Plan, primary, &resp)
 		log.Printf("[execPlan] Done. Dashboard: %d KPIs, %d trend points, %d segments",
 			len(resp.Dashboard.KPIs), len(resp.Dashboard.Trend), len(resp.Dashboard.Segments))
 	} else {
 		log.Printf("[execPlan] No plan (deterministic path). Dashboard: %d KPIs, %d trend points, %d segments",
 			len(resp.Dashboard.KPIs), len(resp.Dashboard.Trend), len(resp.Dashboard.Segments))
+	}
+
+	// Apply filters from plan (for LLM path) to the dataset before computing
+	if resp.Plan != nil && len(resp.Plan.Filters) > 0 && resp.Context != nil {
+		resp.Context.Filters = resp.Plan.Filters
 	}
 
 	// If dataset has a live DB connection, run SQL against it for real results
@@ -480,6 +537,17 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Store the turn in the session
+	resp.SessionID = sessionID
+	h.sessionMu.Lock()
+	if sess, ok := h.sessions[sessionID]; ok {
+		sess.AddTurn(body.Prompt, resp)
+		if resp.Context != nil {
+			sess.UpdateContext(resp.Context)
+		}
+	}
+	h.sessionMu.Unlock()
+
 	h.sendJSON(w, http.StatusOK, map[string]interface{}{
 		"question": resp.Question,
 		"dataset":  resp.Dataset,
@@ -497,6 +565,7 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		"warnings":           resp.Warnings,
 		"used_deterministic": resp.UsedDeterministic,
 		"sqlQueries":         resp.SQLQueries,
+		"sessionId":          sessionID,
 	})
 }
 
@@ -576,6 +645,25 @@ func (h *Handler) handleExportCsv(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", `attachment; filename="cleaned-data.csv"`)
 	w.WriteHeader(http.StatusOK)
 	w.Write(buf.Bytes())
+}
+
+func (h *Handler) handleClearSession(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		SessionId string `json:"sessionId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		h.sendJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+		return
+	}
+	if body.SessionId == "" {
+		h.sendJSON(w, http.StatusBadRequest, map[string]string{"error": "sessionId is required"})
+		return
+	}
+	h.sessionMu.Lock()
+	delete(h.sessions, body.SessionId)
+	h.sessionMu.Unlock()
+	log.Printf("[session] Cleared session %s", body.SessionId)
+	h.sendJSON(w, http.StatusOK, map[string]interface{}{"ok": true})
 }
 
 func (h *Handler) handleGetPinnedCharts(w http.ResponseWriter, r *http.Request) {
@@ -700,8 +788,12 @@ func (h *Handler) handlePythonPlot(w http.ResponseWriter, r *http.Request) {
 }
 
 // persistDataset saves a dataset to the database for recovery on restart.
+// Guest datasets are never persisted (they are temporary).
 func (h *Handler) persistDataset(ds *data.Dataset) {
 	if h.db == nil || ds == nil {
+		return
+	}
+	if isGuestUser(ds.OwnerID) {
 		return
 	}
 	profileJSON, err := json.Marshal(ds.Profile)
@@ -709,7 +801,7 @@ func (h *Handler) persistDataset(ds *data.Dataset) {
 		log.Printf("[persist] Failed to marshal profile for dataset %s: %v", ds.ID, err)
 		return
 	}
-	if err := h.db.SaveDataset(ds.ID, ds.Filename, ds.FilePath, profileJSON); err != nil {
+	if err := h.db.SaveDataset(ds.ID, ds.Filename, ds.FilePath, ds.OwnerID, profileJSON); err != nil {
 		log.Printf("[persist] Failed to save dataset %s: %v", ds.ID, err)
 		return
 	}

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { login, register, AuthUser } from "@/lib/api";
+import { login, register, guestLogin, AuthUser } from "@/lib/api";
 
 type AuthOverlayProps = {
   onAuth: (user: AuthUser) => void;
@@ -13,7 +13,21 @@ export function AuthOverlay({ onAuth }: AuthOverlayProps) {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
+  const [guestLoading, setGuestLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  async function handleGuest() {
+    setGuestLoading(true);
+    setError(null);
+    try {
+      const data = await guestLogin();
+      onAuth(data.user);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Guest login failed");
+    } finally {
+      setGuestLoading(false);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -94,6 +108,27 @@ export function AuthOverlay({ onAuth }: AuthOverlayProps) {
             {loading ? "Please wait..." : mode === "login" ? "Sign In" : "Create Account"}
           </button>
         </form>
+
+        <div className="relative my-6">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-slate-200" />
+          </div>
+          <div className="relative flex justify-center text-xs">
+            <span className="bg-white px-2 text-slate-400">or</span>
+          </div>
+        </div>
+
+        <button
+          onClick={handleGuest}
+          disabled={guestLoading}
+          className="w-full p-2.5 border-2 border-dashed border-slate-300 text-slate-500 font-medium rounded-lg hover:border-indigo-400 hover:text-indigo-600 transition-colors disabled:opacity-50"
+        >
+          {guestLoading ? "Starting..." : "Continue as Guest"}
+        </button>
+
+        <div className="mt-4 text-center text-xs text-slate-400">
+          Guest data is temporary and will be removed when you close the browser.
+        </div>
 
         <div className="mt-6 text-center text-sm text-slate-500">
           {mode === "login" ? (

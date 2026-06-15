@@ -35,6 +35,7 @@ import {
   createShareLink,
   fetchMe,
   logout as apiLogout,
+  clearSession as apiClearSession,
 } from "@/lib/api";
 import type { AuthUser } from "@/lib/api";
 import { exportPlotsAsSvg, exportPlotsAsPdf } from "@/lib/export";
@@ -59,6 +60,7 @@ export default function Workspace() {
   const [uploadLoading, setUploadLoading] = useState(false);
   const [analyzeLoading, setAnalyzeLoading] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [conversationTurns, setConversationTurns] = useState<{prompt: string; result: AnalysisResult}[]>([]);
   const [backendStatus, setBackendStatus] = useState<BackendStatus>("checking");
   const [error, setError] = useState<string | null>(null);
   const [pinnedCharts, setPinnedCharts] = useState<PinnedChart[]>([]);
@@ -71,6 +73,7 @@ export default function Workspace() {
   const [shareLoading, setShareLoading] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [sessionId, setSessionId] = useState<string | null>(null);
 
   // --- Initialization ---
 
@@ -138,9 +141,16 @@ export default function Workspace() {
   // --- Dataset selection ---
 
   const toggleDataset = useCallback((id: string) => {
-    setSelectedDatasetIds((prev) =>
-      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
-    );
+    setSelectedDatasetIds((prev) => {
+      const next = prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id];
+      // Reset session if dataset selection changes
+      if (JSON.stringify(next) !== JSON.stringify(prev)) {
+        setSessionId(null);
+        setConversationTurns([]);
+        setResult(null);
+      }
+      return next;
+    });
   }, []);
 
   // --- Actions ---
@@ -157,6 +167,8 @@ export default function Workspace() {
       setSelectedDatasetIds([data.datasetId]);
       setPrompt("");
       setResult(null);
+      setSessionId(null);
+      setConversationTurns([]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
@@ -171,14 +183,38 @@ export default function Workspace() {
     }
     setAnalyzeLoading(true);
     setError(null);
+    const currentPrompt = prompt;
+    setPrompt("");
     try {
-      const data = await runAnalysis(selectedDatasetIds, prompt);
+      const data = await runAnalysis(selectedDatasetIds, currentPrompt, sessionId ?? undefined);
       setResult(data);
+      if (data.sessionId) {
+        setSessionId(data.sessionId);
+      }
+      setConversationTurns((prev) => [
+        ...prev,
+        { prompt: currentPrompt, result: data },
+      ]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Analysis failed");
     } finally {
       setAnalyzeLoading(false);
     }
+  }
+
+  async function handleNewAnalysis() {
+    if (sessionId) {
+      try {
+        await apiClearSession(sessionId);
+      } catch {
+        // ignore
+      }
+    }
+    setSessionId(null);
+    setConversationTurns([]);
+    setResult(null);
+    setPrompt("");
+    setError(null);
   }
 
   async function handleConnectSource() {
@@ -444,24 +480,42 @@ export default function Workspace() {
                 uploadLoading={uploadLoading}
               />
 
+              {/* Conversation thread — each turn's question + full dashboard */}
+              {conversationTurns.length > 0 && (
+                <div className="space-y-8">
+                  {conversationTurns.map((turn, i) => (
+                    <div key={i} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                      <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 flex items-center gap-3">
+                        <div className="w-6 h-6 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0">
+                          <span className="text-[10px] font-bold text-indigo-600">Q</span>
+                        </div>
+                        <p className="text-sm font-medium text-slate-800">{turn.prompt}</p>
+                      </div>
+                      <div className="p-5">
+                        <DashboardView
+                          result={turn.result}
+                          dashboardRef={dashboardRef}
+                          onPinChart={handlePinChart}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Loading skeleton for the latest analysis */}
+              {analyzeLoading && <AnalysisSkeleton />}
+
               <AnalysisPrompt
                 prompt={prompt}
                 onPromptChange={setPrompt}
                 onRun={handleRunAnalysis}
+                onNewAnalysis={handleNewAnalysis}
                 loading={analyzeLoading}
                 disabled={analyzeLoading || selectedDatasetIds.length === 0 || !mounted}
                 error={error}
+                hasActiveSession={sessionId !== null && conversationTurns.length > 0}
               />
-
-              {analyzeLoading && !result && <AnalysisSkeleton />}
-
-              {result && !analyzeLoading && (
-                <DashboardView
-                  result={result}
-                  dashboardRef={dashboardRef}
-                  onPinChart={handlePinChart}
-                />
-              )}
             </>
           )}
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,7 +15,77 @@ import (
 
 // --- Plan execution ---
 
+// applyFiltersToRows filters dataset rows based on the plan's filter clauses.
+func applyFiltersToRows(rows []map[string]string, filters []agent.FilterClause) []map[string]string {
+	if len(filters) == 0 {
+		return rows
+	}
+	var out []map[string]string
+	for _, row := range rows {
+		include := true
+		for _, f := range filters {
+			val, ok := row[f.Column]
+			if !ok {
+				include = false
+				break
+			}
+			switch f.Operator {
+			case "eq":
+				if !strings.EqualFold(val, f.Value) {
+					include = false
+				}
+			case "neq":
+				if strings.EqualFold(val, f.Value) {
+					include = false
+				}
+			case "contains":
+				if !strings.Contains(strings.ToLower(val), strings.ToLower(f.Value)) {
+					include = false
+				}
+			case "gt":
+				v1, _ := strconv.ParseFloat(val, 64)
+				v2, _ := strconv.ParseFloat(f.Value, 64)
+				if v1 <= v2 {
+					include = false
+				}
+			case "gte":
+				v1, _ := strconv.ParseFloat(val, 64)
+				v2, _ := strconv.ParseFloat(f.Value, 64)
+				if v1 < v2 {
+					include = false
+				}
+			case "lt":
+				v1, _ := strconv.ParseFloat(val, 64)
+				v2, _ := strconv.ParseFloat(f.Value, 64)
+				if v1 >= v2 {
+					include = false
+				}
+			case "lte":
+				v1, _ := strconv.ParseFloat(val, 64)
+				v2, _ := strconv.ParseFloat(f.Value, 64)
+				if v1 > v2 {
+					include = false
+				}
+			}
+			if !include {
+				break
+			}
+		}
+		if include {
+			out = append(out, row)
+		}
+	}
+	return out
+}
+
 func execPlan(plan *agent.LLMPlan, ds *data.Dataset, resp *agent.AnalysisResponse) {
+	// Apply filters from the plan
+	rows := ds.Rows
+	if len(plan.Filters) > 0 {
+		rows = applyFiltersToRows(rows, plan.Filters)
+		log.Printf("[execPlan] Applied %d filter(s): %d rows remaining", len(plan.Filters), len(rows))
+	}
+
 	var metricCol, catCol, dateCol *data.Column
 	for i := range ds.Profile.Columns {
 		c := &ds.Profile.Columns[i]
@@ -77,7 +148,7 @@ func execPlan(plan *agent.LLMPlan, ds *data.Dataset, resp *agent.AnalysisRespons
 	}
 
 	duckDB := getDuckDBEngine()
-	if ds.FilePath != "" && duckDB != nil {
+	if ds.FilePath != "" && duckDB != nil && len(plan.Filters) == 0 {
 		kpis, kpiSQL := duckDBKPI(duckDB, ds, metricCol)
 		trend, trendSQL := duckDBTrend(duckDB, ds, dateCol, metricCol)
 		segments, segSQL := duckDBSegments(duckDB, ds, catCol, metricCol)
@@ -109,9 +180,13 @@ func execPlan(plan *agent.LLMPlan, ds *data.Dataset, resp *agent.AnalysisRespons
 		return
 	}
 
-	kpis := data.BuildKPIs(ds.Rows, metricCol, catCol)
-	trend := data.BuildTrend(ds.Rows, dateCol, metricCol)
-	segments := data.BuildSegments(ds.Rows, catCol, metricCol)
+	if ds.FilePath != "" && duckDB != nil && len(plan.Filters) > 0 {
+		log.Printf("[execPlan] Filters present, falling back to in-memory computation (DuckDB does not support client-side filtering)")
+	}
+
+	kpis := data.BuildKPIs(rows, metricCol, catCol)
+	trend := data.BuildTrend(rows, dateCol, metricCol)
+	segments := data.BuildSegments(rows, catCol, metricCol)
 
 	if plan.Aggregation != "" && plan.Aggregation != "sum" {
 		kpis = applyAggregation(kpis, plan.Aggregation)

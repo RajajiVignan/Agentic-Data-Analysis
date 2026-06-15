@@ -275,7 +275,7 @@ func (h *Handler) currentUserID(r *http.Request) string {
 	return ""
 }
 
-// setAuthCookie sets an HttpOnly cookie with the JWT token.
+// setAuthCookie sets an HttpOnly cookie with the JWT token (72h expiry).
 func setAuthCookie(w http.ResponseWriter, token string) {
 	if token == "" {
 		return
@@ -289,6 +289,23 @@ func setAuthCookie(w http.ResponseWriter, token string) {
 		SameSite: http.SameSiteStrictMode,
 		Secure:   secure,
 		MaxAge:   72 * 60 * 60,
+	})
+}
+
+// setSessionCookie sets a session-scoped HttpOnly cookie (deleted on browser close).
+func setSessionCookie(w http.ResponseWriter, token string) {
+	if token == "" {
+		return
+	}
+	secure := isProduction()
+	http.SetCookie(w, &http.Cookie{
+		Name:     "auth_token",
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		Secure:   secure,
+		MaxAge:   0,
 	})
 }
 
@@ -379,6 +396,29 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handler) handleGuestLogin(w http.ResponseWriter, r *http.Request) {
+	id := "guest_" + newID()
+	now := time.Now()
+	user := &User{
+		ID:        id,
+		Email:     id + "@guest.local",
+		Name:      "Guest User",
+		CreatedAt: now,
+	}
+	h.auth.mu.Lock()
+	h.auth.users[user.Email] = &userRecord{
+		User:         *user,
+		PasswordHash: "",
+	}
+	h.auth.mu.Unlock()
+	token := h.auth.createToken(user.ID)
+	setSessionCookie(w, token)
+	h.sendJSON(w, http.StatusCreated, map[string]interface{}{
+		"user":  user,
+		"token": token,
+	})
+}
+
 func (h *Handler) handleMe(w http.ResponseWriter, r *http.Request) {
 	user := getUserFromContext(r)
 	if user == nil {
@@ -392,6 +432,19 @@ func (h *Handler) handleLogout(w http.ResponseWriter, r *http.Request) {
 	token := extractTokenFromRequest(r)
 	if token != "" {
 		h.auth.RevokeToken(token)
+		user := getUserFromContext(r)
+		if user != nil && isGuestUser(user.ID) {
+			h.auth.mu.Lock()
+			delete(h.auth.users, user.Email)
+			h.auth.mu.Unlock()
+			h.mu.Lock()
+			for id, ds := range h.datasets {
+				if ds.OwnerID == user.ID {
+					delete(h.datasets, id)
+				}
+			}
+			h.mu.Unlock()
+		}
 	}
 	clearAuthCookie(w)
 	h.sendJSON(w, http.StatusOK, map[string]interface{}{"ok": true})
@@ -405,4 +458,47 @@ func (a *AuthService) HasUsers() bool {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return len(a.users) > 0
+}
+
+func isGuestUser(userID string) bool {
+	return strings.HasPrefix(userID, "guest_")
+}
+
+// cleanupGuests removes users and datasets associated with expired guest sessions.
+func (h *Handler) startGuestCleanup() {
+	go func() {
+		ticker := time.NewTicker(30 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				h.cleanupExpiredGuests()
+			case <-h.stopCh:
+				return
+			}
+		}
+	}()
+}
+
+func (h *Handler) cleanupExpiredGuests() {
+	h.auth.mu.Lock()
+	defer h.auth.mu.Unlock()
+
+	now := time.Now()
+	for email, rec := range h.auth.users {
+		if !isGuestUser(rec.ID) {
+			continue
+		}
+		// Guest tokens expire after 24 hours
+		if now.Sub(rec.CreatedAt) > 24*time.Hour {
+			delete(h.auth.users, email)
+			h.mu.Lock()
+			for id, ds := range h.datasets {
+				if ds.OwnerID == rec.ID {
+					delete(h.datasets, id)
+				}
+			}
+			h.mu.Unlock()
+		}
+	}
 }

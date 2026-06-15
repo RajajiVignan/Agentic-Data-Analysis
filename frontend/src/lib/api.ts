@@ -21,6 +21,11 @@ export type ChartPoint = {
   value: number;
 };
 
+export type ConversationTurn = {
+  prompt: string;
+  response: AnalysisResult;
+};
+
 export type AnalysisResult = {
   notebook: NotebookStep[];
   dashboard: {
@@ -34,6 +39,7 @@ export type AnalysisResult = {
   warnings: string[];
   used_deterministic?: boolean;
   sqlQueries?: string[];
+  sessionId?: string;
 };
 
 export type Dataset = {
@@ -131,6 +137,12 @@ export async function login(email: string, password: string): Promise<{ user: Au
   return res.json();
 }
 
+export async function guestLogin(): Promise<{ user: AuthUser; token: string }> {
+  const res = await apiFetch("/auth/guest", { method: "POST" });
+  if (!res.ok) throw new Error((await res.json()).error ?? "Guest login failed");
+  return res.json();
+}
+
 export async function logout(): Promise<void> {
   try {
     await apiFetch("/auth/logout", { method: "POST" });
@@ -173,10 +185,10 @@ export async function uploadFile(file: File): Promise<{ datasetId: string; filen
   return { datasetId: data.datasetId, filename: data.filename };
 }
 
-export async function runAnalysis(datasetIds: string[], prompt: string): Promise<AnalysisResult> {
+export async function runAnalysis(datasetIds: string[], prompt: string, sessionId?: string): Promise<AnalysisResult> {
   const res = await apiFetch("/analyze", {
     method: "POST",
-    body: JSON.stringify({ datasetIds, prompt }),
+    body: JSON.stringify({ datasetIds, prompt, sessionId }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error ?? "Analysis failed");
@@ -193,7 +205,16 @@ export async function runAnalysis(datasetIds: string[], prompt: string): Promise
   warnings: data.warnings ?? [],
   used_deterministic: data.used_deterministic,
   sqlQueries: data.sqlQueries ?? [],
+  sessionId: data.sessionId,
   };
+}
+
+export async function clearSession(sessionId: string): Promise<void> {
+  const res = await apiFetch("/session/clear", {
+    method: "POST",
+    body: JSON.stringify({ sessionId }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
 }
 
 export async function connectSource(source: string = "sample"): Promise<{ datasetId: string; filename: string }> {

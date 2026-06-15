@@ -303,11 +303,11 @@ func (db *DB) LoadJWTSecret() ([]byte, error) {
 // --- Datasets ---
 
 // SaveDataset persists a dataset reference to the database.
-func (db *DB) SaveDataset(id, filename, filePath string, profileJSON []byte) error {
+func (db *DB) SaveDataset(id, filename, filePath, ownerID string, profileJSON []byte) error {
 	_, err := db.conn.Exec(
-		`INSERT INTO datasets (id, filename, file_path, profile) VALUES ($1, $2, $3, $4)
-		 ON CONFLICT (id) DO UPDATE SET filename=$2, file_path=$3, profile=$4`,
-		id, filename, filePath, profileJSON,
+		`INSERT INTO datasets (id, filename, file_path, owner_id, profile) VALUES ($1, $2, $3, $4, $5)
+		 ON CONFLICT (id) DO UPDATE SET filename=$2, file_path=$3, owner_id=$4, profile=$5`,
+		id, filename, filePath, ownerID, profileJSON,
 	)
 	return err
 }
@@ -330,6 +330,7 @@ type DatasetRecord struct {
 	ID       string              `json:"id"`
 	Filename string              `json:"filename"`
 	FilePath string              `json:"file_path"`
+	OwnerID  string              `json:"owner_id"`
 	Profile  json.RawMessage     `json:"profile"`
 	Rows     []map[string]string `json:"rows"`
 }
@@ -337,7 +338,7 @@ type DatasetRecord struct {
 // LoadDatasets retrieves all datasets from the database.
 func (db *DB) LoadDatasets() ([]DatasetRecord, error) {
 	rows, err := db.conn.Query(
-		`SELECT id, filename, COALESCE(file_path, ''), COALESCE(profile, '{}'::jsonb), COALESCE(rows_data, '[]'::jsonb) FROM datasets ORDER BY created_at ASC`,
+		`SELECT id, filename, COALESCE(file_path, ''), COALESCE(owner_id, ''), COALESCE(profile, '{}'::jsonb), COALESCE(rows_data, '[]'::jsonb) FROM datasets ORDER BY created_at ASC`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("query datasets: %w", err)
@@ -348,7 +349,7 @@ func (db *DB) LoadDatasets() ([]DatasetRecord, error) {
 	for rows.Next() {
 		var d DatasetRecord
 		var rowsJSON []byte
-		if err := rows.Scan(&d.ID, &d.Filename, &d.FilePath, &d.Profile, &rowsJSON); err != nil {
+		if err := rows.Scan(&d.ID, &d.Filename, &d.FilePath, &d.OwnerID, &d.Profile, &rowsJSON); err != nil {
 			return nil, fmt.Errorf("scan dataset: %w", err)
 		}
 		if len(rowsJSON) > 0 {
@@ -375,12 +376,18 @@ func (db *DB) InitDatasetsTable() error {
 			id TEXT PRIMARY KEY,
 			filename TEXT NOT NULL,
 			file_path TEXT,
+			owner_id TEXT DEFAULT '',
 			profile JSONB,
 			rows_data JSONB DEFAULT '[]'::jsonb,
 			created_at TIMESTAMPTZ DEFAULT now()
 		)
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+	// Add owner_id column for existing tables (best-effort, ignore if already exists)
+	db.conn.Exec(`ALTER TABLE datasets ADD COLUMN IF NOT EXISTS owner_id TEXT DEFAULT ''`)
+	return nil
 }
 
 // --- Dashboards ---

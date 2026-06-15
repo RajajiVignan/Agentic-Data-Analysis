@@ -2,6 +2,9 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+
 	"insightpilot/internal/data"
 )
 
@@ -10,6 +13,9 @@ type AnalysisRequest struct {
 	Prompt     string
 	Datasets   []*data.Dataset
 	TimeoutSec int
+	SessionID  string                `json:"sessionId,omitempty"`
+	History    []ConversationTurn    `json:"history,omitempty"`
+	Context    *ConversationContext  `json:"context,omitempty"`
 }
 
 // AnalysisResponse is the structured output from an analyzer.
@@ -25,7 +31,9 @@ type AnalysisResponse struct {
 	Assumptions       []string                 `json:"assumptions"`
 	Warnings          []string                 `json:"warnings"`
 	UsedDeterministic bool                     `json:"used_deterministic"`
-	SQLQueries        []string                 `json:"sqlQueries,omitempty"` // generated SQL for DB-connected datasets
+	SQLQueries        []string                 `json:"sqlQueries,omitempty"`
+	SessionID         string                   `json:"sessionId,omitempty"`
+	Context           *ConversationContext     `json:"context,omitempty"`
 }
 
 // DatasetSummary describes the primary dataset used in analysis.
@@ -46,16 +54,50 @@ type NotebookStep struct {
 // after inspecting dataset metadata. The backend executes this
 // plan locally — raw data never leaves the server.
 type LLMPlan struct {
-	MetricColumn    string   `json:"metricColumn"`
-	CategoryColumn  string   `json:"categoryColumn"`
-	DateColumn      string   `json:"dateColumn"`
-	Aggregation     string   `json:"aggregation"`   // "sum", "avg", "count", "min", "max"
-	ChartTypes      []string `json:"chartTypes"`     // e.g. ["bar", "line", "pie"]
-	GroupBy         string   `json:"groupBy"`
-	Title           string   `json:"title"`
-	Recommendations []string `json:"recommendations"`
-	Assumptions     []string `json:"assumptions"`
-	Reasoning       string   `json:"reasoning"`
+	MetricColumn    string         `json:"metricColumn"`
+	CategoryColumn  string         `json:"categoryColumn"`
+	DateColumn      string         `json:"dateColumn"`
+	Aggregation     string         `json:"aggregation"`   // "sum", "avg", "count", "min", "max"
+	ChartTypes      []string       `json:"chartTypes"`     // e.g. ["bar", "line", "pie"]
+	GroupBy         string         `json:"groupBy"`
+	Title           string         `json:"title"`
+	Recommendations []string       `json:"recommendations"`
+	Assumptions     []string       `json:"assumptions"`
+	Reasoning       string         `json:"reasoning"`
+	Filters         []FilterClause `json:"filters,omitempty"`
+}
+
+// UnmarshalJSON handles the LLM returning assumptions or recommendations as a
+// single string instead of an array of strings.
+func (p *LLMPlan) UnmarshalJSON(data []byte) error {
+	type alias LLMPlan
+	raw := struct {
+		Assumptions     json.RawMessage `json:"assumptions"`
+		Recommendations json.RawMessage `json:"recommendations"`
+		*alias
+	}{alias: (*alias)(p)}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if raw.Assumptions != nil {
+		if err := json.Unmarshal(raw.Assumptions, &p.Assumptions); err != nil {
+			var s string
+			if err2 := json.Unmarshal(raw.Assumptions, &s); err2 != nil || s == "" {
+				return fmt.Errorf("assumptions: %w (also tried string: %v)", err, err2)
+			}
+			p.Assumptions = []string{s}
+		}
+	}
+	if raw.Recommendations != nil {
+		if err := json.Unmarshal(raw.Recommendations, &p.Recommendations); err != nil {
+			var s string
+			if err2 := json.Unmarshal(raw.Recommendations, &s); err2 != nil || s == "" {
+				return fmt.Errorf("recommendations: %w (also tried string: %v)", err, err2)
+			}
+			p.Recommendations = []string{s}
+		}
+	}
+	return nil
 }
 
 // DashboardSpec contains the chart-ready output.

@@ -41,8 +41,8 @@ func TestDeterministicAnalyzerReturnsValidResponse(t *testing.T) {
 	if resp.Dataset.ID != "test-1" {
 		t.Fatalf("dataset ID = %q", resp.Dataset.ID)
 	}
-	if resp.Dataset.RowCount != 2 {
-		t.Fatalf("row count = %d, want 2", resp.Dataset.RowCount)
+	if resp.Dataset.RowCount != 3 {
+		t.Fatalf("row count = %d, want 3", resp.Dataset.RowCount)
 	}
 	if len(resp.Notebook) == 0 {
 		t.Fatal("expected notebook steps")
