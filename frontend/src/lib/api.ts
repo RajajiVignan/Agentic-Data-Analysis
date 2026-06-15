@@ -33,6 +33,7 @@ export type AnalysisResult = {
     trend: ChartPoint[];
     segments: ChartPoint[];
     recommendations: string[];
+    narrative?: string;
     plotUrl?: string | null;
   };
   assumptions: string[];
@@ -47,6 +48,10 @@ export type Dataset = {
   filename: string;
   liveDb?: boolean;
   tableName?: string;
+  profile?: {
+    rowCount: number;
+    columns: Column[];
+  };
 };
 
 export type PinnedChart = {
@@ -173,7 +178,7 @@ export async function fetchDatasets(): Promise<Dataset[]> {
   const res = await apiFetch("/datasets");
   if (!res.ok) throw new Error(await parseError(res));
   const data = await res.json();
-  return (data.datasets as Dataset[]).map((d) => ({ id: d.id, filename: d.filename }));
+  return (data.datasets as Dataset[]).map((d) => ({ id: d.id, filename: d.filename, liveDb: d.liveDb, profile: d.profile }));
 }
 
 export async function uploadFile(file: File): Promise<{ datasetId: string; filename: string }> {
@@ -199,6 +204,7 @@ export async function runAnalysis(datasetIds: string[], prompt: string, sessionI
       trend: data.dashboard?.trend ?? [],
       segments: data.dashboard?.segments ?? [],
       recommendations: data.dashboard?.recommendations ?? [],
+      narrative: data.dashboard?.narrative ?? "",
     plotUrl: data.plotUrl ?? null,
   },
   assumptions: data.assumptions ?? [],
@@ -366,6 +372,87 @@ export async function createShareLink(chartIds: string[]): Promise<SharedDashboa
 
 export async function getSharedDashboard(token: string): Promise<SharedDashboardData> {
   const res = await apiFetch(`/shared/${encodeURIComponent(token)}`);
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+// --- Transformation Pipeline Types & API ---
+
+export type Column = {
+  name: string;
+  type: string;
+  nonEmpty: number;
+  sample?: string[];
+};
+
+export type TransformStep = {
+  type: string;
+  params: Record<string, unknown>;
+  description?: string;
+};
+
+export type TransformHistory = {
+  steps: TransformStep[];
+  undone: TransformStep[];
+  canUndo: boolean;
+  canRedo: boolean;
+  rowCount?: number;
+  columns?: Column[];
+};
+
+export type TransformPreviewResult = {
+  rowCount: number;
+  columns: Column[];
+  rows: Record<string, string>[];
+};
+
+export async function transformPreview(datasetId: string, step: TransformStep): Promise<TransformPreviewResult> {
+  const res = await apiFetch("/transform/preview", {
+    method: "POST",
+    body: JSON.stringify({ datasetId, step }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function transformApply(datasetId: string, step: TransformStep): Promise<Record<string, unknown>> {
+  const res = await apiFetch("/transform/apply", {
+    method: "POST",
+    body: JSON.stringify({ datasetId, step }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function transformUndo(datasetId: string): Promise<Record<string, unknown>> {
+  const res = await apiFetch("/transform/undo", {
+    method: "POST",
+    body: JSON.stringify({ datasetId }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function transformRedo(datasetId: string): Promise<Record<string, unknown>> {
+  const res = await apiFetch("/transform/redo", {
+    method: "POST",
+    body: JSON.stringify({ datasetId }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function transformHistory(datasetId: string): Promise<TransformHistory> {
+  const res = await apiFetch(`/transform/history?datasetId=${encodeURIComponent(datasetId)}`);
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function transformReset(datasetId: string): Promise<Record<string, unknown>> {
+  const res = await apiFetch("/transform/reset", {
+    method: "POST",
+    body: JSON.stringify({ datasetId }),
+  });
   if (!res.ok) throw new Error(await parseError(res));
   return res.json();
 }

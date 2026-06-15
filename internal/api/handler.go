@@ -46,6 +46,7 @@ type Handler struct {
 	stopCh           chan struct{}
 	mu                sync.RWMutex
 	sessionMu         sync.RWMutex
+	pipelines         map[string]*data.TransformPipeline
 }
 
 // NewHandler creates a new Handler with all services initialized.
@@ -81,6 +82,7 @@ func NewHandler(cfg agent.Config) *Handler {
 		shareSvc:          NewShareService(),
 		auth:              NewAuthService(db),
 		duckdb:            data.NewDuckDBEngine(plotsDir),
+		pipelines:         make(map[string]*data.TransformPipeline),
 		encryptionKey:     generateEncryptionKey(),
 		rateLimiter:       newRateLimiter(10, time.Minute),
 		uploadDir:         uploadDir,
@@ -560,6 +562,7 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 			"trend":           resp.Dashboard.Trend,
 			"segments":        resp.Dashboard.Segments,
 			"recommendations": resp.Dashboard.Recommendations,
+			"narrative":       resp.Dashboard.Narrative,
 		},
 		"assumptions":        resp.Assumptions,
 		"warnings":           resp.Warnings,

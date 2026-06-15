@@ -23,16 +23,16 @@ type Dataset struct {
 
 // Profile represents the column profile of a dataset.
 type Profile struct {
-	RowCount int
-	Columns  []Column
+	RowCount int      `json:"rowCount"`
+	Columns  []Column `json:"columns"`
 }
 
 // Column represents a column in the dataset.
 type Column struct {
-	Name     string
-	Type     string // "number", "date", "text", "empty"
-	NonEmpty int
-	Sample   []string
+	Name     string   `json:"name"`
+	Type     string   `json:"type"` // "number", "date", "text", "empty"
+	NonEmpty int      `json:"nonEmpty"`
+	Sample   []string `json:"sample,omitempty"`
 }
 
 // Connection represents a connection to a data source.

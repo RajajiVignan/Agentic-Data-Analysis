@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState } from "react";
-import { ChevronDown, ChevronRight, Code } from "lucide-react";
-import { MetricTile, PythonPlot, TrendChart, SegmentChart } from "@/components/Charts";
+import { ChevronDown, ChevronRight, Code, BookOpen } from "lucide-react";
+import { MetricTile, PythonPlot, TrendChart, SegmentChart, LineTrendChart, AreaTrendChart } from "@/components/Charts";
 import type { AnalysisResult, PinnedChart } from "@/lib/api";
 
 type DashboardViewProps = {
@@ -26,9 +26,28 @@ function AnalysisSkeleton() {
 
 export function DashboardView({ result, dashboardRef, onPinChart }: DashboardViewProps) {
   const [showSql, setShowSql] = useState(false);
+  const hasTrend = result.dashboard.trend.length > 0;
+  const hasSegments = result.dashboard.segments.length > 0;
+  const hasNarrative = !!result.dashboard.narrative;
 
   return (
     <div ref={dashboardRef} className="space-y-6">
+      {/* Narrative summary */}
+      {hasNarrative && (
+        <div className="p-5 bg-gradient-to-br from-indigo-50 to-purple-50 border border-indigo-100 rounded-2xl shadow-sm">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 p-1.5 bg-indigo-100 rounded-lg">
+              <BookOpen size={16} className="text-indigo-600" />
+            </div>
+            <div className="flex-1">
+              <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wider mb-1.5">AI Narrative</p>
+              <p className="text-sm text-slate-700 leading-relaxed">{result.dashboard.narrative}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* KPI tiles */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {result.dashboard.kpis.map((kpi, i) => (
           <MetricTile
@@ -39,6 +58,7 @@ export function DashboardView({ result, dashboardRef, onPinChart }: DashboardVie
         ))}
       </div>
 
+      {/* Python plot */}
       {result.dashboard.plotUrl && (
         <PythonPlot
           url={result.dashboard.plotUrl}
@@ -50,18 +70,37 @@ export function DashboardView({ result, dashboardRef, onPinChart }: DashboardVie
         />
       )}
 
-      {result.dashboard.trend.length > 0 || result.dashboard.segments.length > 0 ? (
+      {/* Chart grid: trend (multiple views) + segments */}
+      {hasTrend || hasSegments ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {result.dashboard.trend.length > 0 && (
-            <TrendChart
-              data={result.dashboard.trend}
-              onPin={() => {
-                const latest = result.dashboard.trend[result.dashboard.trend.length - 1];
-                onPinChart("trend", `Trend: ${latest?.label ?? "overview"}`, result.dashboard.trend);
-              }}
-            />
+          {hasTrend && (
+            <>
+              <TrendChart
+                data={result.dashboard.trend}
+                onPin={() => {
+                  const latest = result.dashboard.trend[result.dashboard.trend.length - 1];
+                  onPinChart("trend", `Bar: ${latest?.label ?? "overview"}`, result.dashboard.trend);
+                }}
+              />
+              <LineTrendChart
+                data={result.dashboard.trend}
+                onPin={() => {
+                  const latest = result.dashboard.trend[result.dashboard.trend.length - 1];
+                  onPinChart("trend", `Line: ${latest?.label ?? "overview"}`, result.dashboard.trend);
+                }}
+              />
+              {hasSegments ? null : (
+                <AreaTrendChart
+                  data={result.dashboard.trend}
+                  onPin={() => {
+                    const latest = result.dashboard.trend[result.dashboard.trend.length - 1];
+                    onPinChart("trend", `Area: ${latest?.label ?? "overview"}`, result.dashboard.trend);
+                  }}
+                />
+              )}
+            </>
           )}
-          {result.dashboard.segments.length > 0 && (
+          {hasSegments && (
             <SegmentChart
               data={result.dashboard.segments}
               onPin={() => onPinChart("segment", "Segment Breakdown", result.dashboard.segments)}
@@ -70,6 +109,7 @@ export function DashboardView({ result, dashboardRef, onPinChart }: DashboardVie
         </div>
       ) : null}
 
+      {/* Warnings */}
       {result.warnings && result.warnings.length > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-700 space-y-1">
           {result.warnings.map((w, i) => (
@@ -78,6 +118,7 @@ export function DashboardView({ result, dashboardRef, onPinChart }: DashboardVie
         </div>
       )}
 
+      {/* SQL Queries */}
       {result.sqlQueries && result.sqlQueries.length > 0 && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <button

@@ -140,7 +140,8 @@ MANDATORY workflow — you MUST call these tools before responding:
   "recommendations": ["actionable insight 1", "actionable insight 2"],
   "assumptions": ["assumption 1"],
   "reasoning": "brief explanation of column choices and what the data showed",
-  "filters": [{"column": "col_name", "operator": "eq", "value": "val"}]
+  "filters": [{"column": "col_name", "operator": "eq", "value": "val"}],
+  "narrative": "A 2-4 sentence written summary of the key insights in natural language, telling the story behind the data. Use KPI values, trends, and breakdowns."
 }
 
 Rules:

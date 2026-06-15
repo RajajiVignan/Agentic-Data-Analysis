@@ -4,6 +4,13 @@ import { Pin } from 'lucide-react';
 import {
   BarChart,
   Bar,
+  LineChart,
+  Line,
+  AreaChart,
+  Area,
+  ScatterChart,
+  Scatter,
+  ComposedChart,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -13,6 +20,7 @@ import {
   Pie,
   Cell,
   Legend,
+  ZAxis,
 } from 'recharts';
 
 type KpiProps = {
@@ -21,7 +29,7 @@ type KpiProps = {
   change: string;
 };
 
-const COLORS = ['#6366f1', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6'];
+const COLORS = ['#6366f1', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#06b6d4', '#a855f7'];
 
 type ChartPoint = {
   label: string;
@@ -160,6 +168,250 @@ export function SegmentChart({ data, onPin }: { data: ChartPoint[]; onPin?: () =
           <Legend wrapperStyle={{ fontSize: '11px' }} />
         </PieChart>
       </ResponsiveContainer>
+    </div>
+  );
+}
+
+export function LineTrendChart({ data, onPin }: { data: ChartPoint[]; onPin?: () => void }) {
+  if (!data || data.length === 0) return null;
+  return (
+    <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4 relative group" data-export-plot="Line Trend">
+      <div className="flex items-center justify-between">
+        <strong className="text-sm font-semibold text-slate-800">Time Series Trend</strong>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onPin}
+            className="p-1 hover:bg-slate-100 rounded-md text-slate-400 hover:text-indigo-600 transition-colors"
+            title="Pin to Dashboard"
+          >
+            <Pin size={14} />
+          </button>
+          <span className="text-xs text-slate-400">Recharts Line</span>
+        </div>
+      </div>
+      <ResponsiveContainer width="100%" height={280}>
+        <LineChart data={data} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+          <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} />
+          <YAxis tick={{ fontSize: 11, fill: '#64748b' }} />
+          <Tooltip
+            contentStyle={{
+              background: '#fff',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              fontSize: '12px',
+            }}
+          />
+          <Line type="monotone" dataKey="value" stroke="#6366f1" strokeWidth={2} dot={{ fill: '#6366f1', r: 4 }} activeDot={{ r: 6 }} />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+export function AreaTrendChart({ data, onPin }: { data: ChartPoint[]; onPin?: () => void }) {
+  if (!data || data.length === 0) return null;
+  return (
+    <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4 relative group" data-export-plot="Area Trend">
+      <div className="flex items-center justify-between">
+        <strong className="text-sm font-semibold text-slate-800">Cumulative Trend</strong>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onPin}
+            className="p-1 hover:bg-slate-100 rounded-md text-slate-400 hover:text-indigo-600 transition-colors"
+            title="Pin to Dashboard"
+          >
+            <Pin size={14} />
+          </button>
+          <span className="text-xs text-slate-400">Recharts Area</span>
+        </div>
+      </div>
+      <ResponsiveContainer width="100%" height={280}>
+        <AreaChart data={data} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+          <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} />
+          <YAxis tick={{ fontSize: 11, fill: '#64748b' }} />
+          <Tooltip
+            contentStyle={{
+              background: '#fff',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              fontSize: '12px',
+            }}
+          />
+          <Area type="monotone" dataKey="value" stroke="#6366f1" fill="#6366f1" fillOpacity={0.15} strokeWidth={2} />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+type ScatterPoint = {
+  label: string;
+  x: number;
+  y: number;
+  z?: number;
+};
+
+export function ScatterTrendChart({ data, onPin }: { data: ScatterPoint[]; onPin?: () => void }) {
+  if (!data || data.length === 0) return null;
+  return (
+    <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4 relative group" data-export-plot="Scatter Plot">
+      <div className="flex items-center justify-between">
+        <strong className="text-sm font-semibold text-slate-800">Correlation Explorer</strong>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onPin}
+            className="p-1 hover:bg-slate-100 rounded-md text-slate-400 hover:text-indigo-600 transition-colors"
+            title="Pin to Dashboard"
+          >
+            <Pin size={14} />
+          </button>
+          <span className="text-xs text-slate-400">Recharts Scatter</span>
+        </div>
+      </div>
+      <ResponsiveContainer width="100%" height={280}>
+        <ScatterChart margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+          <XAxis dataKey="x" name="x" tick={{ fontSize: 11, fill: '#64748b' }} />
+          <YAxis dataKey="y" name="y" tick={{ fontSize: 11, fill: '#64748b' }} />
+          <ZAxis dataKey="z" range={[60, 400]} />
+          <Tooltip
+            contentStyle={{
+              background: '#fff',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              fontSize: '12px',
+            }}
+            cursor={{ strokeDasharray: '3 3' }}
+          />
+          <Scatter data={data} fill="#6366f1" fillOpacity={0.6}>
+            {data.map((point, i) => (
+              <Cell key={i} fill={COLORS[i % COLORS.length]} />
+            ))}
+          </Scatter>
+        </ScatterChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+type ComboPoint = {
+  label: string;
+  bars: number;
+  line: number;
+};
+
+export function ComboChart({ data, onPin, barKey = "bars", lineKey = "line" }: {
+  data: ComboPoint[];
+  onPin?: () => void;
+  barKey?: string;
+  lineKey?: string;
+}) {
+  if (!data || data.length === 0) return null;
+  return (
+    <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4 relative group" data-export-plot="Combo Chart">
+      <div className="flex items-center justify-between">
+        <strong className="text-sm font-semibold text-slate-800">Bar + Line Combo</strong>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onPin}
+            className="p-1 hover:bg-slate-100 rounded-md text-slate-400 hover:text-indigo-600 transition-colors"
+            title="Pin to Dashboard"
+          >
+            <Pin size={14} />
+          </button>
+          <span className="text-xs text-slate-400">Recharts Composed</span>
+        </div>
+      </div>
+      <ResponsiveContainer width="100%" height={280}>
+        <ComposedChart data={data} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+          <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} />
+          <YAxis tick={{ fontSize: 11, fill: '#64748b' }} />
+          <Tooltip
+            contentStyle={{
+              background: '#fff',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              fontSize: '12px',
+            }}
+          />
+          <Bar dataKey={barKey} fill="#6366f1" radius={[4, 4, 0, 0]} />
+          <Line type="monotone" dataKey={lineKey} stroke="#ef4444" strokeWidth={2} dot={{ fill: '#ef4444', r: 4 }} />
+        </ComposedChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+type HeatmapCell = {
+  x: string;
+  y: string;
+  value: number;
+};
+
+export function HeatmapChart({ data, onPin }: { data: HeatmapCell[]; onPin?: () => void }) {
+  if (!data || data.length === 0) return null;
+  const maxVal = Math.max(...data.map((d) => d.value));
+  const minVal = Math.min(...data.map((d) => d.value));
+  const range = maxVal - minVal || 1;
+  const xLabels = [...new Set(data.map((d) => d.x))];
+  const yLabels = [...new Set(data.map((d) => d.y))];
+
+  const getColor = (val: number) => {
+    const intensity = (val - minVal) / range;
+    const r = Math.round(99 + (99 - 99) * intensity);
+    const g = Math.round(102 + (241 - 102) * (1 - intensity));
+    const b = Math.round(241 + (241 - 241) * intensity);
+    return `rgb(${r}, ${g}, ${b})`;
+  };
+
+  return (
+    <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4 relative group" data-export-plot="Heatmap">
+      <div className="flex items-center justify-between">
+        <strong className="text-sm font-semibold text-slate-800">Density Heatmap</strong>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onPin}
+            className="p-1 hover:bg-slate-100 rounded-md text-slate-400 hover:text-indigo-600 transition-colors"
+            title="Pin to Dashboard"
+          >
+            <Pin size={14} />
+          </button>
+          <span className="text-xs text-slate-400">Grid</span>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <div className="grid gap-0.5" style={{ gridTemplateColumns: `auto repeat(${xLabels.length}, 1fr)` }}>
+          <div className="text-[10px] text-slate-400 p-1" />
+          {xLabels.map((xl) => (
+            <div key={xl} className="text-[10px] text-slate-500 font-medium p-1 text-center truncate">{xl}</div>
+          ))}
+          {yLabels.map((yl) => (
+            <React.Fragment key={yl}>
+              <div className="text-[10px] text-slate-500 font-medium p-1 text-right truncate">{yl}</div>
+              {xLabels.map((xl) => {
+                const cell = data.find((d) => d.x === xl && d.y === yl);
+                const val = cell?.value ?? 0;
+                return (
+                  <div
+                    key={`${xl}-${yl}`}
+                    className="p-2 text-center text-[10px] font-medium rounded transition-transform hover:scale-110"
+                    style={{
+                      backgroundColor: getColor(val),
+                      color: val > (minVal + range * 0.6) ? 'white' : '#475569',
+                    }}
+                    title={`${yl} / ${xl}: ${val.toFixed(1)}`}
+                  >
+                    {val.toFixed(0)}
+                  </div>
+                );
+              })}
+            </React.Fragment>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

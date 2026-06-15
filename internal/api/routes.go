@@ -84,6 +84,12 @@ func (h *Handler) chiRouter() http.Handler {
 		r.Post("/session/clear", h.handleClearSession)
 		r.Post("/share", h.handleCreateShareLink)
 		r.Get("/shared/{token}", h.handleGetSharedDashboard)
+		r.Post("/transform/preview", h.handleTransformPreview)
+		r.Post("/transform/apply", h.handleTransformApply)
+		r.Post("/transform/undo", h.handleTransformUndo)
+		r.Post("/transform/redo", h.handleTransformRedo)
+		r.Get("/transform/history", h.handleTransformHistory)
+		r.Post("/transform/reset", h.handleTransformReset)
 	})
 
 	// Generated plots

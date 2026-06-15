@@ -140,6 +140,7 @@ func execPlan(plan *agent.LLMPlan, ds *data.Dataset, resp *agent.AnalysisRespons
 			Trend:           []map[string]interface{}{},
 			Segments:        []map[string]interface{}{},
 			Recommendations: plan.Recommendations,
+			Narrative:       plan.Narrative,
 		}
 		if len(plan.Assumptions) > 0 {
 			resp.Assumptions = append(plan.Assumptions, resp.Assumptions...)
@@ -162,6 +163,7 @@ func execPlan(plan *agent.LLMPlan, ds *data.Dataset, resp *agent.AnalysisRespons
 			Trend:           trend,
 			Segments:        segments,
 			Recommendations: plan.Recommendations,
+			Narrative:       plan.Narrative,
 		}
 		sqls := make([]string, 0, 3)
 		if kpiSQL != "" {
@@ -203,6 +205,7 @@ func execPlan(plan *agent.LLMPlan, ds *data.Dataset, resp *agent.AnalysisRespons
 		Trend:           trend,
 		Segments:        segments,
 		Recommendations: plan.Recommendations,
+		Narrative:       plan.Narrative,
 	}
 
 	if len(plan.Assumptions) > 0 {

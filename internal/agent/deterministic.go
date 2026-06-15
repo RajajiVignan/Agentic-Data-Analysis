@@ -230,6 +230,7 @@ func (a *DeterministicAnalyzer) Analyze(ctx context.Context, req AnalysisRequest
 			Trend:           trend,
 			Segments:        segments,
 			Recommendations: recommendations,
+			Narrative:       narrative,
 		},
 		Assumptions:       assumptions,
 		Warnings:          warnings,
@@ -272,20 +273,138 @@ func quoteCol(name string) string {
 }
 
 func buildNarrative(prompt string, ds *data.Dataset, metricCol, catCol, dateCol *data.Column) string {
+	fullNarrative := buildRichNarrative(prompt, ds, metricCol, catCol, dateCol)
+	return fullNarrative
+}
+
+// buildRichNarrative generates a data-driven story from the available metrics.
+func buildRichNarrative(prompt string, ds *data.Dataset, metricCol, catCol, dateCol *data.Column) string {
 	parts := []string{}
-	parts = append(parts, fmt.Sprintf("Analyzed %q (%d rows).", ds.Filename, ds.Profile.RowCount))
-	if metricCol != nil {
-		parts = append(parts, fmt.Sprintf("Primary metric: %s.", metricCol.Name))
+
+	if metricCol == nil {
+		parts = append(parts, fmt.Sprintf("Analyzed dataset %q containing %d rows across %d columns.", ds.Filename, ds.Profile.RowCount, len(ds.Profile.Columns)))
+		if prompt != "" {
+			parts = append(parts, fmt.Sprintf("In response to: %q.", prompt))
+		}
+		return strings.Join(parts, " ")
 	}
-	if catCol != nil {
-		parts = append(parts, fmt.Sprintf("Grouped by %s.", catCol.Name))
+
+	// Extract KPI values from the dataset
+	var totalVal, avgVal float64
+	var totalCount int
+	for _, row := range ds.Rows {
+		if v, err := strconv.ParseFloat(row[metricCol.Name], 64); err == nil {
+			totalVal += v
+			totalCount++
+		}
 	}
+	if totalCount > 0 {
+		avgVal = totalVal / float64(totalCount)
+	}
+
+	// Build the opening statement
+	metricName := metricCol.Name
+	if totalVal >= 1000000 {
+		parts = append(parts, fmt.Sprintf("Total %s is $%.1fM, averaging $%.1fK per row across %d records.",
+			metricName, totalVal/1000000, avgVal/1000, ds.Profile.RowCount))
+	} else if totalVal >= 1000 {
+		parts = append(parts, fmt.Sprintf("Total %s is $%.1fK, averaging $%.1f per row across %d records.",
+			metricName, totalVal/1000, avgVal, ds.Profile.RowCount))
+	} else {
+		parts = append(parts, fmt.Sprintf("Total %s is $%.1f, averaging $%.1f per row across %d records.",
+			metricName, totalVal, avgVal, ds.Profile.RowCount))
+	}
+
+	// Trend story
 	if dateCol != nil {
-		parts = append(parts, fmt.Sprintf("Trended over %s.", dateCol.Name))
+		trend := data.BuildTrend(ds.Rows, dateCol, metricCol)
+		if len(trend) >= 2 {
+			first := trend[0]["value"].(float64)
+			last := trend[len(trend)-1]["value"].(float64)
+			change := last - first
+			pctChange := 0.0
+			if first != 0 {
+				pctChange = (change / first) * 100
+			}
+			trendDir := "increased"
+			if change < 0 {
+				trendDir = "decreased"
+			}
+			absChange := change
+			if absChange < 0 {
+				absChange = -absChange
+			}
+			firstLabel := trend[0]["label"].(string)
+			lastLabel := trend[len(trend)-1]["label"].(string)
+
+			if absChange >= 1000000 {
+				parts = append(parts, fmt.Sprintf("Over time, %s %s by $%.1fM (%.1f%%) from %s to %s.",
+					metricName, trendDir, absChange/1000000, pctChange, firstLabel, lastLabel))
+			} else if absChange >= 1000 {
+				parts = append(parts, fmt.Sprintf("Over time, %s %s by $%.1fK (%.1f%%) from %s to %s.",
+					metricName, trendDir, absChange/1000, pctChange, firstLabel, lastLabel))
+			} else {
+				parts = append(parts, fmt.Sprintf("Over time, %s %s by $%.1f (%.1f%%) from %s to %s.",
+					metricName, trendDir, absChange, pctChange, firstLabel, lastLabel))
+			}
+
+			// Highlight best/worst periods
+			bestVal := trend[0]["value"].(float64)
+			bestLabel := trend[0]["label"].(string)
+			worstVal := trend[0]["value"].(float64)
+			worstLabel := trend[0]["label"].(string)
+			for _, t := range trend {
+				v := t["value"].(float64)
+				if v > bestVal {
+					bestVal = v
+					bestLabel = t["label"].(string)
+				}
+				if v < worstVal {
+					worstVal = v
+					worstLabel = t["label"].(string)
+				}
+			}
+			if bestLabel != worstLabel {
+				parts = append(parts, fmt.Sprintf("Peak performance was in %s ($%.1fK), while the lowest point was %s ($%.1fK).",
+					bestLabel, bestVal/1000, worstLabel, worstVal/1000))
+			}
+		} else if len(trend) == 1 {
+			parts = append(parts, fmt.Sprintf("Data is available for %s with %s of $%.1f.", trend[0]["label"], metricName, trend[0]["value"]))
+		}
 	}
+
+	// Segment story
+	if catCol != nil {
+		segments := data.BuildSegments(ds.Rows, catCol, metricCol)
+		if len(segments) > 0 {
+			top := segments[0]
+			topName := top["label"].(string)
+			topVal := top["value"].(float64)
+			topPct := 0.0
+			if totalVal > 0 {
+				topPct = (topVal / totalVal) * 100
+			}
+			parts = append(parts, fmt.Sprintf("The leading segment is %q, contributing $%.1fK (%.1f%% of total).", topName, topVal/1000, topPct))
+
+			if len(segments) > 1 {
+				// Show other segments
+				otherNames := make([]string, 0, len(segments)-1)
+				for i := 1; i < len(segments); i++ {
+					otherNames = append(otherNames, fmt.Sprintf("%q (%d%%)", segments[i]["label"], int(segments[i]["value"].(float64)/totalVal*100)))
+				}
+				if len(otherNames) == 1 {
+					parts = append(parts, fmt.Sprintf("Other contributors include %s.", otherNames[0]))
+				} else if len(otherNames) > 1 {
+					parts = append(parts, fmt.Sprintf("Other contributors include %s.", strings.Join(otherNames, ", ")))
+				}
+			}
+		}
+	}
+
 	if prompt != "" {
-		parts = append(parts, fmt.Sprintf("User question: %q.", prompt))
+		parts = append(parts, fmt.Sprintf("This analysis was generated in response to: %q.", prompt))
 	}
+
 	return strings.Join(parts, " ")
 }
 

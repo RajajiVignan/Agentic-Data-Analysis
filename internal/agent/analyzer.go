@@ -65,6 +65,7 @@ type LLMPlan struct {
 	Assumptions     []string       `json:"assumptions"`
 	Reasoning       string         `json:"reasoning"`
 	Filters         []FilterClause `json:"filters,omitempty"`
+	Narrative       string         `json:"narrative,omitempty"`
 }
 
 // UnmarshalJSON handles the LLM returning assumptions or recommendations as a
@@ -107,6 +108,7 @@ type DashboardSpec struct {
 	Trend           []map[string]interface{} `json:"trend"`
 	Segments        []map[string]interface{} `json:"segments"`
 	Recommendations []string                 `json:"recommendations"`
+	Narrative       string                   `json:"narrative,omitempty"`
 }
 
 // Analyzer is the interface that all analysis implementations must satisfy.

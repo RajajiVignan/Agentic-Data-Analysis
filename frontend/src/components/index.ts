@@ -1,7 +1,8 @@
 export { Sidebar } from "./Sidebar";
-export { MetricTile, PythonPlot, TrendChart, SegmentChart } from "./Charts";
+export { MetricTile, PythonPlot, TrendChart, SegmentChart, LineTrendChart, AreaTrendChart, ScatterTrendChart, ComboChart, HeatmapChart } from "./Charts";
 export { UploadArea } from "./UploadArea";
 export { AnalysisPrompt } from "./AnalysisPrompt";
 export { DashboardView, AnalysisSkeleton } from "./DashboardView";
 export { PinnedDashboard } from "./PinnedDashboard";
 export { DataConnections } from "./DataConnections";
+export { TransformationPanel } from "./TransformationPanel";

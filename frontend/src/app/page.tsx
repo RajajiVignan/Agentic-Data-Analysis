@@ -14,6 +14,7 @@ import { AnalysisPrompt } from "@/components/AnalysisPrompt";
 import { DashboardView, AnalysisSkeleton } from "@/components/DashboardView";
 import { PinnedDashboard } from "@/components/PinnedDashboard";
 import { DataConnections } from "@/components/DataConnections";
+import { TransformationPanel } from "@/components/TransformationPanel";
 import {
   checkBackend,
   fetchDatasets,
@@ -479,6 +480,19 @@ export default function Workspace() {
                 refreshingId={refreshingId}
                 uploadLoading={uploadLoading}
               />
+
+              {/* Transformation Pipeline */}
+              {selectedDatasetIds.length === 1 && (() => {
+                const ds = availableDatasets.find((d) => d.id === selectedDatasetIds[0]);
+                return ds?.profile?.columns ? (
+                  <TransformationPanel
+                    key={ds.id}
+                    datasetId={ds.id}
+                    columns={ds.profile.columns}
+                    onTransformed={loadDatasets}
+                  />
+                ) : null;
+              })()}
 
               {/* Conversation thread — each turn's question + full dashboard */}
               {conversationTurns.length > 0 && (
