@@ -1,8 +1,34 @@
 @import "tailwindcss";
 
-:root {
+:root, [data-theme="light"] {
   --background: #ffffff;
   --foreground: #171717;
+  --card-bg: #ffffff;
+  --card-border: #e2e8f0;
+  --card-shadow: rgba(0, 0, 0, 0.04);
+  --sidebar-bg: #f1f5f9;
+  --sidebar-text: #334155;
+  --input-bg: #ffffff;
+  --heading: #0f172a;
+  --muted: #94a3b8;
+  --accent: #6366f1;
+  --accent-hover: #4f46e5;
+  --chart-colors: #6366f1, #f59e0b, #10b981, #ef4444, #8b5cf6, #06b6d4, #a855f7;
+}
+
+[data-theme="dark"] {
+  --background: #0f172a;
+  --foreground: #e2e8f0;
+  --card-bg: #1e293b;
+  --card-border: #334155;
+  --card-shadow: rgba(0, 0, 0, 0.2);
+  --sidebar-bg: #1e293b;
+  --sidebar-text: #94a3b8;
+  --input-bg: #1e293b;
+  --heading: #f1f5f9;
+  --muted: #64748b;
+  --accent: #818cf8;
+  --accent-hover: #6366f1;
 }
 
 @theme inline {
@@ -12,15 +38,143 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* Dark mode overrides for common elements */
+[data-theme="dark"] .bg-white {
+  background-color: var(--card-bg) !important;
+}
+
+[data-theme="dark"] .border-slate-200 {
+  border-color: var(--card-border) !important;
+}
+
+[data-theme="dark"] .text-slate-900 {
+  color: var(--heading) !important;
+}
+
+[data-theme="dark"] .text-slate-700,
+[data-theme="dark"] .text-slate-800 {
+  color: var(--foreground) !important;
+}
+
+[data-theme="dark"] .text-slate-500,
+[data-theme="dark"] .text-slate-400 {
+  color: var(--muted) !important;
+}
+
+[data-theme="dark"] .bg-slate-50,
+[data-theme="dark"] .bg-slate-100 {
+  background-color: #0f172a !important;
+}
+
+[data-theme="dark"] .shadow-sm {
+  box-shadow: 0 1px 3px var(--card-shadow) !important;
+}
+
+[data-theme="dark"] .bg-gradient-to-br {
+  opacity: 0.8;
+}
+
+[data-theme="dark"] .bg-gradient-to-br.from-indigo-50 {
+  background: linear-gradient(to bottom right, #1e1b4b, #312e81) !important;
+}
+
+[data-theme="dark"] .border-indigo-100 {
+  border-color: #312e81 !important;
+}
+
+[data-theme="dark"] pre {
+  background-color: #0f172a !important;
+  color: #e2e8f0 !important;
+}
+
+/* Sidebar / nav overrides */
+[data-theme="dark"] .bg-slate-900 {
+  background-color: #0b1121 !important;
+}
+[data-theme="dark"] .text-slate-300 {
+  color: #cbd5e1 !important;
+}
+[data-theme="dark"] .border-slate-800 {
+  border-color: #1e293b !important;
+}
+[data-theme="dark"] .border-slate-700 {
+  border-color: #334155 !important;
+}
+[data-theme="dark"] .bg-slate-800 {
+  background-color: #1e293b !important;
+}
+[data-theme="dark"] .hover\:bg-slate-800:hover {
+  background-color: #334155 !important;
+}
+
+/* Input / button overrides */
+[data-theme="dark"] input,
+[data-theme="dark"] select,
+[data-theme="dark"] textarea {
+  background-color: var(--input-bg) !important;
+  color: var(--foreground) !important;
+  border-color: var(--card-border) !important;
+}
+
+/* Chart container overrides */
+[data-theme="dark"] .recharts-cartesian-grid line {
+  stroke: #334155 !important;
+}
+[data-theme="dark"] .recharts-text {
+  fill: var(--muted) !important;
+}
+[data-theme="dark"] .recharts-tooltip-wrapper .recharts-default-tooltip {
+  background-color: var(--card-bg) !important;
+  border-color: var(--card-border) !important;
+}
+
+/* Modal / dialog overrides */
+[data-theme="dark"] .bg-black\/50 {
+  background-color: rgba(0, 0, 0, 0.7) !important;
+}
+
+/* Pill / badge overrides */
+[data-theme="dark"] .bg-indigo-50 {
+  background-color: rgba(99, 102, 241, 0.15) !important;
+}
+[data-theme="dark"] .text-indigo-700 {
+  color: #a5b4fc !important;
+}
+[data-theme="dark"] .text-indigo-600 {
+  color: #818cf8 !important;
+}
+[data-theme="dark"] .hover\:text-indigo-600:hover {
+  color: #818cf8 !important;
+}
+[data-theme="dark"] .bg-indigo-100 {
+  background-color: rgba(99, 102, 241, 0.2) !important;
+}
+
+/* Amber / warning overrides */
+[data-theme="dark"] .bg-amber-50 {
+  background-color: rgba(245, 158, 11, 0.15) !important;
+}
+[data-theme="dark"] .border-amber-200 {
+  border-color: rgba(245, 158, 11, 0.3) !important;
+}
+[data-theme="dark"] .text-amber-700 {
+  color: #fbbf24 !important;
+}
+
+/* Gradient overrides for narrative cards */
+[data-theme="dark"] .from-indigo-50 {
+  --tw-gradient-from: rgba(99, 102, 241, 0.15) !important;
+}
+[data-theme="dark"] .to-purple-50 {
+  --tw-gradient-to: rgba(168, 85, 247, 0.15) !important;
+}
+[data-theme="dark"] .border-indigo-100 {
+  border-color: rgba(99, 102, 241, 0.25) !important;
 }

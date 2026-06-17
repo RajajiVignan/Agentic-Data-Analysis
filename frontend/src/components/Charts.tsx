@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import Image from 'next/image';
-import { Pin } from 'lucide-react';
+import { Pin, Info, ChevronDown, ChevronRight } from 'lucide-react';
 import {
   BarChart,
   Bar,
@@ -350,6 +350,106 @@ type HeatmapCell = {
   y: string;
   value: number;
 };
+
+// SmartAutoViz picks the right chart based on chartType prop
+export function SmartAutoViz({ data, chartType, onPin, title }: {
+  data: ChartPoint[];
+  chartType?: string;
+  onPin?: () => void;
+  title?: string;
+}) {
+  if (!data || data.length === 0) return null;
+
+  // Scatter needs two numeric columns — guard with a check
+  if (chartType === 'scatter') {
+    const hasNumericLabels = data.every((d) => !isNaN(Number(d.label)));
+    if (!hasNumericLabels) {
+      // Fall back to bar if labels aren't numeric
+      return <TrendChart data={data} onPin={onPin} />;
+    }
+    return <ScatterTrendChart data={data.map((d) => ({ label: d.label, x: Number(d.label), y: d.value }))} onPin={onPin} />;
+  }
+
+  switch (chartType) {
+    case 'line':
+      return <LineTrendChart data={data} onPin={onPin} />;
+    case 'pie':
+      return <SegmentChart data={data} onPin={onPin} />;
+    case 'area':
+      return <AreaTrendChart data={data} onPin={onPin} />;
+    case 'bar':
+    default:
+      return <TrendChart data={data} onPin={onPin} />;
+  }
+}
+
+// Histogram chart for data profiling
+export function HistogramChart({ column, buckets }: { column: string; buckets: { label: string; count: number }[] }) {
+  if (!buckets || buckets.length === 0) return null;
+  return (
+    <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-3">
+      <strong className="text-xs font-semibold text-slate-700">Distribution: {column}</strong>
+      <div className="space-y-1">
+        {buckets.map((b, i) => {
+          const maxCount = Math.max(...buckets.map((x) => x.count));
+          const pct = maxCount > 0 ? (b.count / maxCount) * 100 : 0;
+          return (
+            <div key={i} className="flex items-center gap-2 text-[11px]">
+              <span className="w-24 text-right text-slate-500 truncate shrink-0">{b.label}</span>
+              <div className="flex-1 h-4 bg-slate-100 rounded-full overflow-hidden">
+                <div className="h-full bg-indigo-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
+              </div>
+              <span className="w-8 text-right text-slate-600 font-medium">{b.count}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Collapsible explanation section for Explainable AI
+export function ExplainSection({ explanations }: { explanations: { chart: string; columns: string; sql?: string; warning?: string; grouping?: string }[] }) {
+  const [open, setOpen] = useState(false);
+  if (!explanations || explanations.length === 0) return null;
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <Info size={16} className="text-indigo-500" />
+          How This Analysis Works
+        </div>
+        {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+      </button>
+      {open && (
+        <div className="px-5 pb-4 space-y-3">
+          {explanations.map((exp, i) => (
+            <div key={i} className="p-3 bg-slate-50 rounded-xl text-xs space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded text-[10px] font-medium uppercase">{exp.chart}</span>
+                <span className="text-slate-500">Columns: {exp.columns}</span>
+              </div>
+              {exp.grouping && exp.grouping !== 'none' && (
+                <p className="text-slate-400">Grouped by: {exp.grouping}</p>
+              )}
+              {exp.sql && (
+                <pre className="mt-1 p-2 bg-slate-800 text-slate-200 rounded-lg overflow-x-auto text-[10px] leading-relaxed">{exp.sql}</pre>
+              )}
+              {exp.warning && (
+                <p className="text-amber-600 flex items-center gap-1">
+                  <span>⚠</span> {exp.warning}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function HeatmapChart({ data, onPin }: { data: HeatmapCell[]; onPin?: () => void }) {
   if (!data || data.length === 0) return null;

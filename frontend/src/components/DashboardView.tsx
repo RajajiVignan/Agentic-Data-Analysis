@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState } from "react";
-import { ChevronDown, ChevronRight, Code, BookOpen } from "lucide-react";
-import { MetricTile, PythonPlot, TrendChart, SegmentChart, LineTrendChart, AreaTrendChart } from "@/components/Charts";
+import { ChevronDown, ChevronRight, Code, BookOpen, BarChart3 } from "lucide-react";
+import { MetricTile, PythonPlot, SmartAutoViz, ExplainSection } from "@/components/Charts";
 import type { AnalysisResult, PinnedChart } from "@/lib/api";
 
 type DashboardViewProps = {
@@ -26,9 +26,12 @@ function AnalysisSkeleton() {
 
 export function DashboardView({ result, dashboardRef, onPinChart }: DashboardViewProps) {
   const [showSql, setShowSql] = useState(false);
+  const [chartMode, setChartMode] = useState<'auto' | 'all'>('auto');
   const hasTrend = result.dashboard.trend.length > 0;
   const hasSegments = result.dashboard.segments.length > 0;
   const hasNarrative = !!result.dashboard.narrative;
+  const hasExplanations = result.dashboard.explanations && result.dashboard.explanations.length > 0;
+  const suggestedChartType = result.dashboard.chartType ?? 'bar';
 
   return (
     <div ref={dashboardRef} className="space-y-6">
@@ -70,43 +73,85 @@ export function DashboardView({ result, dashboardRef, onPinChart }: DashboardVie
         />
       )}
 
-      {/* Chart grid: trend (multiple views) + segments */}
+      {/* Chart type toggle */}
       {hasTrend || hasSegments ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {hasTrend && (
-            <>
-              <TrendChart
+        <div className="flex items-center justify-end gap-2">
+          <span className="text-xs text-slate-400">
+            <BarChart3 size={14} className="inline mr-1" />
+            {chartMode === 'auto' ? `Smart: ${suggestedChartType}` : 'All views'}
+          </span>
+          <button
+            onClick={() => setChartMode(chartMode === 'auto' ? 'all' : 'auto')}
+            className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+          >
+            Show {chartMode === 'auto' ? 'all' : 'smart'}
+          </button>
+        </div>
+      ) : null}
+
+      {/* Chart grid: smart auto-viz or all views */}
+      {hasTrend || hasSegments ? (
+        chartMode === 'auto' ? (
+          <div className={`grid grid-cols-1 ${hasTrend && hasSegments ? 'md:grid-cols-2' : ''} gap-6`}>
+            {hasTrend && (
+              <SmartAutoViz
                 data={result.dashboard.trend}
+                chartType={suggestedChartType}
                 onPin={() => {
                   const latest = result.dashboard.trend[result.dashboard.trend.length - 1];
-                  onPinChart("trend", `Bar: ${latest?.label ?? "overview"}`, result.dashboard.trend);
+                  onPinChart("trend", `${suggestedChartType}: ${latest?.label ?? "overview"}`, result.dashboard.trend);
                 }}
               />
-              <LineTrendChart
-                data={result.dashboard.trend}
-                onPin={() => {
-                  const latest = result.dashboard.trend[result.dashboard.trend.length - 1];
-                  onPinChart("trend", `Line: ${latest?.label ?? "overview"}`, result.dashboard.trend);
-                }}
+            )}
+            {hasSegments && (
+              <SmartAutoViz
+                data={result.dashboard.segments}
+                chartType="pie"
+                onPin={() => onPinChart("segment", "Segment Breakdown", result.dashboard.segments)}
               />
-              {hasSegments ? null : (
-                <AreaTrendChart
+            )}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {hasTrend && (
+              <>
+                <SmartAutoViz
                   data={result.dashboard.trend}
+                  chartType="bar"
                   onPin={() => {
                     const latest = result.dashboard.trend[result.dashboard.trend.length - 1];
-                    onPinChart("trend", `Area: ${latest?.label ?? "overview"}`, result.dashboard.trend);
+                    onPinChart("trend", `Bar: ${latest?.label ?? "overview"}`, result.dashboard.trend);
                   }}
                 />
-              )}
-            </>
-          )}
-          {hasSegments && (
-            <SegmentChart
-              data={result.dashboard.segments}
-              onPin={() => onPinChart("segment", "Segment Breakdown", result.dashboard.segments)}
-            />
-          )}
-        </div>
+                <SmartAutoViz
+                  data={result.dashboard.trend}
+                  chartType="line"
+                  onPin={() => {
+                    const latest = result.dashboard.trend[result.dashboard.trend.length - 1];
+                    onPinChart("trend", `Line: ${latest?.label ?? "overview"}`, result.dashboard.trend);
+                  }}
+                />
+                {!hasSegments && (
+                  <SmartAutoViz
+                    data={result.dashboard.trend}
+                    chartType="area"
+                    onPin={() => {
+                      const latest = result.dashboard.trend[result.dashboard.trend.length - 1];
+                      onPinChart("trend", `Area: ${latest?.label ?? "overview"}`, result.dashboard.trend);
+                    }}
+                  />
+                )}
+              </>
+            )}
+            {hasSegments && (
+              <SmartAutoViz
+                data={result.dashboard.segments}
+                chartType="pie"
+                onPin={() => onPinChart("segment", "Segment Breakdown", result.dashboard.segments)}
+              />
+            )}
+          </div>
+        )
       ) : null}
 
       {/* Warnings */}
@@ -117,6 +162,9 @@ export function DashboardView({ result, dashboardRef, onPinChart }: DashboardVie
           ))}
         </div>
       )}
+
+      {/* Explainable AI: How this analysis works */}
+      {hasExplanations && <ExplainSection explanations={result.dashboard.explanations!} />}
 
       {/* SQL Queries */}
       {result.sqlQueries && result.sqlQueries.length > 0 && (

@@ -571,6 +571,9 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 			"segments":        resp.Dashboard.Segments,
 			"recommendations": resp.Dashboard.Recommendations,
 			"narrative":       resp.Dashboard.Narrative,
+			"chartType":       resp.Dashboard.ChartType,
+			"chartTypes":      resp.Dashboard.ChartTypes,
+			"explanations":    resp.Dashboard.Explanations,
 		},
 		"assumptions":        resp.Assumptions,
 		"warnings":           resp.Warnings,
@@ -796,6 +799,25 @@ func (h *Handler) handlePythonPlot(w http.ResponseWriter, r *http.Request) {
 	datasets := h.datasets
 	h.mu.RUnlock()
 	h.plotService.HandlePythonPlot(w, r, datasets)
+}
+
+func (h *Handler) handleDatasetProfile(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "id query parameter required"})
+		return
+	}
+
+	h.mu.RLock()
+	ds, ok := h.datasets[id]
+	h.mu.RUnlock()
+	if !ok {
+		SendJSON(w, http.StatusNotFound, map[string]string{"error": "Dataset not found"})
+		return
+	}
+
+	profile := data.ComputeDetailedProfile(ds)
+	SendJSON(w, http.StatusOK, profile)
 }
 
 // persistDataset saves a dataset to the database for recovery on restart.

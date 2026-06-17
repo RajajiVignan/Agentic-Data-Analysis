@@ -10,6 +10,9 @@ import {
   Terminal,
   CalendarClock,
   Layout,
+  Sun,
+  Moon,
+  BarChart3,
 } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { AuthOverlay } from "@/components/AuthOverlay";
@@ -46,6 +49,7 @@ import { JoinConfigurator } from "@/components/JoinConfigurator";
 import { SQLQueryEditor } from "@/components/SQLQueryEditor";
 import { ScheduleManager } from "@/components/ScheduleManager";
 import { DashboardEditor } from "@/components/DashboardEditor";
+import { DataProfiler } from "@/components/DataProfiler";
 import type { AuthUser } from "@/lib/api";
 import { exportPlotsAsSvg, exportPlotsAsPdf } from "@/lib/export";
 import type {
@@ -58,7 +62,7 @@ import type {
   SharedDashboardData,
 } from "@/lib/api";
 
-type NavTab = "explore" | "dashboards" | "data" | "context" | "share" | "joins" | "query" | "reports" | "editor";
+type NavTab = "explore" | "dashboards" | "data" | "context" | "share" | "joins" | "query" | "reports" | "editor" | "profiler";
 
 export default function Workspace() {
   const dashboardRef = useRef<HTMLDivElement | null>(null);
@@ -83,13 +87,54 @@ export default function Workspace() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [accentColor, setAccentColor] = useState<string>("indigo");
+  const [chartScheme, setChartScheme] = useState<string>("default");
 
   // --- Initialization ---
 
   useEffect(() => {
     setMounted(true);
+    const savedTheme = localStorage.getItem("insightpilot-theme") as "light" | "dark" | null;
+    if (savedTheme) setTheme(savedTheme);
+    const savedAccent = localStorage.getItem("insightpilot-accent");
+    if (savedAccent) setAccentColor(savedAccent);
+    const savedScheme = localStorage.getItem("insightpilot-chart-scheme");
+    if (savedScheme) setChartScheme(savedScheme);
     init();
   }, []);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("insightpilot-theme", theme);
+  }, [theme]);
+
+  useEffect(() => {
+    // Map accent color names to CSS variable values
+    const accentMap: Record<string, { base: string; hover: string; light: string }> = {
+      indigo: { base: "#6366f1", hover: "#4f46e5", light: "rgba(99,102,241,0.15)" },
+      blue: { base: "#3b82f6", hover: "#2563eb", light: "rgba(59,130,246,0.15)" },
+      emerald: { base: "#10b981", hover: "#059669", light: "rgba(16,185,129,0.15)" },
+      amber: { base: "#f59e0b", hover: "#d97706", light: "rgba(245,158,11,0.15)" },
+      rose: { base: "#f43f5e", hover: "#e11d48", light: "rgba(244,63,94,0.15)" },
+      violet: { base: "#8b5cf6", hover: "#7c3aed", light: "rgba(139,92,246,0.15)" },
+    };
+    const a = accentMap[accentColor] ?? accentMap.indigo;
+    document.documentElement.style.setProperty("--accent", a.base);
+    document.documentElement.style.setProperty("--accent-hover", a.hover);
+    localStorage.setItem("insightpilot-accent", accentColor);
+  }, [accentColor]);
+
+  useEffect(() => {
+    const schemes: Record<string, string> = {
+      default: "#6366f1, #f59e0b, #10b981, #ef4444, #8b5cf6, #06b6d4, #a855f7",
+      warm: "#f97316, #ef4444, #eab308, #f43f5e, #d97706, #fb923c, #a16207",
+      cool: "#3b82f6, #06b6d4, #6366f1, #14b8a6, #0ea5e9, #8b5cf6, #2dd4bf",
+      mono: "#64748b, #94a3b8, #475569, #cbd5e1, #334155, #e2e8f0, #1e293b",
+    };
+    document.documentElement.style.setProperty("--chart-colors", schemes[chartScheme] ?? schemes.default);
+    localStorage.setItem("insightpilot-chart-scheme", chartScheme);
+  }, [chartScheme]);
 
   async function init() {
     setBackendStatus(await checkBackend());
@@ -380,6 +425,7 @@ export default function Workspace() {
     query: { subtitle: "SQL Mode", title: "Custom SQL Query" },
     reports: { subtitle: "Automation", title: "Scheduled Reports & Alerts" },
     editor: { subtitle: "Dashboard Editor", title: "Drag-and-Drop Editor" },
+    profiler: { subtitle: "Data Profiler", title: "Explore Your Data" },
   };
 
   // --- Render ---
@@ -460,6 +506,39 @@ export default function Workspace() {
                   </button>
                 </div>
               )}
+              {/* Accent color picker */}
+              <select
+                value={accentColor}
+                onChange={(e) => setAccentColor(e.target.value)}
+                className="text-xs bg-slate-100 border border-slate-200 rounded-lg px-2 py-1.5 text-slate-600 cursor-pointer"
+                title="Accent color"
+              >
+                <option value="indigo">Indigo</option>
+                <option value="blue">Blue</option>
+                <option value="emerald">Emerald</option>
+                <option value="amber">Amber</option>
+                <option value="rose">Rose</option>
+                <option value="violet">Violet</option>
+              </select>
+              {/* Chart color scheme picker */}
+              <select
+                value={chartScheme}
+                onChange={(e) => setChartScheme(e.target.value)}
+                className="text-xs bg-slate-100 border border-slate-200 rounded-lg px-2 py-1.5 text-slate-600 cursor-pointer"
+                title="Chart color scheme"
+              >
+                <option value="default">Default</option>
+                <option value="warm">Warm</option>
+                <option value="cool">Cool</option>
+                <option value="mono">Monochrome</option>
+              </select>
+              <button
+                onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+                className="p-2 text-slate-400 hover:text-indigo-600 transition-colors rounded-lg hover:bg-slate-100"
+                title={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
+              >
+                {theme === "light" ? <Moon size={16} /> : <Sun size={16} />}
+              </button>
               <div
                 className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase flex items-center gap-1.5 ${
                   backendStatus === "online"
@@ -619,6 +698,22 @@ export default function Workspace() {
           {/* --- EDITOR TAB (Feature 7) --- */}
           {activeNav === "editor" && (
             <DashboardEditor onRefreshCharts={loadPinnedCharts} />
+          )}
+
+          {/* --- PROFILER TAB (Feature 12) --- */}
+          {activeNav === "profiler" && (
+            <div className="space-y-4">
+              {selectedDatasetIds.length === 0 ? (
+                <div className="p-8 text-center text-sm text-slate-400 bg-white rounded-2xl border border-slate-200 shadow-sm">
+                  <BarChart3 size={32} className="mx-auto mb-3 opacity-50" />
+                  <p>Select a dataset from the sidebar to view its profile</p>
+                </div>
+              ) : (
+                selectedDatasetIds.map((id) => (
+                  <DataProfiler key={id} datasetId={id} />
+                ))
+              )}
+            </div>
           )}
 
           {/* --- SHARE TAB --- */}

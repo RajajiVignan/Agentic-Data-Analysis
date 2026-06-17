@@ -26,6 +26,14 @@ export type ConversationTurn = {
   response: AnalysisResult;
 };
 
+export type Explanation = {
+  chart: string;
+  columns: string;
+  sql?: string;
+  warning?: string;
+  grouping?: string;
+};
+
 export type AnalysisResult = {
   notebook: NotebookStep[];
   dashboard: {
@@ -35,6 +43,9 @@ export type AnalysisResult = {
     recommendations: string[];
     narrative?: string;
     plotUrl?: string | null;
+    chartType?: string;
+    chartTypes?: string[];
+    explanations?: Explanation[];
   };
   assumptions: string[];
   warnings: string[];
@@ -205,13 +216,16 @@ export async function runAnalysis(datasetIds: string[], prompt: string, sessionI
       segments: data.dashboard?.segments ?? [],
       recommendations: data.dashboard?.recommendations ?? [],
       narrative: data.dashboard?.narrative ?? "",
-    plotUrl: data.plotUrl ?? null,
-  },
-  assumptions: data.assumptions ?? [],
-  warnings: data.warnings ?? [],
-  used_deterministic: data.used_deterministic,
-  sqlQueries: data.sqlQueries ?? [],
-  sessionId: data.sessionId,
+      plotUrl: data.plotUrl ?? null,
+      chartType: data.dashboard?.chartType ?? "",
+      chartTypes: data.dashboard?.chartTypes ?? [],
+      explanations: data.dashboard?.explanations ?? [],
+    },
+    assumptions: data.assumptions ?? [],
+    warnings: data.warnings ?? [],
+    used_deterministic: data.used_deterministic,
+    sqlQueries: data.sqlQueries ?? [],
+    sessionId: data.sessionId,
   };
 }
 
@@ -677,6 +691,63 @@ export async function transformReset(datasetId: string): Promise<Record<string, 
     method: "POST",
     body: JSON.stringify({ datasetId }),
   });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+// --- Feature 12: Data Profiler ---
+
+export type ColumnProfile = {
+  name: string;
+  type: string;
+  nonEmpty: number;
+  nullCount: number;
+  uniqueCount: number;
+  min?: number;
+  max?: number;
+  mean?: number;
+  median?: number;
+  stdDev?: number;
+  sample?: string[];
+};
+
+export type HistogramBucket = {
+  label: string;
+  min: number;
+  max: number;
+  count: number;
+};
+
+export type HistogramResult = {
+  column: string;
+  buckets: HistogramBucket[];
+};
+
+export type CorrelationResult = {
+  col1: string;
+  col2: string;
+  r: number;
+};
+
+export type DuplicateInfo = {
+  totalRows: number;
+  duplicateRows: number;
+  duplicateKeys?: string[];
+};
+
+export type DatasetProfile = {
+  datasetId: string;
+  filename: string;
+  rowCount: number;
+  columnCount: number;
+  columns: ColumnProfile[];
+  correlations?: CorrelationResult[];
+  duplicates: DuplicateInfo;
+  histograms?: HistogramResult[];
+};
+
+export async function fetchDatasetProfile(datasetId: string): Promise<DatasetProfile> {
+  const res = await apiFetch(`/dataset/profile?id=${encodeURIComponent(datasetId)}`);
   if (!res.ok) throw new Error(await parseError(res));
   return res.json();
 }

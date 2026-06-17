@@ -90,6 +90,8 @@ func (h *Handler) chiRouter() http.Handler {
 		r.Post("/transform/redo", h.handleTransformRedo)
 		r.Get("/transform/history", h.handleTransformHistory)
 		r.Post("/transform/reset", h.handleTransformReset)
+		// Data Profiler
+		r.Get("/dataset/profile", h.handleDatasetProfile)
 		// Feature 4: Cross-Dataset Joins
 		r.Post("/join", h.handleJoin)
 		// Feature 5: Custom SQL Query Mode

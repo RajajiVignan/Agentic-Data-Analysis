@@ -148,6 +148,15 @@ func execPlan(plan *agent.LLMPlan, ds *data.Dataset, resp *agent.AnalysisRespons
 		return
 	}
 
+	chartType := "bar"
+	if len(plan.ChartTypes) > 0 {
+		chartType = plan.ChartTypes[0]
+	} else if dateCol != nil {
+		chartType = "line"
+	} else if catCol != nil {
+		chartType = "pie"
+	}
+
 	duckDB := getDuckDBEngine()
 	if ds.FilePath != "" && duckDB != nil && len(plan.Filters) == 0 {
 		kpis, kpiSQL := duckDBKPI(duckDB, ds, metricCol)
@@ -157,6 +166,17 @@ func execPlan(plan *agent.LLMPlan, ds *data.Dataset, resp *agent.AnalysisRespons
 		if title == "" {
 			title = "Insights Board"
 		}
+
+		exps := []map[string]string{
+			{"chart": "kpi", "columns": metricCol.Name, "warning": "", "grouping": "none"},
+		}
+		if dateCol != nil {
+			exps = append(exps, map[string]string{"chart": "trend", "columns": fmt.Sprintf("%s by %s", metricCol.Name, dateCol.Name), "warning": "", "grouping": dateCol.Name})
+		}
+		if catCol != nil {
+			exps = append(exps, map[string]string{"chart": "segment", "columns": fmt.Sprintf("%s by %s", metricCol.Name, catCol.Name), "warning": "", "grouping": catCol.Name})
+		}
+
 		resp.Dashboard = agent.DashboardSpec{
 			Title:           title,
 			KPIs:            kpis,
@@ -164,6 +184,9 @@ func execPlan(plan *agent.LLMPlan, ds *data.Dataset, resp *agent.AnalysisRespons
 			Segments:        segments,
 			Recommendations: plan.Recommendations,
 			Narrative:       plan.Narrative,
+			ChartType:       chartType,
+			ChartTypes:      plan.ChartTypes,
+			Explanations:    exps,
 		}
 		sqls := make([]string, 0, 3)
 		if kpiSQL != "" {
@@ -199,6 +222,24 @@ func execPlan(plan *agent.LLMPlan, ds *data.Dataset, resp *agent.AnalysisRespons
 		title = "Insights Board"
 	}
 
+	exps := []map[string]string{
+		{"chart": "kpi", "columns": metricCol.Name, "warning": "", "grouping": "none"},
+	}
+	if dateCol != nil {
+		warn := ""
+		if len(trend) < 3 {
+			warn = "Only 3 or fewer time periods — trend may be unreliable"
+		}
+		exps = append(exps, map[string]string{"chart": "trend", "columns": fmt.Sprintf("%s by %s", metricCol.Name, dateCol.Name), "warning": warn, "grouping": dateCol.Name})
+	}
+	if catCol != nil {
+		warn := ""
+		if len(segments) < 2 {
+			warn = "Very few unique categories — consider a different dimension"
+		}
+		exps = append(exps, map[string]string{"chart": "segment", "columns": fmt.Sprintf("%s by %s", metricCol.Name, catCol.Name), "warning": warn, "grouping": catCol.Name})
+	}
+
 	resp.Dashboard = agent.DashboardSpec{
 		Title:           title,
 		KPIs:            kpis,
@@ -206,6 +247,9 @@ func execPlan(plan *agent.LLMPlan, ds *data.Dataset, resp *agent.AnalysisRespons
 		Segments:        segments,
 		Recommendations: plan.Recommendations,
 		Narrative:       plan.Narrative,
+		ChartType:       chartType,
+		ChartTypes:      plan.ChartTypes,
+		Explanations:    exps,
 	}
 
 	if len(plan.Assumptions) > 0 {

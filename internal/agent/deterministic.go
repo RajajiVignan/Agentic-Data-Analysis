@@ -199,9 +199,18 @@ func (a *DeterministicAnalyzer) Analyze(ctx context.Context, req AnalysisRequest
 		sqlQueries = generateSQLQueries(primary.TableName, metricCol, catCol, dateCol)
 	}
 
+	chartType := guessChartType(metricCol, catCol, dateCol, trend, segments)
+	chartTypes := []string{chartType}
+	if chartType == "line" {
+		chartTypes = append(chartTypes, "bar")
+	}
+
+	explanations := buildExplanations(metricCol, catCol, dateCol, sqlQueries)
+
 	notebook := []NotebookStep{
 		{Title: "Data Profile", Body: fmt.Sprintf("Dataset %q has %d rows and %d columns.", primary.Filename, primary.Profile.RowCount, len(primary.Profile.Columns))},
 		{Title: "Column Selection", Body: fmt.Sprintf("Metric: %s, Category: %s, Date: %s", colName(metricCol), colName(catCol), colName(dateCol))},
+		{Title: "Visualization", Body: fmt.Sprintf("Recommended chart type: %s", chartType)},
 		{Title: "Analysis", Body: narrative},
 	}
 	if len(activeCtx.Filters) > 0 {
@@ -231,6 +240,9 @@ func (a *DeterministicAnalyzer) Analyze(ctx context.Context, req AnalysisRequest
 			Segments:        segments,
 			Recommendations: recommendations,
 			Narrative:       narrative,
+			ChartType:       chartType,
+			ChartTypes:      chartTypes,
+			Explanations:    explanations,
 		},
 		Assumptions:       assumptions,
 		Warnings:          warnings,
@@ -606,4 +618,84 @@ func buildFilterWarnings(ctx *ConversationContext, totalRows, filteredRows int) 
 		warnings = append(warnings, "No rows match the current filters. Try removing or changing filters.")
 	}
 	return warnings
+}
+
+// guessChartType picks an appropriate chart type based on available columns and data.
+func guessChartType(metricCol, catCol, dateCol *data.Column, trend, segments []map[string]interface{}) string {
+	if dateCol != nil && len(trend) > 1 {
+		return "line"
+	}
+	if catCol != nil && len(segments) > 1 {
+		return "pie"
+	}
+	if metricCol != nil {
+		return "bar"
+	}
+	return "bar"
+}
+
+// buildExplanations creates per-chart explanation entries.
+func buildExplanations(metricCol, catCol, dateCol *data.Column, sqlQueries []string) []map[string]string {
+	var exps []map[string]string
+
+	if metricCol != nil {
+		sql := ""
+		if len(sqlQueries) > 0 {
+			sql = sqlQueries[0]
+		}
+		cols := metricCol.Name
+		warn := ""
+		if metricCol.NonEmpty < 3 {
+			warn = "Very few data points — results may not be statistically meaningful"
+		}
+		exps = append(exps, map[string]string{
+			"chart":    "kpi",
+			"columns":  cols,
+			"sql":      sql,
+			"warning":  warn,
+			"grouping": "none",
+		})
+	}
+
+	if dateCol != nil && metricCol != nil {
+		sql := ""
+		if len(sqlQueries) >= 3 {
+			sql = sqlQueries[2]
+		} else if len(sqlQueries) >= 2 {
+			sql = sqlQueries[1]
+		}
+		warn := ""
+		if dateCol.NonEmpty < 3 {
+			warn = "Only 3 or fewer time periods — trend may be unreliable"
+		}
+		exps = append(exps, map[string]string{
+			"chart":    "trend",
+			"columns":  fmt.Sprintf("%s by %s", metricCol.Name, dateCol.Name),
+			"sql":      sql,
+			"warning":  warn,
+			"grouping": dateCol.Name,
+		})
+	}
+
+	if catCol != nil && metricCol != nil {
+		sql := ""
+		if len(sqlQueries) >= 2 {
+			sql = sqlQueries[1]
+		} else if len(sqlQueries) >= 1 {
+			sql = sqlQueries[0]
+		}
+		warn := ""
+		if catCol.NonEmpty < 2 {
+			warn = "Very few unique categories — consider a different dimension"
+		}
+		exps = append(exps, map[string]string{
+			"chart":    "segment",
+			"columns":  fmt.Sprintf("%s by %s", metricCol.Name, catCol.Name),
+			"sql":      sql,
+			"warning":  warn,
+			"grouping": catCol.Name,
+		})
+	}
+
+	return exps
 }

@@ -11,6 +11,7 @@ import {
   Terminal,
   CalendarClock,
   Layout,
+  BarChart3,
 } from 'lucide-react';
 
 type Dataset = {
@@ -59,6 +60,7 @@ export function Sidebar({ datasets, selectedDatasetIds, onToggleDataset, onConne
         <NavItem icon={<Search size={18} />} label="Explore" active={activeNav === 'explore'} onClick={() => onNavChange('explore')} />
         <NavItem icon={<LayoutDashboard size={18} />} label="Dashboards" active={activeNav === 'dashboards'} onClick={() => onNavChange('dashboards')} />
         <NavItem icon={<Database size={18} />} label="Data" active={activeNav === 'data'} onClick={() => onNavChange('data')} />
+        <NavItem icon={<BarChart3 size={18} />} label="Profiler" active={activeNav === 'profiler'} onClick={() => onNavChange('profiler')} />
         <NavItem icon={<Edit3 size={18} />} label="Context" active={activeNav === 'context'} onClick={() => onNavChange('context')} />
         <NavItem icon={<Share2 size={18} />} label="Share" active={activeNav === 'share'} onClick={() => onNavChange('share')} />
         <div className="pt-3 pb-1 text-[10px] font-medium text-slate-600 uppercase tracking-wider px-3">

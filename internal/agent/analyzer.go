@@ -109,6 +109,9 @@ type DashboardSpec struct {
 	Segments        []map[string]interface{} `json:"segments"`
 	Recommendations []string                 `json:"recommendations"`
 	Narrative       string                   `json:"narrative,omitempty"`
+	ChartType       string                   `json:"chartType,omitempty"` // "line","bar","pie","scatter","histogram"
+	ChartTypes      []string                 `json:"chartTypes,omitempty"`
+	Explanations    []map[string]string      `json:"explanations,omitempty"` // per-chart: {"chart":"trend","sql":"SELECT...","columns":"col1,col2","warning":""}
 }
 
 // Analyzer is the interface that all analysis implementations must satisfy.
