@@ -11,6 +11,50 @@ import (
 	_ "github.com/lib/pq"
 )
 
+// ReportRecord represents a persisted scheduled report.
+type ReportRecord struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	DatasetIDs   string `json:"dataset_ids"`
+	Frequency    string `json:"frequency"`
+	DayOfWeek    int    `json:"day_of_week"`
+	DayOfMonth   int    `json:"day_of_month"`
+	Hour         int    `json:"hour"`
+	Emails       string `json:"emails"`
+	SlackWebhook string `json:"slack_webhook"`
+	TeamsWebhook string `json:"teams_webhook"`
+	LastSent     string `json:"last_sent"`
+	NextRun      string `json:"next_run"`
+	Enabled      bool   `json:"enabled"`
+	CreatedAt    string `json:"created_at"`
+}
+
+// AlertRecord represents a persisted alert rule.
+type AlertRecord struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	DatasetID   string `json:"dataset_id"`
+	MetricCol   string `json:"metric_col"`
+	Condition   string `json:"condition"`
+	Threshold   float64 `json:"threshold"`
+	Period      string `json:"period"`
+	Emails      string `json:"emails"`
+	SlackHook   string `json:"slack_hook"`
+	Enabled     bool   `json:"enabled"`
+	LastChecked string `json:"last_checked"`
+	CreatedAt   string `json:"created_at"`
+}
+
+// LayoutRecord represents a persisted dashboard layout.
+type LayoutRecord struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	IsDefault bool   `json:"is_default"`
+	Tiles     string `json:"tiles"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}
+
 // DB is the database persistence layer.
 type DB struct {
 	conn *sql.DB
@@ -143,7 +187,72 @@ func (db *DB) initSchema() error {
 	if err := db.InitDatasetsTable(); err != nil {
 		return err
 	}
+	if err := db.initReportsTable(); err != nil {
+		return err
+	}
+	if err := db.initAlertsTable(); err != nil {
+		return err
+	}
+	if err := db.initDashboardLayoutsTable(); err != nil {
+		return err
+	}
 	return db.initUsersTable()
+}
+
+func (db *DB) initReportsTable() error {
+	_, err := db.conn.Exec(`
+		CREATE TABLE IF NOT EXISTS scheduled_reports (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			dataset_ids TEXT NOT NULL DEFAULT '[]',
+			frequency TEXT NOT NULL DEFAULT 'daily',
+			day_of_week INTEGER NOT NULL DEFAULT 0,
+			day_of_month INTEGER NOT NULL DEFAULT 1,
+			hour INTEGER NOT NULL DEFAULT 9,
+			emails TEXT NOT NULL DEFAULT '[]',
+			slack_webhook TEXT DEFAULT '',
+			teams_webhook TEXT DEFAULT '',
+			last_sent TEXT DEFAULT '',
+			next_run TEXT DEFAULT '',
+			enabled BOOLEAN NOT NULL DEFAULT true,
+			created_at TEXT NOT NULL DEFAULT ''
+		)
+	`)
+	return err
+}
+
+func (db *DB) initAlertsTable() error {
+	_, err := db.conn.Exec(`
+		CREATE TABLE IF NOT EXISTS alert_rules (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			dataset_id TEXT NOT NULL,
+			metric_col TEXT NOT NULL,
+			condition TEXT NOT NULL DEFAULT 'drop',
+			threshold DOUBLE PRECISION NOT NULL DEFAULT 10,
+			period TEXT DEFAULT '',
+			emails TEXT NOT NULL DEFAULT '[]',
+			slack_hook TEXT DEFAULT '',
+			enabled BOOLEAN NOT NULL DEFAULT true,
+			last_checked TEXT DEFAULT '',
+			created_at TEXT NOT NULL DEFAULT ''
+		)
+	`)
+	return err
+}
+
+func (db *DB) initDashboardLayoutsTable() error {
+	_, err := db.conn.Exec(`
+		CREATE TABLE IF NOT EXISTS dashboard_layouts (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			is_default BOOLEAN NOT NULL DEFAULT false,
+			tiles JSONB NOT NULL DEFAULT '[]'::jsonb,
+			created_at TEXT NOT NULL DEFAULT '',
+			updated_at TEXT NOT NULL DEFAULT ''
+		)
+	`)
+	return err
 }
 
 // Close closes the database connection.
@@ -457,5 +566,113 @@ func (db *DB) GetDashboards() ([]DashboardRecord, error) {
 // DeleteDashboard removes a dashboard by ID.
 func (db *DB) DeleteDashboard(id string) error {
 	_, err := db.conn.Exec(`DELETE FROM dashboards WHERE id = $1`, id)
+	return err
+}
+
+// --- Scheduled Reports ---
+
+func (db *DB) SaveReport(id, name, datasetIDs, frequency string, dayOfWeek, dayOfMonth, hour int, emails, slackWebhook, teamsWebhook, lastSent, nextRun string, enabled bool, createdAt string) error {
+	_, err := db.conn.Exec(
+		`INSERT INTO scheduled_reports (id, name, dataset_ids, frequency, day_of_week, day_of_month, hour, emails, slack_webhook, teams_webhook, last_sent, next_run, enabled, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+		 ON CONFLICT (id) DO UPDATE SET name=$2, dataset_ids=$3, frequency=$4, day_of_week=$5, day_of_month=$6, hour=$7, emails=$8, slack_webhook=$9, teams_webhook=$10, last_sent=$11, next_run=$12, enabled=$13`,
+		id, name, datasetIDs, frequency, dayOfWeek, dayOfMonth, hour, emails, slackWebhook, teamsWebhook, lastSent, nextRun, enabled, createdAt,
+	)
+	return err
+}
+
+func (db *DB) LoadReports() ([]ReportRecord, error) {
+	rows, err := db.conn.Query(`SELECT id, name, dataset_ids, frequency, day_of_week, day_of_month, hour, emails, COALESCE(slack_webhook,''), COALESCE(teams_webhook,''), COALESCE(last_sent,''), COALESCE(next_run,''), enabled, COALESCE(created_at,'') FROM scheduled_reports ORDER BY created_at ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("query reports: %w", err)
+	}
+	defer rows.Close()
+
+	var records []ReportRecord
+	for rows.Next() {
+		var r ReportRecord
+		if err := rows.Scan(&r.ID, &r.Name, &r.DatasetIDs, &r.Frequency, &r.DayOfWeek, &r.DayOfMonth, &r.Hour, &r.Emails, &r.SlackWebhook, &r.TeamsWebhook, &r.LastSent, &r.NextRun, &r.Enabled, &r.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan report: %w", err)
+		}
+		records = append(records, r)
+	}
+	return records, rows.Err()
+}
+
+func (db *DB) DeleteReport(id string) error {
+	_, err := db.conn.Exec(`DELETE FROM scheduled_reports WHERE id = $1`, id)
+	return err
+}
+
+// --- Alert Rules ---
+
+func (db *DB) SaveAlert(id, name, datasetID, metricCol, condition string, threshold float64, period, emails, slackHook string, enabled bool, lastChecked, createdAt string) error {
+	_, err := db.conn.Exec(
+		`INSERT INTO alert_rules (id, name, dataset_id, metric_col, condition, threshold, period, emails, slack_hook, enabled, last_checked, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+		 ON CONFLICT (id) DO UPDATE SET name=$2, dataset_id=$3, metric_col=$4, condition=$5, threshold=$6, period=$7, emails=$8, slack_hook=$9, enabled=$10, last_checked=$11`,
+		id, name, datasetID, metricCol, condition, threshold, period, emails, slackHook, enabled, lastChecked, createdAt,
+	)
+	return err
+}
+
+func (db *DB) LoadAlerts() ([]AlertRecord, error) {
+	rows, err := db.conn.Query(`SELECT id, name, dataset_id, metric_col, condition, threshold, COALESCE(period,''), emails, COALESCE(slack_hook,''), enabled, COALESCE(last_checked,''), COALESCE(created_at,'') FROM alert_rules ORDER BY created_at ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("query alerts: %w", err)
+	}
+	defer rows.Close()
+
+	var records []AlertRecord
+	for rows.Next() {
+		var a AlertRecord
+		if err := rows.Scan(&a.ID, &a.Name, &a.DatasetID, &a.MetricCol, &a.Condition, &a.Threshold, &a.Period, &a.Emails, &a.SlackHook, &a.Enabled, &a.LastChecked, &a.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan alert: %w", err)
+		}
+		records = append(records, a)
+	}
+	return records, rows.Err()
+}
+
+func (db *DB) DeleteAlert(id string) error {
+	_, err := db.conn.Exec(`DELETE FROM alert_rules WHERE id = $1`, id)
+	return err
+}
+
+// --- Dashboard Layouts ---
+
+func (db *DB) SaveLayout(id, name string, isDefault bool, tilesJSON []byte, createdAt, updatedAt string) error {
+	_, err := db.conn.Exec(
+		`INSERT INTO dashboard_layouts (id, name, is_default, tiles, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6)
+		 ON CONFLICT (id) DO UPDATE SET name=$2, is_default=$3, tiles=$4, updated_at=$6`,
+		id, name, isDefault, tilesJSON, createdAt, updatedAt,
+	)
+	return err
+}
+
+func (db *DB) LoadLayouts() ([]LayoutRecord, error) {
+	rows, err := db.conn.Query(`SELECT id, name, is_default, COALESCE(tiles,'[]'::jsonb), COALESCE(created_at,''), COALESCE(updated_at,'') FROM dashboard_layouts ORDER BY created_at ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("query layouts: %w", err)
+	}
+	defer rows.Close()
+
+	var records []LayoutRecord
+	for rows.Next() {
+		var l LayoutRecord
+		var tilesJSON []byte
+		if err := rows.Scan(&l.ID, &l.Name, &l.IsDefault, &tilesJSON, &l.CreatedAt, &l.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan layout: %w", err)
+		}
+		if len(tilesJSON) > 0 {
+			l.Tiles = string(tilesJSON)
+		} else {
+			l.Tiles = "[]"
+		}
+		records = append(records, l)
+	}
+	return records, rows.Err()
+}
+
+func (db *DB) DeleteLayout(id string) error {
+	_, err := db.conn.Exec(`DELETE FROM dashboard_layouts WHERE id = $1`, id)
 	return err
 }

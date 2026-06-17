@@ -7,8 +7,10 @@ import {
   Share2,
   Plus,
   Check,
-  X,
-  Loader2,
+  GitMerge,
+  Terminal,
+  CalendarClock,
+  Layout,
 } from 'lucide-react';
 
 type Dataset = {
@@ -59,6 +61,13 @@ export function Sidebar({ datasets, selectedDatasetIds, onToggleDataset, onConne
         <NavItem icon={<Database size={18} />} label="Data" active={activeNav === 'data'} onClick={() => onNavChange('data')} />
         <NavItem icon={<Edit3 size={18} />} label="Context" active={activeNav === 'context'} onClick={() => onNavChange('context')} />
         <NavItem icon={<Share2 size={18} />} label="Share" active={activeNav === 'share'} onClick={() => onNavChange('share')} />
+        <div className="pt-3 pb-1 text-[10px] font-medium text-slate-600 uppercase tracking-wider px-3">
+          Advanced
+        </div>
+        <NavItem icon={<GitMerge size={18} />} label="Joins" active={activeNav === 'joins'} onClick={() => onNavChange('joins')} />
+        <NavItem icon={<Terminal size={18} />} label="SQL Query" active={activeNav === 'query'} onClick={() => onNavChange('query')} />
+        <NavItem icon={<CalendarClock size={18} />} label="Reports" active={activeNav === 'reports'} onClick={() => onNavChange('reports')} />
+        <NavItem icon={<Layout size={18} />} label="Editor" active={activeNav === 'editor'} onClick={() => onNavChange('editor')} />
       </nav>
 
       <div className="p-4 space-y-6 border-t border-slate-800">

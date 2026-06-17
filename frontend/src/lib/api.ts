@@ -343,6 +343,230 @@ export async function refreshDataset(id: string): Promise<{ ok: boolean; rowCoun
   return res.json();
 }
 
+// --- Feature 4: Cross-Dataset Joins ---
+
+export type JoinRequest = {
+  leftDatasetId: string;
+  rightDatasetId: string;
+  leftKey: string;
+  rightKey: string;
+  joinType: 'inner' | 'left' | 'right' | 'outer';
+};
+
+export async function joinDatasets(req: JoinRequest): Promise<{ datasetId: string; filename: string; profile: unknown; rowCount: number }> {
+  const res = await apiFetch("/join", {
+    method: "POST",
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+// --- Feature 5: Custom SQL Query Mode ---
+
+export type QueryResult = {
+  columns: string[];
+  rows: Record<string, string>[];
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+  totalRows: number;
+};
+
+export type SchemaInfo = {
+  datasetId: string;
+  filename: string;
+  rowCount: number;
+  columns: { name: string; type: string; nonEmpty: number }[];
+  tableAlias: string;
+};
+
+export async function runSQLQuery(datasetIds: string[], sql: string, page = 1, pageSize = 100): Promise<QueryResult> {
+  const res = await apiFetch("/query", {
+    method: "POST",
+    body: JSON.stringify({ datasetIds, sql, page, pageSize }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function fetchQuerySchema(datasetIds: string[]): Promise<{ schemas: SchemaInfo[] }> {
+  const res = await apiFetch(`/query/schema?datasetIds=${encodeURIComponent(datasetIds.join(","))}`);
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function visualizeQuery(datasetId: string, sql: string, chartType?: string): Promise<{ columns: string[]; rows: Record<string, string>[]; chartType: string; rowCount: number }> {
+  const res = await apiFetch("/query/visualize", {
+    method: "POST",
+    body: JSON.stringify({ datasetId, sql, chartType }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+// --- Feature 6: Scheduled Reports & Alerts ---
+
+export type ScheduledReport = {
+  id: string;
+  name: string;
+  datasetIds: string[];
+  chartIds: string[];
+  frequency: 'daily' | 'weekly' | 'monthly';
+  dayOfWeek: number;
+  dayOfMonth: number;
+  hour: number;
+  emails: string[];
+  slackWebhook?: string;
+  teamsWebhook?: string;
+  lastSent?: string;
+  nextRun?: string;
+  enabled: boolean;
+  createdAt: string;
+};
+
+export type AlertRule = {
+  id: string;
+  name: string;
+  datasetId: string;
+  metricCol: string;
+  condition: 'drop' | 'rise' | 'custom';
+  threshold: number;
+  period: string;
+  emails: string[];
+  slackHook?: string;
+  enabled: boolean;
+  lastChecked?: string;
+  createdAt: string;
+};
+
+export async function fetchReports(): Promise<ScheduledReport[]> {
+  const res = await apiFetch("/reports");
+  if (!res.ok) throw new Error(await parseError(res));
+  const data = await res.json();
+  return data.reports as ScheduledReport[];
+}
+
+export async function createReport(rpt: Partial<ScheduledReport>): Promise<ScheduledReport> {
+  const res = await apiFetch("/reports", {
+    method: "POST",
+    body: JSON.stringify(rpt),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function deleteReport(id: string): Promise<void> {
+  const res = await apiFetch(`/reports?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(await parseError(res));
+}
+
+export async function fetchAlerts(): Promise<AlertRule[]> {
+  const res = await apiFetch("/alerts");
+  if (!res.ok) throw new Error(await parseError(res));
+  const data = await res.json();
+  return data.alerts as AlertRule[];
+}
+
+export async function createAlert(alert: Partial<AlertRule>): Promise<AlertRule> {
+  const res = await apiFetch("/alerts", {
+    method: "POST",
+    body: JSON.stringify(alert),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function deleteAlert(id: string): Promise<void> {
+  const res = await apiFetch(`/alerts?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(await parseError(res));
+}
+
+// --- Feature 7: Drag-and-Drop Dashboard Editor ---
+
+export type DashboardTile = {
+  id: string;
+  type: 'chart' | 'text' | 'divider' | 'image' | 'metric';
+  chartType?: string;
+  title?: string;
+  content?: string;
+  imageUrl?: string;
+  pinnedId?: string;
+  w: number;
+  h: number;
+  x: number;
+  y: number;
+  data?: Record<string, unknown>;
+};
+
+export type DashboardLayout = {
+  id: string;
+  name: string;
+  isDefault?: boolean;
+  tiles: DashboardTile[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export async function fetchDashboardLayouts(): Promise<DashboardLayout[]> {
+  const res = await apiFetch("/dashboard-layouts");
+  if (!res.ok) throw new Error(await parseError(res));
+  const data = await res.json();
+  return data.layouts as DashboardLayout[];
+}
+
+export async function getDashboardLayout(id: string): Promise<DashboardLayout> {
+  const res = await apiFetch(`/dashboard-layouts/${encodeURIComponent(id)}`);
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function createDashboardLayout(name: string): Promise<DashboardLayout> {
+  const res = await apiFetch("/dashboard-layouts", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function saveDashboardLayout(id: string, layout: DashboardLayout): Promise<void> {
+  const res = await apiFetch(`/dashboard-layouts/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(layout),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+}
+
+export async function deleteDashboardLayout(id: string): Promise<void> {
+  const res = await apiFetch(`/dashboard-layouts/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(await parseError(res));
+}
+
+export async function addTileToLayout(layoutId: string, tile: Partial<DashboardTile>): Promise<DashboardLayout> {
+  const res = await apiFetch(`/dashboard-layouts/${encodeURIComponent(layoutId)}/tiles`, {
+    method: "POST",
+    body: JSON.stringify(tile),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function updateTileInLayout(layoutId: string, tileId: string, tile: Partial<DashboardTile>): Promise<void> {
+  const res = await apiFetch(`/dashboard-layouts/${encodeURIComponent(layoutId)}/tiles/${encodeURIComponent(tileId)}`, {
+    method: "PUT",
+    body: JSON.stringify(tile),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+}
+
+export async function removeTileFromLayout(layoutId: string, tileId: string): Promise<void> {
+  const res = await apiFetch(`/dashboard-layouts/${encodeURIComponent(layoutId)}/tiles/${encodeURIComponent(tileId)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+}
+
 export async function removeChartFromDashboard(dashboardId: string, chartId: string): Promise<void> {
   const res = await apiFetch(
     `/dashboards/${encodeURIComponent(dashboardId)}/charts/${encodeURIComponent(chartId)}`,

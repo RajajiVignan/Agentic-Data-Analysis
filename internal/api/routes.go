@@ -90,6 +90,28 @@ func (h *Handler) chiRouter() http.Handler {
 		r.Post("/transform/redo", h.handleTransformRedo)
 		r.Get("/transform/history", h.handleTransformHistory)
 		r.Post("/transform/reset", h.handleTransformReset)
+		// Feature 4: Cross-Dataset Joins
+		r.Post("/join", h.handleJoin)
+		// Feature 5: Custom SQL Query Mode
+		r.Post("/query", h.handleQuery)
+		r.Get("/query/schema", h.handleQuerySchema)
+		r.Post("/query/visualize", h.handleQueryVisualize)
+		// Feature 6: Scheduled Reports & Alerts
+		r.Get("/reports", h.handleListReports)
+		r.Post("/reports", h.handleCreateReport)
+		r.Delete("/reports", h.handleDeleteReport)
+		r.Get("/alerts", h.handleListAlerts)
+		r.Post("/alerts", h.handleCreateAlert)
+		r.Delete("/alerts", h.handleDeleteAlert)
+		// Feature 7: Drag-and-Drop Dashboard Editor
+		r.Get("/dashboard-layouts", h.handleListLayouts)
+		r.Post("/dashboard-layouts", h.handleCreateLayout)
+		r.Get("/dashboard-layouts/{id}", h.handleGetLayout)
+		r.Put("/dashboard-layouts/{id}", h.handleSaveLayout)
+		r.Delete("/dashboard-layouts/{id}", h.handleDeleteLayout)
+		r.Post("/dashboard-layouts/{id}/tiles", h.handleAddTile)
+		r.Put("/dashboard-layouts/{id}/tiles/{tileId}", h.handleUpdateTile)
+		r.Delete("/dashboard-layouts/{id}/tiles/{tileId}", h.handleRemoveTile)
 	})
 
 	// Generated plots

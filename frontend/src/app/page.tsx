@@ -6,6 +6,10 @@ import {
   Download,
   FileDown,
   FileType2,
+  GitMerge,
+  Terminal,
+  CalendarClock,
+  Layout,
 } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { AuthOverlay } from "@/components/AuthOverlay";
@@ -38,6 +42,10 @@ import {
   logout as apiLogout,
   clearSession as apiClearSession,
 } from "@/lib/api";
+import { JoinConfigurator } from "@/components/JoinConfigurator";
+import { SQLQueryEditor } from "@/components/SQLQueryEditor";
+import { ScheduleManager } from "@/components/ScheduleManager";
+import { DashboardEditor } from "@/components/DashboardEditor";
 import type { AuthUser } from "@/lib/api";
 import { exportPlotsAsSvg, exportPlotsAsPdf } from "@/lib/export";
 import type {
@@ -50,7 +58,7 @@ import type {
   SharedDashboardData,
 } from "@/lib/api";
 
-type NavTab = "explore" | "dashboards" | "data" | "context" | "share";
+type NavTab = "explore" | "dashboards" | "data" | "context" | "share" | "joins" | "query" | "reports" | "editor";
 
 export default function Workspace() {
   const dashboardRef = useRef<HTMLDivElement | null>(null);
@@ -368,6 +376,10 @@ export default function Workspace() {
     data: { subtitle: "Data Sources", title: "Connections & Datasets" },
     context: { subtitle: "Context", title: "Verified Context" },
     share: { subtitle: "Share", title: "Share & Export" },
+    joins: { subtitle: "Data Joins", title: "Cross-Dataset Joins" },
+    query: { subtitle: "SQL Mode", title: "Custom SQL Query" },
+    reports: { subtitle: "Automation", title: "Scheduled Reports & Alerts" },
+    editor: { subtitle: "Dashboard Editor", title: "Drag-and-Drop Editor" },
   };
 
   // --- Render ---
@@ -572,6 +584,41 @@ export default function Workspace() {
                 </ul>
               </div>
             </div>
+          )}
+
+          {/* --- JOINS TAB (Feature 4) --- */}
+          {activeNav === "joins" && (
+            <div className="space-y-4">
+              <JoinConfigurator
+                datasets={availableDatasets}
+                onJoinComplete={(datasetId) => {
+                  setSelectedDatasetIds((prev) => [...prev, datasetId]);
+                  loadDatasets();
+                }}
+              />
+              <div className="text-xs text-slate-400 bg-slate-50 rounded-xl p-4">
+                <strong>How it works:</strong> Select two datasets and their join keys, then choose a join type.
+                The result is saved as a new dataset you can analyze.
+              </div>
+            </div>
+          )}
+
+          {/* --- QUERY TAB (Feature 5) --- */}
+          {activeNav === "query" && (
+            <SQLQueryEditor
+              datasets={availableDatasets}
+              selectedDatasetIds={selectedDatasetIds}
+            />
+          )}
+
+          {/* --- REPORTS TAB (Feature 6) --- */}
+          {activeNav === "reports" && (
+            <ScheduleManager datasets={availableDatasets} />
+          )}
+
+          {/* --- EDITOR TAB (Feature 7) --- */}
+          {activeNav === "editor" && (
+            <DashboardEditor onRefreshCharts={loadPinnedCharts} />
           )}
 
           {/* --- SHARE TAB --- */}

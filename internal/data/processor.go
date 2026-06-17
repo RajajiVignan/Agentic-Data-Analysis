@@ -378,6 +378,105 @@ func BuildSegments(rows []map[string]string, categoryCol *Column, metricCol *Col
 // MergeDatasets combines multiple datasets into one by merging their column schemas
 // and concatenating all rows. Columns not present in a dataset are filled with empty strings.
 // The merged dataset's profile is recomputed from the combined rows.
+// JoinDatasets performs a SQL-style join between two datasets on specified key columns.
+// Supported join types: "inner", "left", "right", "outer".
+func JoinDatasets(left, right *Dataset, leftKey, rightKey, joinType string) *Dataset {
+	if left == nil || right == nil || leftKey == "" || rightKey == "" {
+		return nil
+	}
+	allCols := make([]string, 0)
+	seenCol := make(map[string]bool)
+	for _, c := range left.Profile.Columns {
+		allCols = append(allCols, c.Name)
+		seenCol[c.Name] = true
+	}
+	for _, c := range right.Profile.Columns {
+		if !seenCol[c.Name] {
+			allCols = append(allCols, c.Name)
+			seenCol[c.Name] = true
+		}
+	}
+
+	rightIdx := make(map[string][]map[string]string)
+	for _, row := range right.Rows {
+		key := row[rightKey]
+		rightIdx[key] = append(rightIdx[key], row)
+	}
+	leftKeys := make(map[string]bool)
+	for _, row := range left.Rows {
+		leftKeys[row[leftKey]] = true
+	}
+
+	var merged []map[string]string
+	matchedRight := make(map[string]bool)
+
+	for _, lRow := range left.Rows {
+		lKey := lRow[leftKey]
+		rRows, ok := rightIdx[lKey]
+		if ok {
+			for _, rRow := range rRows {
+				matchedRight[lKey] = true
+				newRow := make(map[string]string, len(allCols))
+				for _, c := range allCols {
+					if v, ok := lRow[c]; ok {
+						newRow[c] = v
+					} else if v, ok := rRow[c]; ok {
+						newRow[c] = v
+					} else {
+						newRow[c] = ""
+					}
+				}
+				merged = append(merged, newRow)
+			}
+		} else if joinType == "left" || joinType == "outer" {
+			newRow := make(map[string]string, len(allCols))
+			for _, c := range allCols {
+				newRow[c] = lRow[c]
+			}
+			merged = append(merged, newRow)
+		}
+	}
+
+	if joinType == "right" || joinType == "outer" {
+		for _, rRow := range right.Rows {
+			rKey := rRow[rightKey]
+			if !matchedRight[rKey] && !leftKeys[rKey] {
+				newRow := make(map[string]string, len(allCols))
+				for _, c := range allCols {
+					newRow[c] = rRow[c]
+				}
+				merged = append(merged, newRow)
+			}
+		}
+	}
+
+	if len(merged) == 0 {
+		return &Dataset{
+			ID:       left.ID + "_" + right.ID,
+			Filename: fmt.Sprintf("join_%s_%s", left.Filename, right.Filename),
+			Rows:     merged,
+		}
+	}
+
+	profileRows := make([][]string, len(merged)+1)
+	profileRows[0] = allCols
+	for i, row := range merged {
+		vals := make([]string, len(allCols))
+		for j, c := range allCols {
+			vals[j] = row[c]
+		}
+		profileRows[i+1] = vals
+	}
+	mergedProfile := ProfileRows(profileRows)
+
+	return &Dataset{
+		ID:       left.ID + "_" + right.ID,
+		Filename: fmt.Sprintf("join_%s_%s", left.Filename, right.Filename),
+		Profile:  mergedProfile,
+		Rows:     merged,
+	}
+}
+
 func MergeDatasets(datasets []*Dataset) *Dataset {
 	if len(datasets) == 0 {
 		return nil

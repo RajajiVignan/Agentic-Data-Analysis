@@ -101,10 +101,17 @@ cd frontend && npm run build
 - `CORS_ALLOWED_ORIGINS` — comma-separated frontend origins for browser API access
 - `PLOT_RETENTION_HOURS` — hours to keep generated `.py`/`.png` plot artifacts; default 24, 0 disables cleanup
 - `UPLOAD_DIR` — upload directory; default resolves to `<project-root>/uploads`
+- `SMTP_HOST` — SMTP server hostname for email delivery (required for scheduled reports & alerts)
+- `SMTP_PORT` — SMTP server port (default `587`)
+- `SMTP_USER` — SMTP username (also used as `From` address if `SMTP_FROM` not set)
+- `SMTP_PASSWORD` — SMTP password
+- `SMTP_FROM` — From email address (defaults to `SMTP_USER`)
+- `QUERY_TIMEOUT_SEC` — timeout for arbitrary SQL queries via DuckDB (default `30`)
+- `REFRESH_INTERVAL_MIN` — interval for live-db dataset refresh in minutes (default `15`)
 
 ## Known Issues / Tech Debt
 
-- In-memory datasets/connections lost on server restart (no DB persistence for them yet)
+- Reports, alerts, and dashboard layouts persist to Supabase when configured, with in-memory fallback
 - LLM analyzer returns 401 without valid OPENROUTER_API_KEY (falls back to deterministic)
 
 ## Instruction Files (role-specific)

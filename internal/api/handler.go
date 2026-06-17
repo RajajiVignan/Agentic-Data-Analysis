@@ -38,6 +38,7 @@ type Handler struct {
 	plotService       *PlotService
 	shareSvc          *ShareService
 	auth              *AuthService
+	reportSvc         *ReportService
 	duckdb            *data.DuckDBEngine
 	encryptionKey     []byte
 	rateLimiter       *rateLimiter
@@ -47,6 +48,7 @@ type Handler struct {
 	mu                sync.RWMutex
 	sessionMu         sync.RWMutex
 	pipelines         map[string]*data.TransformPipeline
+	dashEditorSvc     *DashboardEditorService
 }
 
 // NewHandler creates a new Handler with all services initialized.
@@ -81,6 +83,8 @@ func NewHandler(cfg agent.Config) *Handler {
 		plotService:       NewPlotService(plotsDir, uploadDir, pb),
 		shareSvc:          NewShareService(),
 		auth:              NewAuthService(db),
+		reportSvc:         NewReportService(db),
+		dashEditorSvc:     NewDashboardEditorService(db),
 		duckdb:            data.NewDuckDBEngine(plotsDir),
 		pipelines:         make(map[string]*data.TransformPipeline),
 		encryptionKey:     generateEncryptionKey(),
@@ -114,6 +118,7 @@ func NewHandler(cfg agent.Config) *Handler {
 	}
 
 	h.plotService.StartCleanup()
+	h.reportSvc.Start(h)
 	h.startRefreshScheduler()
 	h.startGuestCleanup()
 
@@ -131,6 +136,9 @@ func (h *Handler) Shutdown() {
 
 	// Stop the refresh scheduler
 	h.stopRefreshScheduler()
+
+	// Stop report scheduler
+	h.reportSvc.Stop()
 
 	// Stop cleanup ticker
 	h.plotService.StopCleanup()

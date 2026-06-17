@@ -1,6 +1,7 @@
 package data
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -8,8 +9,22 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 )
+
+var queryTimeout time.Duration
+
+func init() {
+	timeoutSec := 30
+	if v := os.Getenv("QUERY_TIMEOUT_SEC"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			timeoutSec = n
+		}
+	}
+	queryTimeout = time.Duration(timeoutSec) * time.Second
+}
 
 // quoteIdent safely quotes a DuckDB identifier, escaping embedded double quotes.
 func quoteIdent(name string) string {
@@ -32,6 +47,10 @@ func duckdbID() string {
 }
 
 func (e *DuckDBEngine) executeSQL(csvPath, sql string) ([]map[string]string, error) {
+	return e.executeSQLWithTimeout(context.Background(), csvPath, sql)
+}
+
+func (e *DuckDBEngine) executeSQLWithTimeout(ctx context.Context, csvPath, sql string) ([]map[string]string, error) {
 	id := "dq_" + duckdbID()
 	scriptPath := filepath.Join(e.scriptsDir, id+".py")
 	resultPath := filepath.Join(e.scriptsDir, id+"_result.json")
@@ -78,7 +97,7 @@ except Exception as e:
 
 	args := []string{scriptPath, csvPath, resultPath}
 
-	cmd := exec.Command("python3", args...)
+	cmd := exec.CommandContext(ctx, "python3", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		// Check for error in result file
@@ -228,6 +247,128 @@ func (e *DuckDBEngine) QuerySegments(csvPath, catCol, metricCol string) ([]map[s
 	ORDER BY value DESC
 	LIMIT 10`, qCat, qMetric, qMetric, qCat, qCat, qCat)
 	return e.executeSQL(csvPath, sql)
+}
+
+// ExecuteQuery runs an arbitrary SQL query against one or more CSV files using DuckDB.
+// Each CSV is registered as a table named after its filename (with non-alphanumeric chars replaced by _).
+// Supports pagination via LIMIT/OFFSET.
+// Uses a configurable timeout (QUERY_TIMEOUT_SEC env var, default 30s).
+func (e *DuckDBEngine) ExecuteQuery(csvPaths []string, sql string, page, pageSize int) ([]map[string]string, []string, error) {
+	return e.ExecuteQueryWithContext(context.Background(), csvPaths, sql, page, pageSize)
+}
+
+// ExecuteQueryWithContext runs an arbitrary SQL query with a configurable timeout.
+func (e *DuckDBEngine) ExecuteQueryWithContext(ctx context.Context, csvPaths []string, sql string, page, pageSize int) ([]map[string]string, []string, error) {
+	id := "eq_" + duckdbID()
+	scriptPath := filepath.Join(e.scriptsDir, id+".py")
+	resultPath := filepath.Join(e.scriptsDir, id+"_result.json")
+
+	tableDefs := ""
+	tableRefs := ""
+	for i, path := range csvPaths {
+		tname := fmt.Sprintf("t%d", i)
+		tableDefs += fmt.Sprintf("con.execute(\"CREATE TABLE %s AS SELECT * FROM read_csv_auto(?)\", [%q])\n", tname, path)
+		if i > 0 {
+			tableRefs += ", "
+		}
+		tableRefs += tname
+	}
+	if tableRefs == "" {
+		return nil, nil, fmt.Errorf("no CSV paths provided")
+	}
+
+	escapedSQL := strings.ReplaceAll(sql, `"""`, `\"\"\"`)
+
+	script := fmt.Sprintf(`import duckdb, json, sys, os
+
+csv_paths = sys.argv[1:]
+
+con = duckdb.connect(":memory:")
+try:
+%s
+    sql_query = """%s"""
+    result = con.execute(sql_query).fetchall()
+    desc = con.description
+    con.close()
+    columns = [d[0] for d in desc] if desc else []
+    rows = []
+    for row in result:
+        r = {}
+        for i, col in enumerate(columns):
+            val = row[i] if i < len(row) else None
+            if val is None:
+                r[col] = None
+            else:
+                r[col] = str(val)
+        rows.append(r)
+    with open(r"%s", "w") as f:
+        json.dump({"columns": columns, "rows": rows}, f)
+except Exception as e:
+    con.close()
+    with open(r"%s", "w") as f:
+        json.dump({"error": str(e)}, f)
+    sys.exit(1)
+`, tableDefs, escapedSQL, resultPath, resultPath)
+
+	if err := os.WriteFile(scriptPath, []byte(script), 0644); err != nil {
+		return nil, nil, fmt.Errorf("write script: %w", err)
+	}
+	defer os.Remove(scriptPath)
+	defer os.Remove(resultPath)
+
+	args := append([]string{scriptPath}, csvPaths...)
+	cmd := exec.CommandContext(ctx, "python3", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, nil, fmt.Errorf("query timed out after %v", queryTimeout)
+		}
+		if data, readErr := os.ReadFile(resultPath); readErr == nil {
+			var errResult struct {
+				Error string `json:"error"`
+			}
+			if json.Unmarshal(data, &errResult) == nil && errResult.Error != "" {
+				return nil, nil, fmt.Errorf("duckdb: %s", errResult.Error)
+			}
+		}
+		return nil, nil, fmt.Errorf("execute duckdb: %s: %w", strings.TrimSpace(string(output)), err)
+	}
+
+	data, err := os.ReadFile(resultPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read result: %w", err)
+	}
+
+	var qr struct {
+		Columns []string          `json:"columns"`
+		Rows    []json.RawMessage `json:"rows"`
+		Error   string            `json:"error"`
+	}
+	if err := json.Unmarshal(data, &qr); err != nil {
+		return nil, nil, fmt.Errorf("parse result: %w", err)
+	}
+	if qr.Error != "" {
+		return nil, nil, fmt.Errorf("duckdb: %s", qr.Error)
+	}
+
+	results := make([]map[string]string, len(qr.Rows))
+	for i, rowData := range qr.Rows {
+		var rowMap map[string]interface{}
+		if err := json.Unmarshal(rowData, &rowMap); err != nil {
+			return nil, nil, fmt.Errorf("parse row: %w", err)
+		}
+		row := make(map[string]string)
+		for _, col := range qr.Columns {
+			if v, ok := rowMap[col]; ok && v != nil {
+				row[col] = fmt.Sprintf("%v", v)
+			} else {
+				row[col] = ""
+			}
+		}
+		results[i] = row
+	}
+
+	return results, qr.Columns, nil
 }
 
 // Close cleans up temporary script files generated by the DuckDB engine.
