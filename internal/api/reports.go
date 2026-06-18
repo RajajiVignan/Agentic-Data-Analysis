@@ -641,8 +641,7 @@ func (h *Handler) handleCreateReport(w http.ResponseWriter, r *http.Request) {
 		SlackWebhook string            `json:"slackWebhook"`
 		TeamsWebhook string            `json:"teamsWebhook"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	if body.Name == "" || len(body.DatasetIDs) == 0 {
@@ -699,8 +698,7 @@ func (h *Handler) handleCreateAlert(w http.ResponseWriter, r *http.Request) {
 		Emails    []string       `json:"emails"`
 		SlackHook string         `json:"slackHook"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	if body.Name == "" || body.DatasetID == "" || body.MetricCol == "" {

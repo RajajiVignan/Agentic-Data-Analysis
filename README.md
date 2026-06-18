@@ -222,7 +222,7 @@ UPLOAD_DIR=uploads
 
 ## Known Issues & Tech Debt
 
-- Export handler uses `strings.Fields` + `Join` which corrupts data containing spaces
+- ~~Export handler uses `strings.Fields` + `Join` which corrupts data containing spaces~~ (fixed — uses `encoding/csv.Writer`)
 - In-memory datasets and connections are lost on server restart (no DB persistence yet)
 - LLM analyzer falls back to deterministic without a valid API key
 

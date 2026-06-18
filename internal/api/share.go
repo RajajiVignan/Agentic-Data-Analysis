@@ -3,7 +3,6 @@ package api
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"net/http"
 	"sync"
 	"time"
@@ -69,8 +68,7 @@ func (h *Handler) handleCreateShareLink(w http.ResponseWriter, r *http.Request) 
 	var body struct {
 		ChartIDs []string `json:"chartIds"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		h.sendJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 

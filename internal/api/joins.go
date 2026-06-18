@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -16,8 +15,7 @@ func (h *Handler) handleJoin(w http.ResponseWriter, r *http.Request) {
 		RightKey       string `json:"rightKey"`
 		JoinType       string `json:"joinType"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	if body.LeftDatasetID == "" || body.RightDatasetID == "" || body.LeftKey == "" || body.RightKey == "" {

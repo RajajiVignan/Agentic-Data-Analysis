@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -194,8 +193,7 @@ func (h *Handler) handleCreateDashboard(w http.ResponseWriter, r *http.Request) 
 	var body struct {
 		Name string `json:"name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	if body.Name == "" {
@@ -220,8 +218,7 @@ func (h *Handler) handleRenameDashboard(w http.ResponseWriter, r *http.Request) 
 	var body struct {
 		Name string `json:"name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	if body.Name == "" {
@@ -258,8 +255,7 @@ func (h *Handler) handleAddChartToDashboard(w http.ResponseWriter, r *http.Reque
 	var body struct {
 		ChartID string `json:"chartId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	if body.ChartID == "" {

@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"crypto/rand"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -341,8 +340,7 @@ func (h *Handler) handleRegister(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 		Name     string `json:"name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		h.sendJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	if body.Email == "" || body.Password == "" {
@@ -375,8 +373,7 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Email    string `json:"email"`
 		Password string `json:"password"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		h.sendJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	if body.Email == "" || body.Password == "" {

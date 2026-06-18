@@ -65,22 +65,22 @@ func (sw *slidingWindow) trim(cutoff time.Time) {
 	sw.timestamps = sw.timestamps[i:]
 }
 
-func (rl *rateLimiter) allow(key string) bool {
+func (rl *rateLimiter) allow(ip, path string) bool {
 	now := time.Now()
 	cutoff := now.Add(-rl.window)
 
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
-	paths, ok := rl.requests[key]
+	paths, ok := rl.requests[ip]
 	if !ok {
 		paths = make(map[string]*slidingWindow)
-		rl.requests[key] = paths
+		rl.requests[ip] = paths
 	}
-	sw, ok := paths["auth"]
+	sw, ok := paths[path]
 	if !ok {
 		sw = &slidingWindow{}
-		paths["auth"] = sw
+		paths[path] = sw
 	}
 
 	sw.trim(cutoff)
@@ -101,7 +101,7 @@ func (h *Handler) rateLimitMiddleware(next http.Handler) http.Handler {
 		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
 			ip = forwarded
 		}
-		if !h.rateLimiter.allow(ip) {
+		if !h.rateLimiter.allow(ip, r.URL.Path) {
 			w.Header().Set("Retry-After", "60")
 			SendJSON(w, http.StatusTooManyRequests, map[string]string{"error": "Too many requests. Please try again later."})
 			return

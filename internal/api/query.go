@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -21,8 +20,7 @@ func (h *Handler) handleQuery(w http.ResponseWriter, r *http.Request) {
 		Page        int      `json:"page"`
 		PageSize    int      `json:"pageSize"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	if body.SQL == "" {
@@ -197,8 +195,7 @@ func (h *Handler) handleQueryVisualize(w http.ResponseWriter, r *http.Request) {
 		SQL       string `json:"sql"`
 		ChartType string `json:"chartType"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	if body.DatasetID == "" || body.SQL == "" {

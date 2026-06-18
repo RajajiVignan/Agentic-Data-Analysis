@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -113,7 +113,7 @@ func NewHandler(cfg agent.Config) *Handler {
 					Rows:     rec.Rows,
 				}
 			}
-			log.Printf("[persist] Restored %d datasets from database", len(records))
+			slog.Info("Restored datasets from database", "component", "persist", "count", len(records))
 		}
 	}
 
@@ -132,7 +132,7 @@ func (h *Handler) Routes() http.Handler {
 
 // Shutdown gracefully stops the handler, cleaning up resources.
 func (h *Handler) Shutdown() {
-	log.Println("Shutting down handler services...")
+	slog.Info("Shutting down handler services")
 
 	// Stop the refresh scheduler
 	h.stopRefreshScheduler()
@@ -153,11 +153,22 @@ func (h *Handler) Shutdown() {
 		h.db.Close()
 	}
 
-	log.Println("Handler shutdown complete")
+	slog.Info("Handler shutdown complete")
 }
 
 func (h *Handler) sendJSON(w http.ResponseWriter, status int, data interface{}) {
 	SendJSON(w, status, data)
+}
+
+// decodeJSON reads and decodes a JSON request body, limiting its size to 1 MB.
+// Returns false and sends an error response if decoding fails.
+func decodeJSON(w http.ResponseWriter, r *http.Request, v interface{}) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+		sendInvalidRequest(w, "Invalid request body")
+		return false
+	}
+	return true
 }
 
 // SendJSON writes a JSON response with the given status code.
@@ -215,8 +226,7 @@ func (h *Handler) handleConnectSource(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Source string `json:"source"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		h.sendJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	source := body.Source
@@ -296,7 +306,7 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 		"application/csv":          true,
 		"application/json":         true,
 		"text/plain":               true,
-		"application/octet-stream": true,
+		"application/octet-stream": true, // common fallback; extension + parser provide the real boundary
 	}
 	if ct != "" && !allowedTypes[ct] {
 		h.sendJSON(w, http.StatusBadRequest, map[string]string{"error": "Unsupported file type: " + ct + ". Only CSV and JSON are allowed."})
@@ -416,8 +426,7 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		Prompt     string   `json:"prompt"`
 		SessionId  string   `json:"sessionId,omitempty"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		h.sendJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	var targetIds []string
@@ -447,8 +456,11 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	primary := activeDatasets[0]
 	if len(activeDatasets) > 1 {
 		primary = data.MergeDatasets(activeDatasets)
-		log.Printf("[analyze] Merged %d datasets into one with %d rows and %d columns",
-			len(activeDatasets), primary.Profile.RowCount, len(primary.Profile.Columns))
+		slog.Info("Merged datasets into one",
+				"component", "analyze",
+				"count", len(activeDatasets),
+				"rows", primary.Profile.RowCount,
+				"cols", len(primary.Profile.Columns))
 	}
 
 	// --- Session / Conversation Management ---
@@ -464,9 +476,9 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 			sessionID = sess.ID
 			history = sess.History
 			activeContext = sess.ActiveContext
-			log.Printf("[analyze] Continuing session %s with %d previous turns", sessionID, len(history))
+			slog.Info("Continuing session", "component", "analyze", "sessionId", sessionID, "previousTurns", len(history))
 		} else {
-			log.Printf("[analyze] Session %s not found, starting new session", body.SessionId)
+			slog.Info("Session not found, starting new", "component", "analyze", "sessionId", body.SessionId)
 		}
 	}
 
@@ -475,7 +487,7 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		h.sessionMu.Lock()
 		h.sessions[sessionID] = agent.NewSession(sessionID, targetIds)
 		h.sessionMu.Unlock()
-		log.Printf("[analyze] Created new session %s", sessionID)
+		slog.Info("Created new session", "component", "analyze", "sessionId", sessionID)
 	}
 
 	req := agent.AnalysisRequest{
@@ -507,14 +519,25 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if resp.Plan != nil {
-		log.Printf("[execPlan] Executing LLM plan: metric=%q category=%q date=%q agg=%q filters=%v",
-			resp.Plan.MetricColumn, resp.Plan.CategoryColumn, resp.Plan.DateColumn, resp.Plan.Aggregation, resp.Plan.Filters)
+		slog.Info("Executing LLM plan",
+				"component", "execPlan",
+				"metric", resp.Plan.MetricColumn,
+				"category", resp.Plan.CategoryColumn,
+				"date", resp.Plan.DateColumn,
+				"agg", resp.Plan.Aggregation,
+				"filters", resp.Plan.Filters)
 		execPlan(resp.Plan, primary, &resp)
-		log.Printf("[execPlan] Done. Dashboard: %d KPIs, %d trend points, %d segments",
-			len(resp.Dashboard.KPIs), len(resp.Dashboard.Trend), len(resp.Dashboard.Segments))
+		slog.Info("Plan execution complete",
+				"component", "execPlan",
+				"kpis", len(resp.Dashboard.KPIs),
+				"trendPoints", len(resp.Dashboard.Trend),
+				"segments", len(resp.Dashboard.Segments))
 	} else {
-		log.Printf("[execPlan] No plan (deterministic path). Dashboard: %d KPIs, %d trend points, %d segments",
-			len(resp.Dashboard.KPIs), len(resp.Dashboard.Trend), len(resp.Dashboard.Segments))
+		slog.Info("No plan (deterministic path)",
+				"component", "execPlan",
+				"kpis", len(resp.Dashboard.KPIs),
+				"trendPoints", len(resp.Dashboard.Trend),
+				"segments", len(resp.Dashboard.Segments))
 	}
 
 	// Apply filters from plan (for LLM path) to the dataset before computing
@@ -531,7 +554,7 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 				resp.Dashboard = *dash
 				resp.SQLQueries = sqls
 			} else if err != nil {
-				log.Printf("[livedb] Failed to execute live SQL: %v", err)
+				slog.Error("Failed to execute live SQL", "component", "livedb", "error", err)
 			}
 		}
 	}
@@ -618,7 +641,7 @@ func (h *Handler) handleExportCsv(w http.ResponseWriter, r *http.Request) {
 	var buf bytes.Buffer
 	writer := csv.NewWriter(&buf)
 	if err := writer.Write(headers); err != nil {
-		log.Printf("[export] Failed to write headers: %v", err)
+		slog.Error("Failed to write CSV headers", "component", "export", "error", err)
 		sendInternalError(w, "Failed to generate CSV headers")
 		return
 	}
@@ -637,7 +660,7 @@ func (h *Handler) handleExportCsv(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			if err := writer.Write(record); err != nil {
-				log.Printf("[export] Failed to write record: %v", err)
+				slog.Error("Failed to write CSV record", "component", "export", "error", err)
 				failedRecords++
 				continue
 			}
@@ -646,13 +669,15 @@ func (h *Handler) handleExportCsv(w http.ResponseWriter, r *http.Request) {
 	}
 	writer.Flush()
 	if err := writer.Error(); err != nil {
-		log.Printf("[export] Failed to flush CSV: %v", err)
+		slog.Error("Failed to flush CSV", "component", "export", "error", err)
 		sendInternalError(w, "Failed to finalize CSV export")
 		return
 	}
 
 	if failedRecords > 0 {
-		log.Printf("[export] Export completed with %d/%d records failed", failedRecords, totalRecords+failedRecords)
+		slog.Error("Export failed for some records", "component", "export", "failed", failedRecords, "total", totalRecords+failedRecords)
+		sendInternalError(w, fmt.Sprintf("Export failed for %d records", failedRecords))
+		return
 	}
 
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
@@ -665,8 +690,7 @@ func (h *Handler) handleClearSession(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		SessionId string `json:"sessionId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		h.sendJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	if body.SessionId == "" {
@@ -676,7 +700,7 @@ func (h *Handler) handleClearSession(w http.ResponseWriter, r *http.Request) {
 	h.sessionMu.Lock()
 	delete(h.sessions, body.SessionId)
 	h.sessionMu.Unlock()
-	log.Printf("[session] Cleared session %s", body.SessionId)
+	slog.Info("Cleared session", "component", "session", "sessionId", body.SessionId)
 	h.sendJSON(w, http.StatusOK, map[string]interface{}{"ok": true})
 }
 
@@ -687,8 +711,7 @@ func (h *Handler) handleGetPinnedCharts(w http.ResponseWriter, r *http.Request) 
 
 func (h *Handler) handlePinChart(w http.ResponseWriter, r *http.Request) {
 	var pc PinnedChart
-	if err := json.NewDecoder(r.Body).Decode(&pc); err != nil {
-		h.sendJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+	if !decodeJSON(w, r, &pc) {
 		return
 	}
 
@@ -786,7 +809,7 @@ func (h *Handler) handleRefreshDataset(w http.ResponseWriter, r *http.Request) {
 	h.mu.Unlock()
 	h.persistDataset(newDS)
 
-	log.Printf("[refresh] Refreshed dataset %s (%s) — %d rows", id, ds.Filename, len(rows))
+	slog.Info("Refreshed dataset", "component", "refresh", "datasetId", id, "filename", ds.Filename, "rows", len(rows))
 
 	SendJSON(w, http.StatusOK, map[string]interface{}{
 		"ok":       true,
@@ -831,16 +854,16 @@ func (h *Handler) persistDataset(ds *data.Dataset) {
 	}
 	profileJSON, err := json.Marshal(ds.Profile)
 	if err != nil {
-		log.Printf("[persist] Failed to marshal profile for dataset %s: %v", ds.ID, err)
+		slog.Error("Failed to marshal profile for dataset", "component", "persist", "datasetId", ds.ID, "error", err)
 		return
 	}
 	if err := h.db.SaveDataset(ds.ID, ds.Filename, ds.FilePath, ds.OwnerID, profileJSON); err != nil {
-		log.Printf("[persist] Failed to save dataset %s: %v", ds.ID, err)
+		slog.Error("Failed to save dataset", "component", "persist", "datasetId", ds.ID, "error", err)
 		return
 	}
 	if len(ds.Rows) > 0 {
 		if err := h.db.SaveDatasetRows(ds.ID, ds.Rows); err != nil {
-			log.Printf("[persist] Failed to save rows for dataset %s: %v", ds.ID, err)
+			slog.Error("Failed to save rows for dataset", "component", "persist", "datasetId", ds.ID, "error", err)
 		}
 	}
 }
@@ -872,7 +895,7 @@ func (h *Handler) startRefreshScheduler() {
 			}
 		}
 	}()
-	log.Printf("[refresh] Started background refresh scheduler (every %d min)", interval)
+	slog.Info("Started background refresh scheduler", "component", "refresh", "intervalMin", interval)
 }
 
 // stopRefreshScheduler signals the refresh scheduler to stop.
@@ -912,7 +935,7 @@ func (h *Handler) refreshConnectedDatasets() {
 		}
 		db, err := sql.Open("postgres", connStr)
 		if err != nil {
-			log.Printf("[refresh] Failed to open connection for dataset %s: %v", t.id, err)
+			slog.Error("Failed to open connection for dataset refresh", "component", "refresh", "datasetId", t.id, "error", err)
 			continue
 		}
 
@@ -920,7 +943,7 @@ func (h *Handler) refreshConnectedDatasets() {
 		db.Close()
 
 		if err != nil {
-			log.Printf("[refresh] Failed to fetch data for dataset %s: %v", t.id, err)
+			slog.Error("Failed to fetch data for dataset refresh", "component", "refresh", "datasetId", t.id, "error", err)
 			continue
 		}
 
@@ -937,7 +960,7 @@ func (h *Handler) refreshConnectedDatasets() {
 		}
 		h.mu.Unlock()
 
-		log.Printf("[refresh] Refreshed dataset %s (%s) — %d rows", t.id, t.filename, len(rows))
+		slog.Info("Refreshed dataset", "component", "refresh", "datasetId", t.id, "filename", t.filename, "rows", len(rows))
 	}
 }
 

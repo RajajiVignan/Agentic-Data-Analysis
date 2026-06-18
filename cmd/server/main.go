@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -19,20 +19,16 @@ import (
 
 func main() {
 	// Load environment variables
-	err := godotenv.Load()
-	if err != nil {
-		log.Printf("Warning: Error loading .env file: %v", err)
+	if err := godotenv.Load(); err != nil {
+		slog.Warn("Error loading .env file", "error", err)
 	}
 
-	// Get configuration from environment
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "3000"
-	}
-	host := os.Getenv("HOST")
-	if host == "" {
-		host = "127.0.0.1"
-	}
+	initLogger()
+
+	validateEnv()
+
+	port := getEnv("PORT", "3000")
+	host := getEnv("HOST", "127.0.0.1")
 
 	// Configure the agent layer
 	agentCfg := agent.DefaultConfig()
@@ -59,9 +55,9 @@ func main() {
 	}
 
 	if agentCfg.Enabled {
-		log.Println("LLM analyzer enabled (OpenRouter API key configured)")
+		slog.Info("LLM analyzer enabled", "provider", "OpenRouter")
 	} else {
-		log.Println("LLM analyzer disabled, using deterministic analyzer")
+		slog.Info("LLM analyzer disabled, using deterministic analyzer")
 	}
 
 	// Initialize API handlers
@@ -75,9 +71,10 @@ func main() {
 
 	// Start server in a goroutine
 	go func() {
-		log.Printf("InsightPilot running at http://%s:%s", host, port)
+		slog.Info("Server starting", "addr", "http://"+host+":"+port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("HTTP server error: %v", err)
+			slog.Error("HTTP server error", "error", err)
+			os.Exit(1)
 		}
 	}()
 
@@ -85,7 +82,7 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-sigCh
-	log.Printf("Received signal %v, shutting down...", sig)
+	slog.Info("Shutdown signal received", "signal", sig)
 
 	// Create a context with timeout for shutdown
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -96,8 +93,67 @@ func main() {
 
 	// Shutdown HTTP server
 	if err := server.Shutdown(shutdownCtx); err != nil {
-		log.Printf("HTTP server shutdown error: %v", err)
+		slog.Error("HTTP server shutdown error", "error", err)
 	}
 
-	log.Println("Server stopped gracefully")
+	slog.Info("Server stopped gracefully")
+}
+
+func initLogger() {
+	level := slog.LevelInfo
+	if v := strings.ToLower(os.Getenv("LOG_LEVEL")); v != "" {
+		switch v {
+		case "debug":
+			level = slog.LevelDebug
+		case "warn":
+			level = slog.LevelWarn
+		case "error":
+			level = slog.LevelError
+		}
+	}
+
+	var handler slog.Handler
+	if os.Getenv("LOG_FORMAT") == "json" || isProductionEnv() {
+		handler = slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: level})
+	} else {
+		handler = slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})
+	}
+	slog.SetDefault(slog.New(handler))
+}
+
+func validateEnv() {
+	missing := false
+	optional := map[string]string{
+		"SUPABASE_URL":    "Database URL for Supabase",
+		"SUPABASE_KEY":    "Database key for Supabase",
+		"SMTP_HOST":       "SMTP host for email delivery (reports/alerts)",
+		"SMTP_USER":       "SMTP user for email delivery",
+		"SMTP_PASSWORD":   "SMTP password for email delivery",
+		"OPENROUTER_API_KEY": "API key for LLM-powered analysis",
+	}
+
+	for envVar, description := range optional {
+		if os.Getenv(envVar) == "" {
+			slog.Warn("Missing optional environment variable", "var", envVar, "description", description)
+			missing = true
+		}
+	}
+
+	_ = missing // informational only; app will run with degraded functionality
+}
+
+func getEnv(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func isProductionEnv() bool {
+	for _, name := range []string{"APP_ENV", "GO_ENV", "NODE_ENV"} {
+		if strings.EqualFold(os.Getenv(name), "production") {
+			return true
+		}
+	}
+	return false
 }

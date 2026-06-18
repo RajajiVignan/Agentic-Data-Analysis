@@ -3,7 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -28,7 +28,7 @@ func (h *Handler) chiRouter() http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer func() {
 				if rec := recover(); rec != nil {
-					log.Printf("[PANIC] %s %s: %v", r.Method, r.URL.Path, rec)
+					slog.Error("Panic recovered", "component", "http", "method", r.Method, "path", r.URL.Path, "panic", rec)
 					if strings.HasPrefix(r.URL.Path, "/api/") {
 						w.Header().Set("Content-Type", "application/json; charset=utf-8")
 						w.WriteHeader(http.StatusInternalServerError)

@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 	"os"
 
@@ -32,8 +31,7 @@ func (h *Handler) handleTransformPreview(w http.ResponseWriter, r *http.Request)
 		DatasetID string                 `json:"datasetId"`
 		Step      data.TransformStep     `json:"step"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	if body.DatasetID == "" {
@@ -62,8 +60,7 @@ func (h *Handler) handleTransformApply(w http.ResponseWriter, r *http.Request) {
 		DatasetID string                 `json:"datasetId"`
 		Step      data.TransformStep     `json:"step"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	if body.DatasetID == "" {
@@ -102,8 +99,7 @@ func (h *Handler) handleTransformUndo(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		DatasetID string `json:"datasetId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	if body.DatasetID == "" {
@@ -145,8 +141,7 @@ func (h *Handler) handleTransformRedo(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		DatasetID string `json:"datasetId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	if body.DatasetID == "" {
@@ -214,8 +209,7 @@ func (h *Handler) handleTransformReset(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		DatasetID string `json:"datasetId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	if body.DatasetID == "" {

@@ -2,7 +2,6 @@ package api
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -59,8 +58,7 @@ func (h *Handler) handleConnectionList(w http.ResponseWriter, r *http.Request) {
 // handleConnectionTest handles POST /api/connections/test
 func (h *Handler) handleConnectionTest(w http.ResponseWriter, r *http.Request) {
 	var cfg ConnectionConfig
-	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+	if !decodeJSON(w, r, &cfg) {
 		return
 	}
 
@@ -79,8 +77,7 @@ func (h *Handler) handleConnectionTest(w http.ResponseWriter, r *http.Request) {
 // handleConnectionCreate handles POST /api/connections
 func (h *Handler) handleConnectionCreate(w http.ResponseWriter, r *http.Request) {
 	var cfg ConnectionConfig
-	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+	if !decodeJSON(w, r, &cfg) {
 		return
 	}
 

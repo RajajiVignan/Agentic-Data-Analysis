@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"log"
 	"net/http"
 	"sync"
@@ -228,8 +227,7 @@ func (h *Handler) handleCreateLayout(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name string `json:"name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	if body.Name == "" {
@@ -247,8 +245,7 @@ func (h *Handler) handleSaveLayout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var layout DashboardLayout
-	if err := json.NewDecoder(r.Body).Decode(&layout); err != nil {
-		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+	if !decodeJSON(w, r, &layout) {
 		return
 	}
 	if !h.dashEditorSvc.SaveLayout(id, &layout) {
@@ -278,8 +275,7 @@ func (h *Handler) handleAddTile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var tile DashboardTile
-	if err := json.NewDecoder(r.Body).Decode(&tile); err != nil {
-		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+	if !decodeJSON(w, r, &tile) {
 		return
 	}
 	if tile.Type == "" {
@@ -302,8 +298,7 @@ func (h *Handler) handleUpdateTile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var tile DashboardTile
-	if err := json.NewDecoder(r.Body).Decode(&tile); err != nil {
-		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+	if !decodeJSON(w, r, &tile) {
 		return
 	}
 	if !h.dashEditorSvc.UpdateTile(layoutID, tileID, tile) {
