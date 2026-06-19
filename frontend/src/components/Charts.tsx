@@ -36,23 +36,70 @@ type ChartPoint = {
   value: number;
 };
 
-export function MetricTile({ label, value, change, onPin }: KpiProps & { onPin?: () => void }) {
+function PinButton({ onClick }: { onClick?: () => void }) {
   return (
-    <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-1 relative group">
-      <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-        <button 
+    <button
+      onClick={onClick}
+      className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-indigo-600 transition-all opacity-0 group-hover:opacity-100"
+      title="Pin to Dashboard"
+    >
+      <Pin size={13} />
+    </button>
+  );
+}
+
+function ChartBadge({ label }: { label: string }) {
+  return (
+    <span className="text-[10px] font-medium text-slate-400 px-2 py-0.5 rounded-md bg-slate-100/50 border border-slate-200/50">
+      {label}
+    </span>
+  );
+}
+
+function ChartCard({ children, title, badge, onPin, className = "" }: {
+  children: React.ReactNode;
+  title: string;
+  badge: string;
+  onPin?: () => void;
+  className?: string;
+}) {
+  return (
+    <div className={`p-5 bg-white rounded-2xl border border-slate-200/80 shadow-sm space-y-4 relative group card-hover ${className}`}>
+      <div className="flex items-center justify-between">
+        <strong className="text-sm font-semibold text-slate-800">{title}</strong>
+        <div className="flex items-center gap-2">
+          <PinButton onClick={onPin} />
+          <ChartBadge label={badge} />
+        </div>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+export function MetricTile({ label, value, change, onPin }: KpiProps & { onPin?: () => void }) {
+  const isPositive = change.includes('+');
+  return (
+    <div className="p-5 bg-white rounded-2xl border border-slate-200/80 shadow-sm space-y-1.5 relative group card-hover">
+      <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
           onClick={onPin}
-          className="p-1 hover:bg-slate-100 rounded-md text-slate-400 hover:text-indigo-600 transition-colors"
+          className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-indigo-600 transition-all"
           title="Pin to Dashboard"
         >
           <Pin size={12} />
         </button>
       </div>
-      <span className="text-xs font-medium text-slate-500">{label}</span>
-      <strong className="block text-2xl font-bold text-slate-900">{value}</strong>
-      <small className={`text-xs ${change.includes('+') ? 'text-emerald-600' : 'text-slate-500'}`}>
-        {change}
-      </small>
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">{label}</span>
+      </div>
+      <strong className="block text-2xl font-bold text-slate-900 tracking-tight">{value}</strong>
+      <div className="flex items-center gap-1.5">
+        <span className={`inline-block w-1.5 h-1.5 rounded-full ${isPositive ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+        <small className={`text-xs font-medium ${isPositive ? 'text-emerald-600' : 'text-slate-500'}`}>
+          {change}
+        </small>
+      </div>
     </div>
   );
 }
@@ -60,21 +107,8 @@ export function MetricTile({ label, value, change, onPin }: KpiProps & { onPin?:
 export function PythonPlot({ url, onPin }: { url: string; onPin?: () => void }) {
   if (!url) return null;
   return (
-    <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4 relative group" data-export-plot="Python Plot">
-      <div className="flex items-center justify-between">
-        <strong className="text-sm font-semibold text-slate-800">AI Generated Visualization</strong>
-        <div className="flex items-center gap-2">
-          <button 
-            onClick={onPin}
-            className="p-1 hover:bg-slate-100 rounded-md text-slate-400 hover:text-indigo-600 transition-colors"
-            title="Pin to Dashboard"
-          >
-            <Pin size={14} />
-          </button>
-          <span className="text-xs text-slate-400">Python (Matplotlib/Seaborn)</span>
-        </div>
-      </div>
-      <div className="flex justify-center bg-slate-50 rounded-xl overflow-hidden border border-slate-100">
+    <ChartCard title="AI Generated Visualization" badge="Python (Matplotlib/Seaborn)" onPin={onPin} data-export-plot="Python Plot">
+      <div className="flex justify-center bg-slate-50/50 rounded-xl overflow-hidden border border-slate-100/80">
         <Image
           src={url}
           alt="AI Visualization"
@@ -84,64 +118,39 @@ export function PythonPlot({ url, onPin }: { url: string; onPin?: () => void }) 
           unoptimized
         />
       </div>
-    </div>
+    </ChartCard>
   );
 }
 
 export function TrendChart({ data, onPin }: { data: ChartPoint[]; onPin?: () => void }) {
   if (!data || data.length === 0) return null;
   return (
-    <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4 relative group" data-export-plot="Trend Chart">
-      <div className="flex items-center justify-between">
-        <strong className="text-sm font-semibold text-slate-800">Interactive Trend</strong>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={onPin}
-            className="p-1 hover:bg-slate-100 rounded-md text-slate-400 hover:text-indigo-600 transition-colors"
-            title="Pin to Dashboard"
-          >
-            <Pin size={14} />
-          </button>
-          <span className="text-xs text-slate-400">Recharts Bar</span>
-        </div>
-      </div>
+    <ChartCard title="Interactive Trend" badge="Recharts Bar" onPin={onPin} data-export-plot="Trend Chart">
       <ResponsiveContainer width="100%" height={280}>
         <BarChart data={data} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-          <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} />
-          <YAxis tick={{ fontSize: 11, fill: '#64748b' }} />
+          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" strokeOpacity={0.5} />
+          <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
           <Tooltip
             contentStyle={{
               background: '#fff',
               border: '1px solid #e2e8f0',
-              borderRadius: '8px',
+              borderRadius: '10px',
               fontSize: '12px',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
             }}
           />
-          <Bar dataKey="value" fill="#6366f1" radius={[4, 4, 0, 0]} />
+          <Bar dataKey="value" fill="var(--accent, #6366f1)" radius={[6, 6, 0, 0]} maxBarSize={48} />
         </BarChart>
       </ResponsiveContainer>
-    </div>
+    </ChartCard>
   );
 }
 
 export function SegmentChart({ data, onPin }: { data: ChartPoint[]; onPin?: () => void }) {
   if (!data || data.length === 0) return null;
   return (
-    <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4 relative group" data-export-plot="Segment Chart">
-      <div className="flex items-center justify-between">
-        <strong className="text-sm font-semibold text-slate-800">Interactive Segments</strong>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={onPin}
-            className="p-1 hover:bg-slate-100 rounded-md text-slate-400 hover:text-indigo-600 transition-colors"
-            title="Pin to Dashboard"
-          >
-            <Pin size={14} />
-          </button>
-          <span className="text-xs text-slate-400">Recharts Pie</span>
-        </div>
-      </div>
+    <ChartCard title="Interactive Segments" badge="Recharts Pie" onPin={onPin} data-export-plot="Segment Chart">
       <ResponsiveContainer width="100%" height={280}>
         <PieChart>
           <Pie
@@ -161,88 +170,65 @@ export function SegmentChart({ data, onPin }: { data: ChartPoint[]; onPin?: () =
             contentStyle={{
               background: '#fff',
               border: '1px solid #e2e8f0',
-              borderRadius: '8px',
+              borderRadius: '10px',
               fontSize: '12px',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
             }}
           />
           <Legend wrapperStyle={{ fontSize: '11px' }} />
         </PieChart>
       </ResponsiveContainer>
-    </div>
+    </ChartCard>
   );
 }
 
 export function LineTrendChart({ data, onPin }: { data: ChartPoint[]; onPin?: () => void }) {
   if (!data || data.length === 0) return null;
   return (
-    <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4 relative group" data-export-plot="Line Trend">
-      <div className="flex items-center justify-between">
-        <strong className="text-sm font-semibold text-slate-800">Time Series Trend</strong>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={onPin}
-            className="p-1 hover:bg-slate-100 rounded-md text-slate-400 hover:text-indigo-600 transition-colors"
-            title="Pin to Dashboard"
-          >
-            <Pin size={14} />
-          </button>
-          <span className="text-xs text-slate-400">Recharts Line</span>
-        </div>
-      </div>
+    <ChartCard title="Time Series Trend" badge="Recharts Line" onPin={onPin} data-export-plot="Line Trend">
       <ResponsiveContainer width="100%" height={280}>
         <LineChart data={data} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-          <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} />
-          <YAxis tick={{ fontSize: 11, fill: '#64748b' }} />
+          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" strokeOpacity={0.5} />
+          <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
           <Tooltip
             contentStyle={{
               background: '#fff',
               border: '1px solid #e2e8f0',
-              borderRadius: '8px',
+              borderRadius: '10px',
               fontSize: '12px',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
             }}
           />
-          <Line type="monotone" dataKey="value" stroke="#6366f1" strokeWidth={2} dot={{ fill: '#6366f1', r: 4 }} activeDot={{ r: 6 }} />
+          <Line type="monotone" dataKey="value" stroke="var(--accent, #6366f1)" strokeWidth={2.5} dot={{ fill: 'var(--accent, #6366f1)', r: 4, strokeWidth: 2, stroke: '#fff' }} activeDot={{ r: 6, strokeWidth: 0 }} />
         </LineChart>
       </ResponsiveContainer>
-    </div>
+    </ChartCard>
   );
 }
 
 export function AreaTrendChart({ data, onPin }: { data: ChartPoint[]; onPin?: () => void }) {
   if (!data || data.length === 0) return null;
   return (
-    <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4 relative group" data-export-plot="Area Trend">
-      <div className="flex items-center justify-between">
-        <strong className="text-sm font-semibold text-slate-800">Cumulative Trend</strong>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={onPin}
-            className="p-1 hover:bg-slate-100 rounded-md text-slate-400 hover:text-indigo-600 transition-colors"
-            title="Pin to Dashboard"
-          >
-            <Pin size={14} />
-          </button>
-          <span className="text-xs text-slate-400">Recharts Area</span>
-        </div>
-      </div>
+    <ChartCard title="Cumulative Trend" badge="Recharts Area" onPin={onPin} data-export-plot="Area Trend">
       <ResponsiveContainer width="100%" height={280}>
         <AreaChart data={data} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-          <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} />
-          <YAxis tick={{ fontSize: 11, fill: '#64748b' }} />
+          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" strokeOpacity={0.5} />
+          <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
           <Tooltip
             contentStyle={{
               background: '#fff',
               border: '1px solid #e2e8f0',
-              borderRadius: '8px',
+              borderRadius: '10px',
               fontSize: '12px',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
             }}
           />
-          <Area type="monotone" dataKey="value" stroke="#6366f1" fill="#6366f1" fillOpacity={0.15} strokeWidth={2} />
+          <Area type="monotone" dataKey="value" stroke="var(--accent, #6366f1)" fill="var(--accent, #6366f1)" fillOpacity={0.1} strokeWidth={2.5} />
         </AreaChart>
       </ResponsiveContainer>
-    </div>
+    </ChartCard>
   );
 }
 
@@ -256,43 +242,31 @@ type ScatterPoint = {
 export function ScatterTrendChart({ data, onPin }: { data: ScatterPoint[]; onPin?: () => void }) {
   if (!data || data.length === 0) return null;
   return (
-    <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4 relative group" data-export-plot="Scatter Plot">
-      <div className="flex items-center justify-between">
-        <strong className="text-sm font-semibold text-slate-800">Correlation Explorer</strong>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={onPin}
-            className="p-1 hover:bg-slate-100 rounded-md text-slate-400 hover:text-indigo-600 transition-colors"
-            title="Pin to Dashboard"
-          >
-            <Pin size={14} />
-          </button>
-          <span className="text-xs text-slate-400">Recharts Scatter</span>
-        </div>
-      </div>
+    <ChartCard title="Correlation Explorer" badge="Recharts Scatter" onPin={onPin} data-export-plot="Scatter Plot">
       <ResponsiveContainer width="100%" height={280}>
         <ScatterChart margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-          <XAxis dataKey="x" name="x" tick={{ fontSize: 11, fill: '#64748b' }} />
-          <YAxis dataKey="y" name="y" tick={{ fontSize: 11, fill: '#64748b' }} />
+          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" strokeOpacity={0.5} />
+          <XAxis dataKey="x" name="x" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+          <YAxis dataKey="y" name="y" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
           <ZAxis dataKey="z" range={[60, 400]} />
           <Tooltip
             contentStyle={{
               background: '#fff',
               border: '1px solid #e2e8f0',
-              borderRadius: '8px',
+              borderRadius: '10px',
               fontSize: '12px',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
             }}
             cursor={{ strokeDasharray: '3 3' }}
           />
-          <Scatter data={data} fill="#6366f1" fillOpacity={0.6}>
+          <Scatter data={data} fill="var(--accent, #6366f1)" fillOpacity={0.6}>
             {data.map((point, i) => (
               <Cell key={i} fill={COLORS[i % COLORS.length]} />
             ))}
           </Scatter>
         </ScatterChart>
       </ResponsiveContainer>
-    </div>
+    </ChartCard>
   );
 }
 
@@ -310,38 +284,26 @@ export function ComboChart({ data, onPin, barKey = "bars", lineKey = "line" }: {
 }) {
   if (!data || data.length === 0) return null;
   return (
-    <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4 relative group" data-export-plot="Combo Chart">
-      <div className="flex items-center justify-between">
-        <strong className="text-sm font-semibold text-slate-800">Bar + Line Combo</strong>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={onPin}
-            className="p-1 hover:bg-slate-100 rounded-md text-slate-400 hover:text-indigo-600 transition-colors"
-            title="Pin to Dashboard"
-          >
-            <Pin size={14} />
-          </button>
-          <span className="text-xs text-slate-400">Recharts Composed</span>
-        </div>
-      </div>
+    <ChartCard title="Bar + Line Combo" badge="Recharts Composed" onPin={onPin} data-export-plot="Combo Chart">
       <ResponsiveContainer width="100%" height={280}>
         <ComposedChart data={data} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-          <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} />
-          <YAxis tick={{ fontSize: 11, fill: '#64748b' }} />
+          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" strokeOpacity={0.5} />
+          <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
           <Tooltip
             contentStyle={{
               background: '#fff',
               border: '1px solid #e2e8f0',
-              borderRadius: '8px',
+              borderRadius: '10px',
               fontSize: '12px',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
             }}
           />
-          <Bar dataKey={barKey} fill="#6366f1" radius={[4, 4, 0, 0]} />
-          <Line type="monotone" dataKey={lineKey} stroke="#ef4444" strokeWidth={2} dot={{ fill: '#ef4444', r: 4 }} />
+          <Bar dataKey={barKey} fill="var(--accent, #6366f1)" radius={[4, 4, 0, 0]} maxBarSize={32} />
+          <Line type="monotone" dataKey={lineKey} stroke="#ef4444" strokeWidth={2.5} dot={{ fill: '#ef4444', r: 4, strokeWidth: 2, stroke: '#fff' }} />
         </ComposedChart>
       </ResponsiveContainer>
-    </div>
+    </ChartCard>
   );
 }
 
@@ -351,7 +313,6 @@ type HeatmapCell = {
   value: number;
 };
 
-// SmartAutoViz picks the right chart based on chartType prop
 export function SmartAutoViz({ data, chartType, onPin, title }: {
   data: ChartPoint[];
   chartType?: string;
@@ -360,11 +321,9 @@ export function SmartAutoViz({ data, chartType, onPin, title }: {
 }) {
   if (!data || data.length === 0) return null;
 
-  // Scatter needs two numeric columns — guard with a check
   if (chartType === 'scatter') {
     const hasNumericLabels = data.every((d) => !isNaN(Number(d.label)));
     if (!hasNumericLabels) {
-      // Fall back to bar if labels aren't numeric
       return <TrendChart data={data} onPin={onPin} />;
     }
     return <ScatterTrendChart data={data.map((d) => ({ label: d.label, x: Number(d.label), y: d.value }))} onPin={onPin} />;
@@ -383,21 +342,23 @@ export function SmartAutoViz({ data, chartType, onPin, title }: {
   }
 }
 
-// Histogram chart for data profiling
 export function HistogramChart({ column, buckets }: { column: string; buckets: { label: string; count: number }[] }) {
   if (!buckets || buckets.length === 0) return null;
+  const maxCount = Math.max(...buckets.map((x) => x.count));
   return (
-    <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-3">
-      <strong className="text-xs font-semibold text-slate-700">Distribution: {column}</strong>
-      <div className="space-y-1">
+    <div className="p-4 bg-white rounded-2xl border border-slate-200/80 shadow-sm space-y-3 card-hover">
+      <strong className="text-xs font-semibold text-slate-700">{column}</strong>
+      <div className="space-y-1.5">
         {buckets.map((b, i) => {
-          const maxCount = Math.max(...buckets.map((x) => x.count));
           const pct = maxCount > 0 ? (b.count / maxCount) * 100 : 0;
           return (
             <div key={i} className="flex items-center gap-2 text-[11px]">
               <span className="w-24 text-right text-slate-500 truncate shrink-0">{b.label}</span>
               <div className="flex-1 h-4 bg-slate-100 rounded-full overflow-hidden">
-                <div className="h-full bg-indigo-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                <div
+                  className="h-full bg-gradient-to-r from-indigo-500 to-indigo-400 rounded-full transition-all duration-500"
+                  style={{ width: `${pct}%` }}
+                />
               </div>
               <span className="w-8 text-right text-slate-600 font-medium">{b.count}</span>
             </div>
@@ -408,12 +369,11 @@ export function HistogramChart({ column, buckets }: { column: string; buckets: {
   );
 }
 
-// Collapsible explanation section for Explainable AI
 export function ExplainSection({ explanations }: { explanations: { chart: string; columns: string; sql?: string; warning?: string; grouping?: string }[] }) {
   const [open, setOpen] = useState(false);
   if (!explanations || explanations.length === 0) return null;
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+    <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden card-hover">
       <button
         onClick={() => setOpen(!open)}
         className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
@@ -425,7 +385,7 @@ export function ExplainSection({ explanations }: { explanations: { chart: string
         {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
       </button>
       {open && (
-        <div className="px-5 pb-4 space-y-3">
+        <div className="px-5 pb-4 space-y-3 animate-slide-up">
           {explanations.map((exp, i) => (
             <div key={i} className="p-3 bg-slate-50 rounded-xl text-xs space-y-1">
               <div className="flex items-center gap-2">
@@ -468,20 +428,7 @@ export function HeatmapChart({ data, onPin }: { data: HeatmapCell[]; onPin?: () 
   };
 
   return (
-    <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4 relative group" data-export-plot="Heatmap">
-      <div className="flex items-center justify-between">
-        <strong className="text-sm font-semibold text-slate-800">Density Heatmap</strong>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={onPin}
-            className="p-1 hover:bg-slate-100 rounded-md text-slate-400 hover:text-indigo-600 transition-colors"
-            title="Pin to Dashboard"
-          >
-            <Pin size={14} />
-          </button>
-          <span className="text-xs text-slate-400">Grid</span>
-        </div>
-      </div>
+    <ChartCard title="Density Heatmap" badge="Grid" onPin={onPin} data-export-plot="Heatmap">
       <div className="overflow-x-auto">
         <div className="grid gap-0.5" style={{ gridTemplateColumns: `auto repeat(${xLabels.length}, 1fr)` }}>
           <div className="text-[10px] text-slate-400 p-1" />
@@ -512,6 +459,6 @@ export function HeatmapChart({ data, onPin }: { data: HeatmapCell[]; onPin?: () 
           ))}
         </div>
       </div>
-    </div>
+    </ChartCard>
   );
 }

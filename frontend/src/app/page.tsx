@@ -13,6 +13,7 @@ import {
   Sun,
   Moon,
   BarChart3,
+  Menu,
 } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { AuthOverlay } from "@/components/AuthOverlay";
@@ -90,6 +91,8 @@ export default function Workspace() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [accentColor, setAccentColor] = useState<string>("indigo");
   const [chartScheme, setChartScheme] = useState<string>("default");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarPinned, setSidebarPinned] = useState(false);
 
   // --- Initialization ---
 
@@ -135,6 +138,42 @@ export default function Workspace() {
     document.documentElement.style.setProperty("--chart-colors", schemes[chartScheme] ?? schemes.default);
     localStorage.setItem("insightpilot-chart-scheme", chartScheme);
   }, [chartScheme]);
+
+  useEffect(() => {
+    if (!mounted) return;
+    const saved = localStorage.getItem("insightpilot-sidebar-pinned");
+    if (saved === "true") {
+      setSidebarPinned(true);
+      setSidebarOpen(true);
+    }
+  }, [mounted]);
+
+  useEffect(() => {
+    localStorage.setItem("insightpilot-sidebar-pinned", String(sidebarPinned));
+  }, [sidebarPinned]);
+
+  function handleSidebarToggle() {
+    if (sidebarPinned) {
+      setSidebarPinned(false);
+      setSidebarOpen(false);
+    } else {
+      setSidebarOpen((prev) => !prev);
+    }
+  }
+
+  function handleSidebarClose() {
+    if (!sidebarPinned) {
+      setSidebarOpen(false);
+    }
+  }
+
+  function handleTogglePin() {
+    const next = !sidebarPinned;
+    setSidebarPinned(next);
+    if (next) {
+      setSidebarOpen(true);
+    }
+  }
 
   async function init() {
     setBackendStatus(await checkBackend());
@@ -451,11 +490,29 @@ export default function Workspace() {
         onConnectSource={handleConnectSource}
         activeNav={activeNav}
         onNavChange={(nav) => setActiveNav(nav as NavTab)}
+        isOpen={sidebarOpen}
+        onClose={handleSidebarClose}
+        isPinned={sidebarPinned}
+        onTogglePin={handleTogglePin}
       />
 
-      <main className="flex-1 overflow-y-auto">
-        <header className="px-8 py-6 flex justify-between items-center border-b border-slate-200 bg-white">
+      <main
+        className={`flex-1 overflow-y-auto transition-all duration-300 ${sidebarPinned ? 'ml-64' : 'ml-0'}`}
+        onClick={handleSidebarClose}
+      >
+        <header className="sticky top-0 z-20 px-8 py-4 flex justify-between items-center border-b border-slate-200 bg-white/80 backdrop-blur-lg">
           <div className="flex items-center gap-4">
+            <button
+              onClick={(e) => { e.stopPropagation(); handleSidebarToggle(); }}
+              className={`p-2 rounded-xl transition-all ${
+                sidebarOpen
+                  ? 'bg-indigo-100 text-indigo-600 hover:bg-indigo-200'
+                  : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600'
+              }`}
+              title={sidebarPinned ? 'Unpin sidebar' : 'Toggle sidebar'}
+            >
+              <Menu size={20} />
+            </button>
             <div>
               <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">
                 {pageTitle[activeNav].subtitle}

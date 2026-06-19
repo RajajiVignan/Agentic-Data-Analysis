@@ -16,17 +16,21 @@ import (
 // (OpenAI-compatible chat completions API). It sends only dataset
 // metadata (schema + statistics) to the LLM — never raw row data.
 //
-// The analyzer supports a multi-step tool-call loop: the LLM can request
-// aggregations, group-bys, and trend computations via tool calls, inspect
-// the results, and then produce a final structured plan describing which
-// columns to use, what aggregations to compute, and what chart types to
-// generate. The handler executes this plan locally against the full dataset.
+// The analyzer uses a feedback-driven multi-agent loop:
+//  1. PlannerAgent generates an analysis plan (column selection, aggregation, chart types)
+//  2. Tools execute the plan deterministically against the data
+//  3. ValidatorAgent checks results for quality and completeness
+//  4. If validation fails, Planner refines the plan (up to 3 iterations)
+//  5. Handler executes the final plan locally via execPlan
 type LLMAnalyzer struct {
 	config        Config
 	client        *http.Client
 	deterministic *DeterministicAnalyzer
 	guard         *Guard
 	tools         map[string]Tool
+	planner       *PlannerAgent
+	validator     *ValidatorAgent
+	feedbackLoop  *FeedbackLoop
 }
 
 // NewLLMAnalyzer creates an LLM-backed analyzer.
@@ -41,12 +45,20 @@ func NewLLMAnalyzer(cfg Config) *LLMAnalyzer {
 	for _, t := range tools {
 		toolMap[t.Name()] = t
 	}
+
+	planner := NewPlannerAgent(cfg)
+	validator := NewValidatorAgent(cfg)
+	feedbackLoop := NewFeedbackLoop(planner, validator, toolMap)
+
 	return &LLMAnalyzer{
 		config:        cfg,
 		client:        &http.Client{Timeout: time.Duration(timeout) * time.Second},
 		deterministic: NewDeterministicAnalyzer(),
 		guard:         NewGuard(),
 		tools:         toolMap,
+		planner:       planner,
+		validator:     validator,
+		feedbackLoop:  feedbackLoop,
 	}
 }
 
@@ -57,9 +69,11 @@ func (a *LLMAnalyzer) Analyze(ctx context.Context, req AnalysisRequest) (Analysi
 		return a.fallback(ctx, req, "LLM not configured, using deterministic analyzer")
 	}
 
-	llmResp, err := a.runToolLoop(ctx, req)
+	metas := MetadataFromDatasets(req.Datasets)
+
+	llmResp, err := a.feedbackLoop.Execute(ctx, req, metas)
 	if err != nil {
-		log.Printf("[LLM] runToolLoop failed: %v", err)
+		log.Printf("[LLM] Feedback loop failed: %v", err)
 		if a.config.FallbackOnError {
 			return a.fallback(ctx, req, fmt.Sprintf("LLM error: %v, falling back", err))
 		}

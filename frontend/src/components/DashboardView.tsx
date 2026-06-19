@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { ChevronDown, ChevronRight, Code, BookOpen, BarChart3 } from "lucide-react";
+import { ChevronDown, ChevronRight, Code, BookOpen, BarChart3, Sparkles } from "lucide-react";
 import { MetricTile, PythonPlot, SmartAutoViz, ExplainSection } from "@/components/Charts";
 import type { AnalysisResult, PinnedChart } from "@/lib/api";
 
@@ -13,13 +13,18 @@ type DashboardViewProps = {
 
 function AnalysisSkeleton() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-in">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="h-28 rounded-2xl border border-slate-200 bg-slate-100 animate-pulse" />
+          <div
+            key={i}
+            className="h-28 rounded-2xl border border-slate-200 bg-gradient-to-r from-slate-100 via-slate-50 to-slate-100 animate-pulse"
+            style={{ animationDelay: `${i * 100}ms` }}
+          />
         ))}
       </div>
-      <div className="h-64 rounded-2xl border border-slate-200 bg-slate-100 animate-pulse" />
+      <div className="h-64 rounded-2xl border border-slate-200 bg-gradient-to-r from-slate-100 via-slate-50 to-slate-100 animate-pulse" />
+      <div className="h-32 rounded-2xl border border-slate-200 bg-gradient-to-r from-slate-100 via-slate-50 to-slate-100 animate-pulse" />
     </div>
   );
 }
@@ -34,16 +39,16 @@ export function DashboardView({ result, dashboardRef, onPinChart }: DashboardVie
   const suggestedChartType = result.dashboard.chartType ?? 'bar';
 
   return (
-    <div ref={dashboardRef} className="space-y-6">
+    <div ref={dashboardRef} className="space-y-6 animate-slide-up">
       {/* Narrative summary */}
       {hasNarrative && (
-        <div className="p-5 bg-gradient-to-br from-indigo-50 to-purple-50 border border-indigo-100 rounded-2xl shadow-sm">
+        <div className="p-5 bg-gradient-to-br from-indigo-50/80 to-purple-50/80 border border-indigo-100/80 rounded-2xl shadow-sm card-hover backdrop-blur-sm">
           <div className="flex items-start gap-3">
-            <div className="mt-0.5 p-1.5 bg-indigo-100 rounded-lg">
-              <BookOpen size={16} className="text-indigo-600" />
+            <div className="mt-0.5 p-1.5 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg shadow-sm">
+              <Sparkles size={16} className="text-white" />
             </div>
             <div className="flex-1">
-              <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wider mb-1.5">AI Narrative</p>
+              <p className="text-[10px] font-semibold text-indigo-600 uppercase tracking-widest mb-1.5">AI Insight</p>
               <p className="text-sm text-slate-700 leading-relaxed">{result.dashboard.narrative}</p>
             </div>
           </div>
@@ -51,26 +56,29 @@ export function DashboardView({ result, dashboardRef, onPinChart }: DashboardVie
       )}
 
       {/* KPI tiles */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 stagger-1">
         {result.dashboard.kpis.map((kpi, i) => (
-          <MetricTile
-            key={i}
-            {...kpi}
-            onPin={() => onPinChart("kpi", kpi.label, { value: kpi.value, change: kpi.change })}
-          />
+          <div key={i} className="animate-slide-up" style={{ animationDelay: `${i * 80}ms` }}>
+            <MetricTile
+              {...kpi}
+              onPin={() => onPinChart("kpi", kpi.label, { value: kpi.value, change: kpi.change })}
+            />
+          </div>
         ))}
       </div>
 
       {/* Python plot */}
       {result.dashboard.plotUrl && (
-        <PythonPlot
-          url={result.dashboard.plotUrl}
-          onPin={() =>
-            result.dashboard.plotUrl
-              ? onPinChart("python_plot", "Python Plot", { url: result.dashboard.plotUrl }, result.dashboard.plotUrl)
-              : undefined
-          }
-        />
+        <div className="animate-fade-in">
+          <PythonPlot
+            url={result.dashboard.plotUrl}
+            onPin={() =>
+              result.dashboard.plotUrl
+                ? onPinChart("python_plot", "Python Plot", { url: result.dashboard.plotUrl }, result.dashboard.plotUrl)
+                : undefined
+            }
+          />
+        </div>
       )}
 
       {/* Chart type toggle */}
@@ -82,73 +90,85 @@ export function DashboardView({ result, dashboardRef, onPinChart }: DashboardVie
           </span>
           <button
             onClick={() => setChartMode(chartMode === 'auto' ? 'all' : 'auto')}
-            className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+            className="text-xs text-indigo-600 hover:text-indigo-800 font-medium transition-colors"
           >
             Show {chartMode === 'auto' ? 'all' : 'smart'}
           </button>
         </div>
       ) : null}
 
-      {/* Chart grid: smart auto-viz or all views */}
+      {/* Chart grid */}
       {hasTrend || hasSegments ? (
         chartMode === 'auto' ? (
           <div className={`grid grid-cols-1 ${hasTrend && hasSegments ? 'md:grid-cols-2' : ''} gap-6`}>
             {hasTrend && (
-              <SmartAutoViz
-                data={result.dashboard.trend}
-                chartType={suggestedChartType}
-                onPin={() => {
-                  const latest = result.dashboard.trend[result.dashboard.trend.length - 1];
-                  onPinChart("trend", `${suggestedChartType}: ${latest?.label ?? "overview"}`, result.dashboard.trend);
-                }}
-              />
+              <div className="animate-slide-up">
+                <SmartAutoViz
+                  data={result.dashboard.trend}
+                  chartType={suggestedChartType}
+                  onPin={() => {
+                    const latest = result.dashboard.trend[result.dashboard.trend.length - 1];
+                    onPinChart("trend", `${suggestedChartType}: ${latest?.label ?? "overview"}`, result.dashboard.trend);
+                  }}
+                />
+              </div>
             )}
             {hasSegments && (
-              <SmartAutoViz
-                data={result.dashboard.segments}
-                chartType="pie"
-                onPin={() => onPinChart("segment", "Segment Breakdown", result.dashboard.segments)}
-              />
+              <div className="animate-slide-up" style={{ animationDelay: '100ms' }}>
+                <SmartAutoViz
+                  data={result.dashboard.segments}
+                  chartType="pie"
+                  onPin={() => onPinChart("segment", "Segment Breakdown", result.dashboard.segments)}
+                />
+              </div>
             )}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {hasTrend && (
               <>
-                <SmartAutoViz
-                  data={result.dashboard.trend}
-                  chartType="bar"
-                  onPin={() => {
-                    const latest = result.dashboard.trend[result.dashboard.trend.length - 1];
-                    onPinChart("trend", `Bar: ${latest?.label ?? "overview"}`, result.dashboard.trend);
-                  }}
-                />
-                <SmartAutoViz
-                  data={result.dashboard.trend}
-                  chartType="line"
-                  onPin={() => {
-                    const latest = result.dashboard.trend[result.dashboard.trend.length - 1];
-                    onPinChart("trend", `Line: ${latest?.label ?? "overview"}`, result.dashboard.trend);
-                  }}
-                />
-                {!hasSegments && (
+                <div className="animate-slide-up">
                   <SmartAutoViz
                     data={result.dashboard.trend}
-                    chartType="area"
+                    chartType="bar"
                     onPin={() => {
                       const latest = result.dashboard.trend[result.dashboard.trend.length - 1];
-                      onPinChart("trend", `Area: ${latest?.label ?? "overview"}`, result.dashboard.trend);
+                      onPinChart("trend", `Bar: ${latest?.label ?? "overview"}`, result.dashboard.trend);
                     }}
                   />
+                </div>
+                <div className="animate-slide-up" style={{ animationDelay: '80ms' }}>
+                  <SmartAutoViz
+                    data={result.dashboard.trend}
+                    chartType="line"
+                    onPin={() => {
+                      const latest = result.dashboard.trend[result.dashboard.trend.length - 1];
+                      onPinChart("trend", `Line: ${latest?.label ?? "overview"}`, result.dashboard.trend);
+                    }}
+                  />
+                </div>
+                {!hasSegments && (
+                  <div className="animate-slide-up" style={{ animationDelay: '160ms' }}>
+                    <SmartAutoViz
+                      data={result.dashboard.trend}
+                      chartType="area"
+                      onPin={() => {
+                        const latest = result.dashboard.trend[result.dashboard.trend.length - 1];
+                        onPinChart("trend", `Area: ${latest?.label ?? "overview"}`, result.dashboard.trend);
+                      }}
+                    />
+                  </div>
                 )}
               </>
             )}
             {hasSegments && (
-              <SmartAutoViz
-                data={result.dashboard.segments}
-                chartType="pie"
-                onPin={() => onPinChart("segment", "Segment Breakdown", result.dashboard.segments)}
-              />
+              <div className="animate-slide-up">
+                <SmartAutoViz
+                  data={result.dashboard.segments}
+                  chartType="pie"
+                  onPin={() => onPinChart("segment", "Segment Breakdown", result.dashboard.segments)}
+                />
+              </div>
             )}
           </div>
         )
@@ -156,19 +176,22 @@ export function DashboardView({ result, dashboardRef, onPinChart }: DashboardVie
 
       {/* Warnings */}
       {result.warnings && result.warnings.length > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-700 space-y-1">
+        <div className="bg-amber-50/80 border border-amber-200/80 rounded-2xl p-4 text-xs text-amber-700 space-y-1 backdrop-blur-sm animate-fade-in">
           {result.warnings.map((w, i) => (
-            <div key={i}>{w}</div>
+            <div key={i} className="flex items-center gap-2">
+              <span className="w-1 h-1 rounded-full bg-amber-500 shrink-0" />
+              {w}
+            </div>
           ))}
         </div>
       )}
 
-      {/* Explainable AI: How this analysis works */}
+      {/* Explainable AI */}
       {hasExplanations && <ExplainSection explanations={result.dashboard.explanations!} />}
 
       {/* SQL Queries */}
       {result.sqlQueries && result.sqlQueries.length > 0 && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden card-hover">
           <button
             onClick={() => setShowSql(!showSql)}
             className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
@@ -180,7 +203,7 @@ export function DashboardView({ result, dashboardRef, onPinChart }: DashboardVie
             {showSql ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
           </button>
           {showSql && (
-            <div className="px-5 pb-4 space-y-3">
+            <div className="px-5 pb-4 space-y-3 animate-slide-up">
               {result.sqlQueries.map((sql, i) => (
                 <pre
                   key={i}
