@@ -36,6 +36,82 @@ function downloadBlob(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
+// --- Per-chart download helpers ---
+
+export function downloadChartSvg(element: HTMLElement, filename: string): void {
+  const svg = element.querySelector("svg");
+  if (!svg) return;
+  const serializer = new XMLSerializer();
+  const clone = svg.cloneNode(true) as SVGSVGElement;
+  const rect = svg.getBoundingClientRect();
+  clone.setAttribute("width", String(rect.width || 600));
+  clone.setAttribute("height", String(rect.height || 300));
+  const svgStr = serializer.serializeToString(clone);
+  downloadBlob(new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" }), `${filename}.svg`);
+}
+
+export function downloadChartPng(element: HTMLElement, filename: string): Promise<void> {
+  return downloadChartAsRaster(element, filename, "image/png");
+}
+
+export function downloadChartJpeg(element: HTMLElement, filename: string): Promise<void> {
+  return downloadChartAsRaster(element, filename, "image/jpeg");
+}
+
+async function downloadChartAsRaster(element: HTMLElement, filename: string, format: string): Promise<void> {
+  const svg = element.querySelector("svg");
+  if (!svg) return;
+  const serializer = new XMLSerializer();
+  const clone = svg.cloneNode(true) as SVGSVGElement;
+  const rect = svg.getBoundingClientRect();
+  const w = Math.max(1, Math.round(rect.width || 600));
+  const h = Math.max(1, Math.round(rect.height || 300));
+  clone.setAttribute("width", String(w));
+  clone.setAttribute("height", String(h));
+  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+
+  let svgStr = serializer.serializeToString(clone);
+  // Ensure SVG declaration
+  if (!svgStr.startsWith("<svg")) {
+    svgStr = `<svg xmlns="http://www.w3.org/2000/svg">${svgStr}</svg>`;
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w * 2;
+  canvas.height = h * 2;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  const svgBlob = new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(svgBlob);
+
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error("SVG image failed to load"));
+      img.src = url;
+    });
+
+    ctx.scale(2, 2);
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(img, 0, 0, w, h);
+
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob((b) => resolve(b), format, format === "image/jpeg" ? 0.92 : undefined)
+    );
+
+    if (blob) {
+      const ext = format === "image/png" ? "png" : "jpg";
+      downloadBlob(blob, `${filename}.${ext}`);
+    }
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 function getExportPlotNodes(dashboardRef: HTMLDivElement | null): HTMLElement[] {
   return Array.from(dashboardRef?.querySelectorAll<HTMLElement>("[data-export-plot]") ?? []);
 }

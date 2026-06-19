@@ -2,6 +2,18 @@
 // on the same host:port. No NEXT_PUBLIC_API_BASE needed.
 const API_BASE = "/api";
 
+function safeJsonStringify(value: unknown): string {
+  const seen = new WeakSet();
+  return JSON.stringify(value, (_key, val) => {
+    if (typeof val === "object" && val !== null) {
+      if (seen.has(val)) return "[Circular]";
+      seen.add(val);
+    }
+    if (val instanceof Node) return `[${val.constructor?.name ?? "Node"}]`;
+    return val;
+  });
+}
+
 // --- Types ---
 
 export type NotebookStep = {
@@ -264,7 +276,7 @@ export async function fetchPinnedCharts(): Promise<PinnedChart[]> {
 export async function pinChart(chart: Omit<PinnedChart, "id">): Promise<PinnedChart> {
   const res = await apiFetch("/pin-chart", {
     method: "POST",
-    body: JSON.stringify({ id: "", chart_type: chart.chart_type, label: chart.label, data: chart.data, url: chart.url }),
+    body: safeJsonStringify({ id: "", chart_type: chart.chart_type, label: chart.label, data: chart.data, url: chart.url }),
   });
   if (!res.ok) throw new Error(await parseError(res));
   return res.json();

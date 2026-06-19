@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import Image from 'next/image';
-import { Pin, Info, ChevronDown, ChevronRight } from 'lucide-react';
+import { Pin, Info, ChevronDown, ChevronRight, Download } from 'lucide-react';
+import { downloadChartSvg, downloadChartPng, downloadChartJpeg } from '@/lib/export';
 import {
   BarChart,
   Bar,
@@ -40,11 +41,65 @@ function PinButton({ onClick }: { onClick?: () => void }) {
   return (
     <button
       onClick={onClick}
-      className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-indigo-600 transition-all opacity-0 group-hover:opacity-100"
+      className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-indigo-600 transition-all opacity-0 group-hover:opacity-100"
       title="Pin to Dashboard"
     >
-      <Pin size={13} />
+      <Pin size={16} />
     </button>
+  );
+}
+
+function DownloadDropdown({ elementRef }: { elementRef: React.RefObject<HTMLDivElement | null> }) {
+  const [open, setOpen] = useState(false);
+
+  const handleDownload = useCallback(async (format: "png" | "jpeg" | "svg") => {
+    setOpen(false);
+    if (!elementRef.current) return;
+    const title = elementRef.current.dataset?.exportPlot || "chart";
+    if (format === "svg") {
+      downloadChartSvg(elementRef.current, title);
+    } else if (format === "png") {
+      await downloadChartPng(elementRef.current, title);
+    } else {
+      await downloadChartJpeg(elementRef.current, title);
+    }
+  }, [elementRef]);
+
+  return (
+    <div className="relative opacity-0 group-hover:opacity-100 transition-all">
+      <button
+        onClick={() => setOpen(!open)}
+        className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-indigo-600 transition-all"
+        title="Download chart"
+      >
+        <Download size={16} />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full mt-1 z-20 bg-white rounded-xl border border-slate-200 shadow-lg py-1 min-w-[100px] animate-fade-in">
+            <button
+              onClick={() => handleDownload("png")}
+              className="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-indigo-600 transition-colors"
+            >
+              PNG
+            </button>
+            <button
+              onClick={() => handleDownload("jpeg")}
+              className="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-indigo-600 transition-colors"
+            >
+              JPEG
+            </button>
+            <button
+              onClick={() => handleDownload("svg")}
+              className="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-indigo-600 transition-colors"
+            >
+              SVG
+            </button>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -63,11 +118,13 @@ function ChartCard({ children, title, badge, onPin, className = "" }: {
   onPin?: () => void;
   className?: string;
 }) {
+  const cardRef = useRef<HTMLDivElement>(null);
   return (
-    <div className={`p-5 bg-white rounded-2xl border border-slate-200/80 shadow-sm space-y-4 relative group card-hover ${className}`}>
+    <div ref={cardRef} className={`p-5 bg-white rounded-2xl border border-slate-200/80 shadow-sm space-y-4 relative group card-hover ${className}`} data-export-plot={title}>
       <div className="flex items-center justify-between">
         <strong className="text-sm font-semibold text-slate-800">{title}</strong>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
+          <DownloadDropdown elementRef={cardRef} />
           <PinButton onClick={onPin} />
           <ChartBadge label={badge} />
         </div>

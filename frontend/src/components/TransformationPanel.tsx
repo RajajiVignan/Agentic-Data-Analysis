@@ -15,6 +15,7 @@ import {
   CheckCircle2,
   Loader2,
   Table2,
+  FileDown,
 } from "lucide-react";
 import type { TransformStep, TransformHistory, Column } from "@/lib/api";
 import {
@@ -32,9 +33,10 @@ type Props = {
   datasetId: string;
   columns: Column[];
   onTransformed: () => void;
+  onExportCsv?: () => void;
 };
 
-export function TransformationPanel({ datasetId, columns, onTransformed }: Props) {
+export function TransformationPanel({ datasetId, columns, onTransformed, onExportCsv }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("filter");
   const [history, setHistory] = useState<TransformHistory | null>(null);
   const [loading, setLoading] = useState(false);
@@ -208,6 +210,16 @@ export function TransformationPanel({ datasetId, columns, onTransformed }: Props
           Data Transformation Pipeline
         </div>
         <div className="flex items-center gap-1">
+          {onExportCsv && (
+            <button
+              onClick={onExportCsv}
+              className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all mr-1"
+              title="Export cleaned CSV"
+            >
+              <FileDown size={13} />
+              CSV
+            </button>
+          )}
           <span className="text-xs text-slate-400 mr-2">{history?.steps?.length ?? 0} steps</span>
           <button
             onClick={handleUndo}

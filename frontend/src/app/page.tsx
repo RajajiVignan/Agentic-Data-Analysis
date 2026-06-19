@@ -51,6 +51,7 @@ import { SQLQueryEditor } from "@/components/SQLQueryEditor";
 import { ScheduleManager } from "@/components/ScheduleManager";
 import { DashboardEditor } from "@/components/DashboardEditor";
 import { DataProfiler } from "@/components/DataProfiler";
+import { VizTools } from "@/components/VizTools";
 import type { AuthUser } from "@/lib/api";
 import { exportPlotsAsSvg, exportPlotsAsPdf } from "@/lib/export";
 import type {
@@ -93,6 +94,8 @@ export default function Workspace() {
   const [chartScheme, setChartScheme] = useState<string>("default");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarPinned, setSidebarPinned] = useState(false);
+  const [fontFamily, setFontFamily] = useState<string>("system");
+  const [fontSize, setFontSize] = useState<string>("medium");
 
   // --- Initialization ---
 
@@ -104,6 +107,10 @@ export default function Workspace() {
     if (savedAccent) setAccentColor(savedAccent);
     const savedScheme = localStorage.getItem("insightpilot-chart-scheme");
     if (savedScheme) setChartScheme(savedScheme);
+    const savedFont = localStorage.getItem("insightpilot-font-family");
+    if (savedFont) setFontFamily(savedFont);
+    const savedSize = localStorage.getItem("insightpilot-font-size");
+    if (savedSize) setFontSize(savedSize);
     init();
   }, []);
 
@@ -138,6 +145,22 @@ export default function Workspace() {
     document.documentElement.style.setProperty("--chart-colors", schemes[chartScheme] ?? schemes.default);
     localStorage.setItem("insightpilot-chart-scheme", chartScheme);
   }, [chartScheme]);
+
+  useEffect(() => {
+    const fontMap: Record<string, string> = {
+      system: "Arial, Helvetica, sans-serif",
+      inter: "Inter, system-ui, sans-serif",
+      georgia: "Georgia, Times, serif",
+      mono: "'Courier New', Consolas, monospace",
+    };
+    document.documentElement.style.setProperty("--font-family", fontMap[fontFamily] ?? fontMap.system);
+    localStorage.setItem("insightpilot-font-family", fontFamily);
+  }, [fontFamily]);
+
+  useEffect(() => {
+    document.documentElement.style.setProperty("--base-font-size", fontSize);
+    localStorage.setItem("insightpilot-font-size", fontSize);
+  }, [fontSize]);
 
   useEffect(() => {
     if (!mounted) return;
@@ -269,14 +292,14 @@ export default function Workspace() {
     }
   }
 
-  async function handleRunAnalysis() {
+  async function handleRunAnalysis(suggestionPrompt?: string) {
     if (selectedDatasetIds.length === 0) {
       setError("Select at least one dataset before running analysis.");
       return;
     }
     setAnalyzeLoading(true);
     setError(null);
-    const currentPrompt = prompt;
+    const currentPrompt = suggestionPrompt ?? prompt;
     setPrompt("");
     try {
       const data = await runAnalysis(selectedDatasetIds, currentPrompt, sessionId ?? undefined);
@@ -293,6 +316,10 @@ export default function Workspace() {
     } finally {
       setAnalyzeLoading(false);
     }
+  }
+
+  function handleApplySuggestion(suggestionPrompt: string) {
+    handleRunAnalysis(suggestionPrompt);
   }
 
   async function handleNewAnalysis() {
@@ -523,31 +550,6 @@ export default function Workspace() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            {activeNav === "explore" && (
-              <>
-                <button
-                  onClick={handleExportCsv}
-                  className="p-2 text-slate-400 hover:text-indigo-600 transition-colors rounded-lg hover:bg-slate-100"
-                  title="Export CSV"
-                >
-                  <FileDown size={18} />
-                </button>
-                <button
-                  onClick={handleExportSvg}
-                  className="p-2 text-slate-400 hover:text-indigo-600 transition-colors rounded-lg hover:bg-slate-100"
-                  title="Export SVG"
-                >
-                  <FileType2 size={18} />
-                </button>
-                <button
-                  onClick={handleExportPdf}
-                  className="p-2 text-slate-400 hover:text-indigo-600 transition-colors rounded-lg hover:bg-slate-100"
-                  title="Export PDF"
-                >
-                  <Download size={18} />
-                </button>
-              </>
-            )}
             <div className="flex items-center gap-3">
               {user && (
                 <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 rounded-full">
@@ -563,32 +565,6 @@ export default function Workspace() {
                   </button>
                 </div>
               )}
-              {/* Accent color picker */}
-              <select
-                value={accentColor}
-                onChange={(e) => setAccentColor(e.target.value)}
-                className="text-xs bg-slate-100 border border-slate-200 rounded-lg px-2 py-1.5 text-slate-600 cursor-pointer"
-                title="Accent color"
-              >
-                <option value="indigo">Indigo</option>
-                <option value="blue">Blue</option>
-                <option value="emerald">Emerald</option>
-                <option value="amber">Amber</option>
-                <option value="rose">Rose</option>
-                <option value="violet">Violet</option>
-              </select>
-              {/* Chart color scheme picker */}
-              <select
-                value={chartScheme}
-                onChange={(e) => setChartScheme(e.target.value)}
-                className="text-xs bg-slate-100 border border-slate-200 rounded-lg px-2 py-1.5 text-slate-600 cursor-pointer"
-                title="Chart color scheme"
-              >
-                <option value="default">Default</option>
-                <option value="warm">Warm</option>
-                <option value="cool">Cool</option>
-                <option value="mono">Monochrome</option>
-              </select>
               <button
                 onClick={() => setTheme(theme === "light" ? "dark" : "light")}
                 className="p-2 text-slate-400 hover:text-indigo-600 transition-colors rounded-lg hover:bg-slate-100"
@@ -617,68 +593,100 @@ export default function Workspace() {
         <div className="p-8 max-w-6xl mx-auto space-y-8">
           {/* --- EXPLORE TAB --- */}
           {activeNav === "explore" && (
-            <>
-              <UploadArea
-                datasets={availableDatasets}
-                selectedDatasetIds={selectedDatasetIds}
-                onToggleDataset={toggleDataset}
-                onFileUpload={handleFileUpload}
-                onConnectDatabase={() => setActiveNav("data")}
-                onRefreshDataset={handleRefreshDataset}
-                refreshingId={refreshingId}
-                uploadLoading={uploadLoading}
-              />
+            <div className="flex gap-8">
+              <div className="flex-1 min-w-0 space-y-8">
+                <UploadArea
+                  datasets={availableDatasets}
+                  selectedDatasetIds={selectedDatasetIds}
+                  onToggleDataset={toggleDataset}
+                  onFileUpload={handleFileUpload}
+                  onConnectDatabase={() => setActiveNav("data")}
+                  onRefreshDataset={handleRefreshDataset}
+                  refreshingId={refreshingId}
+                  uploadLoading={uploadLoading}
+                />
 
-              {/* Transformation Pipeline */}
-              {selectedDatasetIds.length === 1 && (() => {
-                const ds = availableDatasets.find((d) => d.id === selectedDatasetIds[0]);
-                return ds?.profile?.columns ? (
+                {/* Transformation Pipeline */}
+                {selectedDatasetIds.length === 1 && (() => {
+                  const ds = availableDatasets.find((d) => d.id === selectedDatasetIds[0]);
+                  return ds?.profile?.columns ? (
                   <TransformationPanel
                     key={ds.id}
                     datasetId={ds.id}
                     columns={ds.profile.columns}
                     onTransformed={loadDatasets}
+                    onExportCsv={handleExportCsv}
                   />
-                ) : null;
-              })()}
+                  ) : null;
+                })()}
 
-              {/* Conversation thread — each turn's question + full dashboard */}
-              {conversationTurns.length > 0 && (
-                <div className="space-y-8">
-                  {conversationTurns.map((turn, i) => (
-                    <div key={i} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                      <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 flex items-center gap-3">
-                        <div className="w-6 h-6 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0">
-                          <span className="text-[10px] font-bold text-indigo-600">Q</span>
+                {/* Conversation thread — each turn's question + full dashboard */}
+                {conversationTurns.length > 0 && (
+                  <div className="space-y-8">
+                    {conversationTurns.map((turn, i) => (
+                      <div key={i} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                        <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 flex items-center gap-3">
+                          <div className="w-6 h-6 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0">
+                            <span className="text-[10px] font-bold text-indigo-600">Q</span>
+                          </div>
+                          <p className="text-sm font-medium text-slate-800">{turn.prompt}</p>
                         </div>
-                        <p className="text-sm font-medium text-slate-800">{turn.prompt}</p>
+                        <div className="p-5">
+                          <DashboardView
+                            result={turn.result}
+                            dashboardRef={dashboardRef}
+                            onPinChart={handlePinChart}
+                          />
+                        </div>
                       </div>
-                      <div className="p-5">
-                        <DashboardView
-                          result={turn.result}
-                          dashboardRef={dashboardRef}
-                          onPinChart={handlePinChart}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    ))}
+                  </div>
+                )}
 
-              {/* Loading skeleton for the latest analysis */}
-              {analyzeLoading && <AnalysisSkeleton />}
+                {/* Loading skeleton for the latest analysis */}
+                {analyzeLoading && <AnalysisSkeleton />}
 
-              <AnalysisPrompt
-                prompt={prompt}
-                onPromptChange={setPrompt}
-                onRun={handleRunAnalysis}
-                onNewAnalysis={handleNewAnalysis}
-                loading={analyzeLoading}
-                disabled={analyzeLoading || selectedDatasetIds.length === 0 || !mounted}
-                error={error}
-                hasActiveSession={sessionId !== null && conversationTurns.length > 0}
+                {/* Export PDF — all conversation visualizations */}
+                {(conversationTurns.length > 0 || result) && (
+                  <div className="flex items-center gap-2 p-3 bg-white rounded-2xl border border-slate-200/80 shadow-sm">
+                    <span className="text-xs font-medium text-slate-400 mr-2">Export</span>
+                    <button
+                      onClick={handleExportPdf}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                      title="Export all conversation visualizations as PDF"
+                    >
+                      <Download size={14} />
+                      PDF (All Plots)
+                    </button>
+                  </div>
+                )}
+
+                <AnalysisPrompt
+                  prompt={prompt}
+                  onPromptChange={setPrompt}
+                  onRun={handleRunAnalysis}
+                  onNewAnalysis={handleNewAnalysis}
+                  loading={analyzeLoading}
+                  disabled={analyzeLoading || selectedDatasetIds.length === 0 || !mounted}
+                  error={error}
+                  hasActiveSession={sessionId !== null && conversationTurns.length > 0}
+                />
+              </div>
+
+              <VizTools
+                datasets={availableDatasets}
+                selectedDatasetIds={selectedDatasetIds}
+                onApplySuggestion={handleApplySuggestion}
+                accentColor={accentColor}
+                chartScheme={chartScheme}
+                fontFamily={fontFamily}
+                fontSize={fontSize}
+                onAccentChange={setAccentColor}
+                onSchemeChange={setChartScheme}
+                onFontFamilyChange={setFontFamily}
+                onFontSizeChange={setFontSize}
               />
-            </>
+            </div>
           )}
 
           {/* --- DASHBOARDS TAB --- */}
