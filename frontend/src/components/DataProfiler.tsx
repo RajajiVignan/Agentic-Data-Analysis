@@ -20,12 +20,20 @@ export function DataProfiler({ datasetId }: ProfilerProps) {
 
   useEffect(() => {
     if (!datasetId) return;
-    setLoading(true);
-    setError(null);
-    fetchDatasetProfile(datasetId)
-      .then(setProfile)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+    let ignore = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const p = await fetchDatasetProfile(datasetId);
+        if (!ignore) setProfile(p);
+      } catch (e) {
+        if (!ignore) setError(e instanceof Error ? e.message : "Failed");
+      } finally {
+        if (!ignore) setLoading(false);
+      }
+    })();
+    return () => { ignore = true; };
   }, [datasetId]);
 
   if (loading) {

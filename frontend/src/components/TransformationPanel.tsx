@@ -85,8 +85,17 @@ export function TransformationPanel({ datasetId, columns, onTransformed, onExpor
   }, [datasetId]);
 
   useEffect(() => {
-    loadHistory();
-  }, [loadHistory]);
+    let ignore = false;
+    (async () => {
+      try {
+        const h = await transformHistory(datasetId);
+        if (!ignore) setHistory(h);
+      } catch {
+        // ignore
+      }
+    })();
+    return () => { ignore = true; };
+  }, [datasetId]);
 
   async function handlePreview(step: TransformStep) {
     setLoading(true);

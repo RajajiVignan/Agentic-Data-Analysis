@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState } from "react";
 import {
   Play,
   Code,
@@ -47,19 +47,19 @@ export function SQLQueryEditor({ datasets, selectedDatasetIds }: Props) {
   const [chartType, setChartType] = useState<string | null>(null);
   const [page, setPage] = useState(1);
 
-  const loadSchema = useCallback(async () => {
-    if (selectedDatasetIds.length === 0) return;
-    try {
-      const data = await fetchQuerySchema(selectedDatasetIds);
-      setSchemas(data.schemas);
-    } catch {
-      // ignore
-    }
-  }, [selectedDatasetIds]);
-
   React.useEffect(() => {
-    loadSchema();
-  }, [loadSchema]);
+    if (selectedDatasetIds.length === 0) return;
+    let ignore = false;
+    (async () => {
+      try {
+        const data = await fetchQuerySchema(selectedDatasetIds);
+        if (!ignore) setSchemas(data.schemas);
+      } catch {
+        // ignore
+      }
+    })();
+    return () => { ignore = true; };
+  }, [selectedDatasetIds]);
 
   async function handleRun() {
     if (!sql.trim() || selectedDatasetIds.length === 0) return;

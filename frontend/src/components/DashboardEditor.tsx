@@ -1,12 +1,11 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, type ComponentType } from "react";
+import dynamic from "next/dynamic";
 import "react-grid-layout/css/styles.css";
 
-const GridLayout = (props: any) => {
-  const RGL = require("react-grid-layout").default;
-  return <RGL {...props} />;
-};
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const GridLayout = dynamic(() => import("react-grid-layout"), { ssr: false }) as ComponentType<any>;
 import {
   Layout as LayoutIcon,
   Plus,
@@ -28,6 +27,7 @@ import {
   fetchPinnedCharts,
 } from "@/lib/api";
 import type { DashboardLayout, DashboardTile, PinnedChart } from "@/lib/api";
+import type { Layout } from "react-grid-layout";
 import { MetricTile, TrendChart, SegmentChart, PythonPlot, LineTrendChart, AreaTrendChart } from "@/components/Charts";
 
 type Props = {
@@ -132,7 +132,7 @@ export function DashboardEditor({ onRefreshCharts }: Props) {
     }
   }, [activeLayout]);
 
-  const handleLayoutChange = useCallback((newLayout: any[]) => {
+  const handleLayoutChange = useCallback((newLayout: Layout) => {
     if (!activeLayout || !editing) return;
     const updatedTiles = activeLayout.tiles.map((tile) => {
       const pos = newLayout.find((l) => l.i === tile.id);

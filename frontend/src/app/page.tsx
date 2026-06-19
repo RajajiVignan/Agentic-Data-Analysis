@@ -68,7 +68,7 @@ type NavTab = "explore" | "dashboards" | "data" | "context" | "share" | "joins" 
 
 export default function Workspace() {
   const dashboardRef = useRef<HTMLDivElement | null>(null);
-  const [mounted, setMounted] = useState(false);
+  const [mounted] = useState(true);
   const [availableDatasets, setAvailableDatasets] = useState<Dataset[]>([]);
   const [selectedDatasetIds, setSelectedDatasetIds] = useState<string[]>([]);
   const [prompt, setPrompt] = useState("");
@@ -89,28 +89,33 @@ export default function Workspace() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [theme, setTheme] = useState<"light" | "dark">("light");
-  const [accentColor, setAccentColor] = useState<string>("indigo");
-  const [chartScheme, setChartScheme] = useState<string>("default");
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [sidebarPinned, setSidebarPinned] = useState(false);
-  const [fontFamily, setFontFamily] = useState<string>("system");
-  const [fontSize, setFontSize] = useState<string>("medium");
+  const [theme, setTheme] = useState<"light" | "dark">(
+    () => (typeof window !== "undefined" ? localStorage.getItem("insightpilot-theme") as "light" | "dark" | null : null) ?? "light"
+  );
+  const [accentColor, setAccentColor] = useState<string>(
+    () => (typeof window !== "undefined" ? localStorage.getItem("insightpilot-accent") : null) ?? "indigo"
+  );
+  const [chartScheme, setChartScheme] = useState<string>(
+    () => (typeof window !== "undefined" ? localStorage.getItem("insightpilot-chart-scheme") : null) ?? "default"
+  );
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("insightpilot-sidebar-pinned") === "true";
+  });
+  const [sidebarPinned, setSidebarPinned] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("insightpilot-sidebar-pinned") === "true";
+  });
+  const [fontFamily, setFontFamily] = useState<string>(
+    () => (typeof window !== "undefined" ? localStorage.getItem("insightpilot-font-family") : null) ?? "system"
+  );
+  const [fontSize, setFontSize] = useState<string>(
+    () => (typeof window !== "undefined" ? localStorage.getItem("insightpilot-font-size") : null) ?? "medium"
+  );
 
   // --- Initialization ---
 
   useEffect(() => {
-    setMounted(true);
-    const savedTheme = localStorage.getItem("insightpilot-theme") as "light" | "dark" | null;
-    if (savedTheme) setTheme(savedTheme);
-    const savedAccent = localStorage.getItem("insightpilot-accent");
-    if (savedAccent) setAccentColor(savedAccent);
-    const savedScheme = localStorage.getItem("insightpilot-chart-scheme");
-    if (savedScheme) setChartScheme(savedScheme);
-    const savedFont = localStorage.getItem("insightpilot-font-family");
-    if (savedFont) setFontFamily(savedFont);
-    const savedSize = localStorage.getItem("insightpilot-font-size");
-    if (savedSize) setFontSize(savedSize);
     init();
   }, []);
 
@@ -161,15 +166,6 @@ export default function Workspace() {
     document.documentElement.style.setProperty("--base-font-size", fontSize);
     localStorage.setItem("insightpilot-font-size", fontSize);
   }, [fontSize]);
-
-  useEffect(() => {
-    if (!mounted) return;
-    const saved = localStorage.getItem("insightpilot-sidebar-pinned");
-    if (saved === "true") {
-      setSidebarPinned(true);
-      setSidebarOpen(true);
-    }
-  }, [mounted]);
 
   useEffect(() => {
     localStorage.setItem("insightpilot-sidebar-pinned", String(sidebarPinned));
