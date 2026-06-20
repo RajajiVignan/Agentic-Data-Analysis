@@ -1,7 +1,5 @@
-import React, { useState, useRef, useCallback } from 'react';
-import Image from 'next/image';
-import { Pin, Info, ChevronDown, ChevronRight, Download } from 'lucide-react';
-import { downloadChartSvg, downloadChartPng, downloadChartJpeg } from '@/lib/export';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { Pin, Info, ChevronDown, ChevronRight, Download, Loader2, Clock, Brain, Coffee, BarChart3, Activity } from 'lucide-react';
 import {
   BarChart,
   Bar,
@@ -23,6 +21,57 @@ import {
   Legend,
   ZAxis,
 } from 'recharts';
+import { downloadChartSvg, downloadChartPng, downloadChartJpeg } from '@/lib/export';
+
+const LOADING_QUOTES = [
+  { icon: Brain, text: "Teaching the AI to read your data... it's not looking great." },
+  { icon: Coffee, text: "Brewing coffee for the analysis engine. This might take a while." },
+  { icon: BarChart3, text: "Convincing the chart to stop being a bar and become a line..." },
+  { icon: Activity, text: "Your data is doing yoga. Stretching into shape." },
+  { icon: Clock, text: "Plot twist: the plot isn't ready yet." },
+  { icon: Brain, text: "The AI is having an existential crisis about bar charts." },
+  { icon: Coffee, text: "Hang tight — we're mining insights with a tiny pickaxe." },
+  { icon: BarChart3, text: "Counting all the rows so you don't have to." },
+  { icon: Activity, text: "Running linear regression on a hamster wheel." },
+  { icon: Clock, text: "Loading... statistically significant chance of waiting." },
+  { icon: Coffee, text: "Our data elves are on a coffee break. They'll be right back." },
+  { icon: Brain, text: "Reticulating splines on your dataset. This is fine." },
+  { icon: BarChart3, text: "The chart is in the shop getting a tune-up." },
+  { icon: Activity, text: "Bribing the backend with positive reinforcement." },
+  { icon: Clock, text: "The AI is contemplating the meaning of pie." },
+  { icon: Coffee, text: "Delegating to a microservice made of duct tape." },
+  { icon: Brain, text: "Your data is on fire — in a good way. Probably." },
+  { icon: BarChart3, text: "Consulting the ancient scrolls of matplotlib." },
+  { icon: Activity, text: "The pandas are processing. Not the animal, the library." },
+  { icon: Clock, text: "This would be faster on a toaster." },
+];
+
+export function PlotLoading() {
+  const [idx, setIdx] = useState(() => Math.floor(Math.random() * LOADING_QUOTES.length));
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setIdx((prev) => (prev + 1) % LOADING_QUOTES.length);
+    }, 15000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const Q = LOADING_QUOTES[idx];
+  return (
+    <div className="flex flex-col items-center justify-center gap-4 py-12 text-center animate-fade-in" key={idx}>
+      <div className="relative">
+        <Loader2 size={32} className="animate-spin text-indigo-400" />
+        <div className="absolute inset-0 animate-ping opacity-20">
+          <Q.icon size={32} className="text-indigo-600" />
+        </div>
+      </div>
+      <div className="space-y-1">
+        <p className="text-sm font-medium text-slate-500 italic">{Q.text}</p>
+        <p className="text-[10px] text-slate-400">Hang on, this is the fun part</p>
+      </div>
+    </div>
+  );
+}
 
 type KpiProps = {
   label: string;
@@ -41,7 +90,7 @@ function PinButton({ onClick }: { onClick?: () => void }) {
   return (
     <button
       onClick={onClick}
-      className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-indigo-600 transition-all opacity-0 group-hover:opacity-100"
+      className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-indigo-600 transition-all"
       title="Pin to Dashboard"
     >
       <Pin size={16} />
@@ -56,17 +105,21 @@ function DownloadDropdown({ elementRef }: { elementRef: React.RefObject<HTMLDivE
     setOpen(false);
     if (!elementRef.current) return;
     const title = elementRef.current.dataset?.exportPlot || "chart";
-    if (format === "svg") {
-      downloadChartSvg(elementRef.current, title);
-    } else if (format === "png") {
-      await downloadChartPng(elementRef.current, title);
-    } else {
-      await downloadChartJpeg(elementRef.current, title);
+    try {
+      if (format === "svg") {
+        downloadChartSvg(elementRef.current, title);
+      } else if (format === "png") {
+        await downloadChartPng(elementRef.current, title);
+      } else {
+        await downloadChartJpeg(elementRef.current, title);
+      }
+    } catch (e) {
+      console.error("Download failed:", e);
     }
   }, [elementRef]);
 
   return (
-    <div className="relative opacity-0 group-hover:opacity-100 transition-all">
+    <div className="relative">
       <button
         onClick={() => setOpen(!open)}
         className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-indigo-600 transition-all"
@@ -138,7 +191,7 @@ export function MetricTile({ label, value, change, onPin }: KpiProps & { onPin?:
   const isPositive = change.includes('+');
   return (
     <div className="p-5 bg-white rounded-2xl border border-slate-200/80 shadow-sm space-y-1.5 relative group card-hover">
-      <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="absolute top-3 right-3">
         <button
           onClick={onPin}
           className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-indigo-600 transition-all"
@@ -162,17 +215,35 @@ export function MetricTile({ label, value, change, onPin }: KpiProps & { onPin?:
 }
 
 export function PythonPlot({ url, onPin }: { url: string; onPin?: () => void }) {
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState(false);
+  const [retry, setRetry] = useState(0);
+
   if (!url) return null;
+
+  const src = retry > 0 ? `${url}${url.includes('?') ? '&' : '?'}_retry=${retry}` : url;
+
   return (
     <ChartCard title="AI Generated Visualization" badge="Python (Matplotlib/Seaborn)" onPin={onPin} data-export-plot="Python Plot">
-      <div className="flex justify-center bg-slate-50/50 rounded-xl overflow-hidden border border-slate-100/80">
-        <Image
-          src={url}
+      {!loaded && !error && <PlotLoading />}
+      {error && (
+        <div className="flex flex-col items-center justify-center gap-3 py-8 text-center">
+          <p className="text-sm text-slate-400 italic">Plot escaped. We're looking for it.</p>
+          <button
+            onClick={() => { setError(false); setLoaded(false); setRetry(r => r + 1); }}
+            className="px-4 py-2 text-xs font-medium text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+      <div className={`flex justify-center bg-slate-50/50 rounded-xl overflow-hidden border border-slate-100/80 ${loaded ? '' : 'hidden'}`}>
+        <img
+          src={src}
           alt="AI Visualization"
-          width={600}
-          height={400}
-          className="max-w-full h-auto object-contain"
-          unoptimized
+          className="w-full h-auto object-contain"
+          onLoad={() => setLoaded(true)}
+          onError={() => { setLoaded(true); setError(true); }}
         />
       </div>
     </ChartCard>

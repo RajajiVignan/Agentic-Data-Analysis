@@ -27,25 +27,25 @@ export function UploadArea({
 }: UploadAreaProps) {
   return (
     <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="font-bold text-slate-800 flex items-center gap-2">
-          <FileText size={18} className="text-indigo-500" />
-          Active Datasets
-        </h3>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={onConnectDatabase}
-            className="cursor-pointer bg-white text-indigo-600 border border-indigo-200 px-4 py-2 rounded-lg text-xs font-medium hover:bg-indigo-50 hover:border-indigo-300 transition-colors flex items-center gap-1.5"
-          >
-            <Database size={14} />
-            Connect Database
-          </button>
-          <label className="cursor-pointer bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-medium hover:bg-indigo-700 transition-colors">
-            Upload New
-            <input type="file" className="hidden" accept=".csv,.json" onChange={onFileUpload} disabled={uploadLoading} />
-          </label>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <h3 className="font-bold text-slate-800 flex items-center gap-2">
+            <FileText size={18} className="text-indigo-500 shrink-0" />
+            <span className="truncate">Active Datasets</span>
+          </h3>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={onConnectDatabase}
+              className="cursor-pointer bg-white text-indigo-600 border border-indigo-200 px-3 sm:px-4 py-2 rounded-lg text-xs font-medium hover:bg-indigo-50 hover:border-indigo-300 transition-colors flex items-center gap-1.5"
+            >
+              <Database size={14} />
+              <span className="hidden sm:inline">Connect </span>Database
+            </button>
+            <label className="cursor-pointer bg-indigo-600 text-white px-3 sm:px-4 py-2 rounded-lg text-xs font-medium hover:bg-indigo-700 transition-colors">
+              Upload New
+              <input type="file" className="hidden" accept=".csv,.json" onChange={onFileUpload} disabled={uploadLoading} />
+            </label>
+          </div>
         </div>
-      </div>
 
       <div className="flex flex-wrap gap-3">
         {datasets.length === 0 ? (

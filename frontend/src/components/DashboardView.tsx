@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState } from "react";
-import { ChevronDown, ChevronRight, Code, BookOpen, BarChart3, Sparkles } from "lucide-react";
-import { MetricTile, PythonPlot, SmartAutoViz, ExplainSection } from "@/components/Charts";
+import { ChevronDown, ChevronRight, Code, BarChart3, Sparkles } from "lucide-react";
+import { MetricTile, PythonPlot, SmartAutoViz, ExplainSection, PlotLoading } from "@/components/Charts";
 import type { AnalysisResult, PinnedChart } from "@/lib/api";
 
 type DashboardViewProps = {
@@ -13,7 +13,7 @@ type DashboardViewProps = {
 
 function AnalysisSkeleton() {
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-4 animate-fade-in">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {Array.from({ length: 3 }).map((_, i) => (
           <div
@@ -23,8 +23,9 @@ function AnalysisSkeleton() {
           />
         ))}
       </div>
-      <div className="h-64 rounded-2xl border border-slate-200 bg-gradient-to-r from-slate-100 via-slate-50 to-slate-100 animate-pulse" />
-      <div className="h-32 rounded-2xl border border-slate-200 bg-gradient-to-r from-slate-100 via-slate-50 to-slate-100 animate-pulse" />
+      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm">
+        <PlotLoading />
+      </div>
     </div>
   );
 }

@@ -248,7 +248,7 @@ export function VizTools({
   const activeTool = CHART_TOOLS.find((t) => t.id === selectedTool);
 
   return (
-    <div className="w-72 shrink-0">
+    <div className="w-full lg:w-72 shrink-0">
       <div className="p-4 bg-white rounded-2xl border border-slate-200/80 shadow-sm space-y-4 sticky top-24">
         {/* Header */}
         <div className="flex items-center gap-2 px-1">

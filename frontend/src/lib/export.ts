@@ -1,10 +1,5 @@
 /* eslint-disable no-unused-vars */
 
-/**
- * Export helpers for dashboard plots.
- * Extracts SVG/PDF from the rendered dashboard DOM.
- */
-
 function escapeXml(value: string): string {
   return value.replace(/[<>&"']/g, (char) => ({
     "<": "&lt;",
@@ -32,83 +27,226 @@ function downloadBlob(blob: Blob, filename: string): void {
   anchor.download = filename;
   document.body.appendChild(anchor);
   anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
+  setTimeout(() => {
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }, 200);
+}
+
+function resolveCssVar(value: string): string {
+  const match = value.match(/^var\((--[^,]+)(?:,\s*(.*))?\)$/);
+  if (!match) return value;
+  const prop = match[1];
+  const fallback = (match[2] || "").trim();
+  try {
+    const resolved = getComputedStyle(document.documentElement).getPropertyValue(prop).trim();
+    return resolved || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function elementHasContent(el: Element): boolean {
+  const svgEl = el.tagName === "svg" ? (el as SVGSVGElement) : findChartSvg(el as HTMLElement);
+  if (svgEl) {
+    const childCount = svgEl.children.length;
+    const innerSvg = svgEl.innerHTML.replace(/\s+/g, "").length;
+    return childCount > 0 && innerSvg > 0;
+  }
+  return false;
+}
+
+// Find the chart SVG — picks the largest SVG in the element tree,
+// skipping tiny icon SVGs from PinButton / DownloadDropdown (lucide-react 16x16).
+// Requires the SVG to be at least 100x100 rendered pixels to avoid picking up
+// toolbar / icon SVGs when the chart is img-based (e.g. PythonPlot).
+function findChartSvg(element: HTMLElement): SVGSVGElement | null {
+  const svgs = element.querySelectorAll<SVGSVGElement>("svg");
+  let best: SVGSVGElement | null = null;
+  let bestArea = 0;
+  const MIN_AREA = 100 * 100; // ignore SVGs smaller than 100x100
+  for (const s of svgs) {
+    const rect = s.getBoundingClientRect();
+    const area = rect.width * rect.height;
+    if (area > bestArea && area >= MIN_AREA) {
+      bestArea = area;
+      best = s;
+    }
+  }
+  return best;
+}
+
+// Read the intrinsic dimensions from an SVG element (attributes or viewBox).
+function getSvgDimensions(svg: SVGSVGElement): { w: number; h: number } {
+  const attrW = svg.getAttribute("width");
+  const attrH = svg.getAttribute("height");
+  if (attrW && attrH) {
+    const w = parseFloat(attrW);
+    const h = parseFloat(attrH);
+    if (w > 0 && h > 0) return { w, h };
+  }
+  const vb = svg.getAttribute("viewBox");
+  if (vb) {
+    const parts = vb.split(/[\s,]+/).map(Number);
+    if (parts.length === 4 && parts[2] > 0 && parts[3] > 0) {
+      return { w: parts[2], h: parts[3] };
+    }
+  }
+  // Fallback to rendered size
+  const rect = svg.getBoundingClientRect();
+  return {
+    w: Math.max(1, Math.round(rect.width || 600)),
+    h: Math.max(1, Math.round(rect.height || 300)),
+  };
+}
+
+function serializeSvg(svg: SVGSVGElement): string | null {
+  const { w, h } = getSvgDimensions(svg);
+  const viewBox = svg.getAttribute("viewBox") || `0 0 ${w} ${h}`;
+
+  const clone = svg.cloneNode(true) as SVGSVGElement;
+  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  clone.setAttribute("width", String(w));
+  clone.setAttribute("height", String(h));
+  clone.setAttribute("viewBox", viewBox);
+
+  // Resolve CSS var() in fill and stroke attributes on every element
+  const all = clone.querySelectorAll("*");
+  for (let i = 0; i < all.length; i++) {
+    const el = all[i];
+    for (const attr of ["fill", "stroke", "color", "stop-color"]) {
+      const val = el.getAttribute(attr);
+      if (val && val.includes("var(")) {
+        el.setAttribute(attr, resolveCssVar(val));
+      }
+    }
+    // Handle inline style attributes
+    const styleVal = el.getAttribute("style");
+    if (styleVal && styleVal.includes("var(")) {
+      el.setAttribute("style", styleVal.replace(/var\(--[^,]+(?:,\s*[^)]+)?\)/g, (m) => resolveCssVar(m)));
+    }
+  }
+
+  const serializer = new XMLSerializer();
+  return '<?xml version="1.0" encoding="UTF-8"?>\n' + serializer.serializeToString(clone);
+}
+
+// Fetch an image as a blob to avoid CORS / tainted-canvas issues.
+// Returns a blob URL that can be used safely in <img> and <canvas>.
+async function fetchImageAsBlobUrl(src: string): Promise<string> {
+  const resp = await fetch(src, { mode: "cors" });
+  if (!resp.ok) throw new Error(`Failed to fetch image: ${resp.status}`);
+  const blob = await resp.blob();
+  return URL.createObjectURL(blob);
 }
 
 // --- Per-chart download helpers ---
 
 export function downloadChartSvg(element: HTMLElement, filename: string): void {
-  const svg = element.querySelector("svg");
-  if (!svg) return;
-  const serializer = new XMLSerializer();
-  const clone = svg.cloneNode(true) as SVGSVGElement;
-  const rect = svg.getBoundingClientRect();
-  clone.setAttribute("width", String(rect.width || 600));
-  clone.setAttribute("height", String(rect.height || 300));
-  const svgStr = serializer.serializeToString(clone);
-  downloadBlob(new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" }), `${filename}.svg`);
+  const svg = findChartSvg(element);
+  if (svg) {
+    const str = serializeSvg(svg);
+    if (str) {
+      downloadBlob(new Blob([str], { type: "image/svg+xml;charset=utf-8" }), `${filename}.svg`);
+    }
+    return;
+  }
+  // For img-based charts, wrap the image in an SVG container
+  const imgEl = element.querySelector("img") as HTMLImageElement | null;
+  if (imgEl) {
+    const iw = imgEl.naturalWidth || Math.round(imgEl.getBoundingClientRect().width) || 800;
+    const ih = imgEl.naturalHeight || Math.round(imgEl.getBoundingClientRect().height) || 450;
+    // Use a data URL so the SVG is self-contained (no external reference)
+    const src = imgEl.src;
+    const wrapper = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${iw}" height="${ih}" viewBox="0 0 ${iw} ${ih}">
+  <rect width="100%" height="100%" fill="#ffffff"/>
+  <image href="${escapeXml(src)}" width="${iw}" height="${ih}" preserveAspectRatio="xMidYMid meet"/>
+</svg>`;
+    downloadBlob(new Blob([wrapper], { type: "image/svg+xml;charset=utf-8" }), `${filename}.svg`);
+  }
 }
 
-export function downloadChartPng(element: HTMLElement, filename: string): Promise<void> {
-  return downloadChartAsRaster(element, filename, "image/png");
+export async function downloadChartPng(element: HTMLElement, filename: string): Promise<void> {
+  return downloadChartAsRaster(element, filename, "png");
 }
 
-export function downloadChartJpeg(element: HTMLElement, filename: string): Promise<void> {
-  return downloadChartAsRaster(element, filename, "image/jpeg");
+export async function downloadChartJpeg(element: HTMLElement, filename: string): Promise<void> {
+  return downloadChartAsRaster(element, filename, "jpeg");
 }
 
-async function downloadChartAsRaster(element: HTMLElement, filename: string, format: string): Promise<void> {
-  const svg = element.querySelector("svg");
-  if (!svg) return;
-  const serializer = new XMLSerializer();
-  const clone = svg.cloneNode(true) as SVGSVGElement;
-  const rect = svg.getBoundingClientRect();
-  const w = Math.max(1, Math.round(rect.width || 600));
-  const h = Math.max(1, Math.round(rect.height || 300));
-  clone.setAttribute("width", String(w));
-  clone.setAttribute("height", String(h));
-  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+async function downloadChartAsRaster(element: HTMLElement, filename: string, ext: "png" | "jpeg"): Promise<void> {
+  const svg = findChartSvg(element);
+  const img = element.querySelector("img") as HTMLImageElement | null;
 
-  let svgStr = serializer.serializeToString(clone);
-  // Ensure SVG declaration
-  if (!svgStr.startsWith("<svg")) {
-    svgStr = `<svg xmlns="http://www.w3.org/2000/svg">${svgStr}</svg>`;
+  if (!svg && !img) return;
+
+  let w: number;
+  let h: number;
+
+  if (svg) {
+    const dims = getSvgDimensions(svg);
+    w = dims.w;
+    h = dims.h;
+  } else {
+    w = img!.naturalWidth || Math.round(img!.getBoundingClientRect().width) || 800;
+    h = img!.naturalHeight || Math.round(img!.getBoundingClientRect().height) || 450;
   }
 
   const canvas = document.createElement("canvas");
-  canvas.width = w * 2;
-  canvas.height = h * 2;
+  const scale = window.devicePixelRatio || 2;
+  canvas.width = w * scale;
+  canvas.height = h * scale;
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
 
-  const svgBlob = new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" });
-  const url = URL.createObjectURL(svgBlob);
+  ctx.scale(scale, scale);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, w, h);
 
-  try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error("SVG image failed to load"));
-      img.src = url;
-    });
+  let imageEl: HTMLImageElement;
 
-    ctx.scale(2, 2);
-    ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, w, h);
-    ctx.drawImage(img, 0, 0, w, h);
+  if (svg) {
+    const svgStr = serializeSvg(svg);
+    if (!svgStr) return;
+    const blob = new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
 
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob((b) => resolve(b), format, format === "image/jpeg" ? 0.92 : undefined)
-    );
-
-    if (blob) {
-      const ext = format === "image/png" ? "png" : "jpg";
-      downloadBlob(blob, `${filename}.${ext}`);
+    try {
+      imageEl = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = () => reject(new Error("SVG failed to render as image"));
+        el.src = url;
+      });
+    } finally {
+      URL.revokeObjectURL(url);
     }
-  } finally {
-    URL.revokeObjectURL(url);
+  } else {
+    // Img-based chart (Python plot) — fetch as blob to avoid tainted canvas
+    const blobUrl = await fetchImageAsBlobUrl(img!.src);
+    try {
+      imageEl = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = () => reject(new Error("Image failed to load: " + img!.src));
+        el.src = blobUrl;
+      });
+    } finally {
+      URL.revokeObjectURL(blobUrl);
+    }
+  }
+
+  ctx.drawImage(imageEl, 0, 0, w, h);
+
+  const mimeType = ext === "png" ? "image/png" : "image/jpeg";
+  const blob = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob((b) => resolve(b), mimeType, ext === "jpeg" ? 0.92 : undefined)
+  );
+
+  if (blob) {
+    downloadBlob(blob, `${filename}.${ext}`);
+  } else {
+    console.error("Download failed: canvas.toBlob returned null (possible CORS issue)");
   }
 }
 
@@ -118,13 +256,7 @@ function getExportPlotNodes(dashboardRef: HTMLDivElement | null): HTMLElement[] 
 
 export function exportPlotsAsSvg(dashboardRef: HTMLDivElement | null, mounted: boolean): Error | null {
   const plotNodes = getExportPlotNodes(dashboardRef);
-  const plotItems = plotNodes
-    .map((node) => ({
-      title: node.dataset?.exportPlot || "Plot",
-      svg: node.querySelector("svg"),
-      image: node.querySelector("img"),
-    }))
-    .filter((item) => Boolean(item.svg || item.image));
+  const plotItems = plotNodes.filter((node) => elementHasContent(node));
 
   if (plotItems.length === 0) {
     return new Error("No plots are available to export yet.");
@@ -132,32 +264,42 @@ export function exportPlotsAsSvg(dashboardRef: HTMLDivElement | null, mounted: b
 
   if (!mounted) return null;
 
-  const serializer = new XMLSerializer();
   const width = 900;
   const sectionHeight = 360;
-  const body = plotItems.map((item, index) => {
+
+  const body = plotItems.map((node, index) => {
+    const title = node.dataset?.exportPlot || "Plot";
+    const svgEl = findChartSvg(node);
+    const imgEl = node.querySelector("img") as HTMLImageElement | null;
     const y = index * sectionHeight + 48;
     let visual = "";
 
-    if (item.svg) {
-      const clone = item.svg.cloneNode(true) as SVGSVGElement;
-      const rect = item.svg.getBoundingClientRect();
-      const chartWidth = Math.max(1, Math.round(rect.width || 760));
-      const chartHeight = Math.max(1, Math.round(rect.height || 260));
-      clone.setAttribute("width", String(chartWidth));
-      clone.setAttribute("height", String(chartHeight));
+    if (svgEl) {
+      const dims = getSvgDimensions(svgEl);
+      const cw = dims.w;
+      const ch = dims.h;
+      const clone = svgEl.cloneNode(true) as SVGSVGElement;
+      clone.setAttribute("width", String(cw));
+      clone.setAttribute("height", String(ch));
       clone.setAttribute("x", "0");
       clone.setAttribute("y", "0");
-      visual = serializer.serializeToString(clone);
-    } else if (item.image) {
-      const rect = item.image.getBoundingClientRect();
-      const imageWidth = Math.max(1, Math.round(rect.width || 760));
-      const imageHeight = Math.max(1, Math.round(rect.height || 260));
-      visual = `<image href="${escapeXml(item.image.src)}" width="${imageWidth}" height="${imageHeight}" preserveAspectRatio="xMidYMid meet" />`;
+      const all = clone.querySelectorAll("*");
+      for (let i = 0; i < all.length; i++) {
+        const el = all[i];
+        for (const attr of ["fill", "stroke", "color", "stop-color"]) {
+          const val = el.getAttribute(attr);
+          if (val && val.includes("var(")) el.setAttribute(attr, resolveCssVar(val));
+        }
+      }
+      visual = new XMLSerializer().serializeToString(clone);
+    } else if (imgEl) {
+      const iw = imgEl.naturalWidth || Math.round(imgEl.getBoundingClientRect().width) || 760;
+      const ih = imgEl.naturalHeight || Math.round(imgEl.getBoundingClientRect().height) || 260;
+      visual = `<image href="${escapeXml(imgEl.src)}" width="${iw}" height="${ih}" preserveAspectRatio="xMidYMid meet" />`;
     }
 
     return `
-      <text x="24" y="${index * sectionHeight + 28}" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#0f172a">${escapeXml(item.title)}</text>
+      <text x="24" y="${index * sectionHeight + 28}" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#0f172a">${escapeXml(title)}</text>
       <g transform="translate(24 ${y})">${visual}</g>
     `;
   }).join("");
@@ -179,16 +321,32 @@ export function exportPlotsAsPdf(dashboardRef: HTMLDivElement | null): Error | n
     return new Error("No plots are available to export yet.");
   }
 
-  const sectionHeight = 360;
   const sections = plotNodes.map((node) => {
     const title = node.dataset?.exportPlot || "Plot";
-    const svg = node.querySelector("svg");
-    const image = node.querySelector("img");
-    const visual = svg?.outerHTML || (image ? `<img src="${image.src}" alt="${escapeHtml(title)}" />` : "");
+    const svgEl = findChartSvg(node);
+    const imgEl = node.querySelector("img");
+    let visual = "";
+
+    if (svgEl) {
+      const clone = svgEl.cloneNode(true) as SVGSVGElement;
+      clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+      const all = clone.querySelectorAll("*");
+      for (let i = 0; i < all.length; i++) {
+        const el = all[i];
+        for (const attr of ["fill", "stroke", "color", "stop-color"]) {
+          const val = el.getAttribute(attr);
+          if (val && val.includes("var(")) el.setAttribute(attr, resolveCssVar(val));
+        }
+      }
+      visual = new XMLSerializer().serializeToString(clone);
+    } else if (imgEl) {
+      visual = `<img src="${escapeHtml(imgEl.src)}" alt="${escapeHtml(title)}" />`;
+    }
+
     return `
       <section>
         <h2>${escapeHtml(title)}</h2>
-        <div className="plot">${visual}</div>
+        <div class="plot">${visual}</div>
       </section>
     `;
   }).join("");
@@ -222,10 +380,7 @@ export function exportPlotsAsPdf(dashboardRef: HTMLDivElement | null): Error | n
         </header>
         ${sections}
         <script>
-          window.onload = () => {
-            window.focus();
-            window.print();
-          };
+          window.onload = () => { window.focus(); window.print(); };
         </script>
       </body>
     </html>

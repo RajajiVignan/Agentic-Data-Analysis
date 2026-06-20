@@ -505,7 +505,7 @@ export default function Workspace() {
   }
 
   return (
-    <div className="flex h-screen bg-slate-50 text-slate-900">
+    <div className="flex min-h-dvh bg-slate-50 text-slate-900">
       <Sidebar
         datasets={availableDatasets}
         selectedDatasetIds={selectedDatasetIds}
@@ -523,11 +523,11 @@ export default function Workspace() {
         className={`flex-1 overflow-y-auto transition-all duration-300 ${sidebarPinned ? 'ml-64' : 'ml-0'}`}
         onClick={handleSidebarClose}
       >
-        <header className="sticky top-0 z-20 px-8 py-4 flex justify-between items-center border-b border-slate-200 bg-white/80 backdrop-blur-lg">
-          <div className="flex items-center gap-4">
+        <header className="sticky top-0 z-20 px-4 sm:px-8 py-3 sm:py-4 flex justify-between items-center border-b border-slate-200 bg-white/80 backdrop-blur-lg">
+          <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={(e) => { e.stopPropagation(); handleSidebarToggle(); }}
-              className={`p-2 rounded-xl transition-all ${
+              className={`p-2 rounded-xl shrink-0 transition-all ${
                 sidebarOpen
                   ? 'bg-indigo-100 text-indigo-600 hover:bg-indigo-200'
                   : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600'
@@ -536,60 +536,59 @@ export default function Workspace() {
             >
               <Menu size={20} />
             </button>
-            <div>
-              <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">
+            <div className="min-w-0">
+              <p className="text-[10px] sm:text-xs font-medium text-slate-400 uppercase tracking-wider truncate">
                 {pageTitle[activeNav].subtitle}
               </p>
-              <h1 className="text-2xl font-bold text-slate-900">
+              <h1 className="text-lg sm:text-2xl font-bold text-slate-900 truncate">
                 {pageTitle[activeNav].title}
               </h1>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-3">
-              {user && (
-                <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 rounded-full">
-                  <div className="w-5 h-5 bg-indigo-600 rounded-full flex items-center justify-center text-[10px] font-bold text-white">
-                    {user.name.charAt(0).toUpperCase()}
-                  </div>
-                  <span className="text-xs font-medium text-slate-600">{user.name}</span>
-                  <button
-                    onClick={handleLogout}
-                    className="text-[10px] text-slate-400 hover:text-red-500 transition-colors font-medium"
-                  >
-                    Logout
-                  </button>
+          <div className="flex items-center gap-2 sm:gap-3">
+            {user && (
+              <div className="flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1.5 bg-slate-100 rounded-full">
+                <div className="w-5 h-5 bg-indigo-600 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0">
+                  {user.name.charAt(0).toUpperCase()}
                 </div>
-              )}
-              <button
-                onClick={() => setTheme(theme === "light" ? "dark" : "light")}
-                className="p-2 text-slate-400 hover:text-indigo-600 transition-colors rounded-lg hover:bg-slate-100"
-                title={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
-              >
-                {theme === "light" ? <Moon size={16} /> : <Sun size={16} />}
-              </button>
-              <div
-                className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase flex items-center gap-1.5 ${
-                  backendStatus === "online"
-                    ? "bg-emerald-100 text-emerald-600"
-                    : "bg-red-100 text-red-600"
-                }`}
-              >
-                <span
-                  className={`w-1.5 h-1.5 rounded-full ${
-                    backendStatus === "online" ? "bg-emerald-500" : "bg-red-500"
-                  }`}
-                />
-                Backend {backendStatus}
+                <span className="hidden sm:inline text-xs font-medium text-slate-600">{user.name}</span>
+                <button
+                  onClick={handleLogout}
+                  className="text-[10px] text-slate-400 hover:text-red-500 transition-colors font-medium"
+                >
+                  Logout
+                </button>
               </div>
+            )}
+            <button
+              onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+              className="p-2 text-slate-400 hover:text-indigo-600 transition-colors rounded-lg hover:bg-slate-100"
+              title={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
+            >
+              {theme === "light" ? <Moon size={16} /> : <Sun size={16} />}
+            </button>
+            <div
+              className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase flex items-center gap-1.5 ${
+                backendStatus === "online"
+                  ? "bg-emerald-100 text-emerald-600"
+                  : "bg-red-100 text-red-600"
+              }`}
+            >
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  backendStatus === "online" ? "bg-emerald-500" : "bg-red-500"
+                }`}
+              />
+              <span className="hidden sm:inline">Backend </span>
+              {backendStatus}
             </div>
           </div>
         </header>
 
-        <div className="p-8 max-w-6xl mx-auto space-y-8">
+        <div className="p-4 sm:p-8 max-w-6xl mx-auto space-y-8">
           {/* --- EXPLORE TAB --- */}
           {activeNav === "explore" && (
-            <div className="flex gap-8">
+            <div className="flex flex-col lg:flex-row gap-8">
               <div className="flex-1 min-w-0 space-y-8">
                 <UploadArea
                   datasets={availableDatasets}
