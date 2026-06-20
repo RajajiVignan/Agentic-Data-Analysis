@@ -1,15 +1,5 @@
 /* eslint-disable no-unused-vars */
 
-function escapeXml(value: string): string {
-  return value.replace(/[<>&"']/g, (char) => ({
-    "<": "&lt;",
-    ">": "&gt;",
-    "&": "&amp;",
-    '"': "&quot;",
-    "'": "&apos;",
-  })[char] || char);
-}
-
 function escapeHtml(value: string): string {
   return value.replace(/[<>&"']/g, (char) => ({
     "<": "&lt;",
@@ -44,16 +34,6 @@ function resolveCssVar(value: string): string {
   } catch {
     return fallback;
   }
-}
-
-function elementHasContent(el: Element): boolean {
-  const svgEl = el.tagName === "svg" ? (el as SVGSVGElement) : findChartSvg(el as HTMLElement);
-  if (svgEl) {
-    const childCount = svgEl.children.length;
-    const innerSvg = svgEl.innerHTML.replace(/\s+/g, "").length;
-    return childCount > 0 && innerSvg > 0;
-  }
-  return false;
 }
 
 // Find the chart SVG — picks the largest SVG in the element tree,
@@ -133,38 +113,18 @@ function serializeSvg(svg: SVGSVGElement): string | null {
 
 // Fetch an image as a blob to avoid CORS / tainted-canvas issues.
 // Returns a blob URL that can be used safely in <img> and <canvas>.
-async function fetchImageAsBlobUrl(src: string): Promise<string> {
-  const resp = await fetch(src, { mode: "cors" });
+async function fetchImageAsBlob(src: string): Promise<Blob> {
+  const resp = await fetch(src);
   if (!resp.ok) throw new Error(`Failed to fetch image: ${resp.status}`);
-  const blob = await resp.blob();
+  return resp.blob();
+}
+
+async function fetchImageAsBlobUrl(src: string): Promise<string> {
+  const blob = await fetchImageAsBlob(src);
   return URL.createObjectURL(blob);
 }
 
 // --- Per-chart download helpers ---
-
-export function downloadChartSvg(element: HTMLElement, filename: string): void {
-  const svg = findChartSvg(element);
-  if (svg) {
-    const str = serializeSvg(svg);
-    if (str) {
-      downloadBlob(new Blob([str], { type: "image/svg+xml;charset=utf-8" }), `${filename}.svg`);
-    }
-    return;
-  }
-  // For img-based charts, wrap the image in an SVG container
-  const imgEl = element.querySelector("img") as HTMLImageElement | null;
-  if (imgEl) {
-    const iw = imgEl.naturalWidth || Math.round(imgEl.getBoundingClientRect().width) || 800;
-    const ih = imgEl.naturalHeight || Math.round(imgEl.getBoundingClientRect().height) || 450;
-    // Use a data URL so the SVG is self-contained (no external reference)
-    const src = imgEl.src;
-    const wrapper = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${iw}" height="${ih}" viewBox="0 0 ${iw} ${ih}">
-  <rect width="100%" height="100%" fill="#ffffff"/>
-  <image href="${escapeXml(src)}" width="${iw}" height="${ih}" preserveAspectRatio="xMidYMid meet"/>
-</svg>`;
-    downloadBlob(new Blob([wrapper], { type: "image/svg+xml;charset=utf-8" }), `${filename}.svg`);
-  }
-}
 
 export async function downloadChartPng(element: HTMLElement, filename: string): Promise<void> {
   return downloadChartAsRaster(element, filename, "png");
@@ -178,7 +138,17 @@ async function downloadChartAsRaster(element: HTMLElement, filename: string, ext
   const svg = findChartSvg(element);
   const img = element.querySelector("img") as HTMLImageElement | null;
 
-  if (!svg && !img) return;
+  if (!svg && !img) {
+    throw new Error("No chart content found to download");
+  }
+
+  // For img-based charts (Python plots), skip the canvas pipeline when the
+  // source is already PNG — just download the raw image blob directly.
+  if (!svg && img && ext === "png") {
+    const blob = await fetchImageAsBlob(img.src);
+    downloadBlob(blob, `${filename}.png`);
+    return;
+  }
 
   let w: number;
   let h: number;
@@ -197,7 +167,7 @@ async function downloadChartAsRaster(element: HTMLElement, filename: string, ext
   canvas.width = w * scale;
   canvas.height = h * scale;
   const ctx = canvas.getContext("2d");
-  if (!ctx) return;
+  if (!ctx) throw new Error("Could not get canvas 2D context");
 
   ctx.scale(scale, scale);
   ctx.fillStyle = "#ffffff";
@@ -246,73 +216,12 @@ async function downloadChartAsRaster(element: HTMLElement, filename: string, ext
   if (blob) {
     downloadBlob(blob, `${filename}.${ext}`);
   } else {
-    console.error("Download failed: canvas.toBlob returned null (possible CORS issue)");
+    throw new Error("canvas.toBlob returned null — the canvas may be tainted");
   }
 }
 
 function getExportPlotNodes(dashboardRef: HTMLDivElement | null): HTMLElement[] {
   return Array.from(dashboardRef?.querySelectorAll<HTMLElement>("[data-export-plot]") ?? []);
-}
-
-export function exportPlotsAsSvg(dashboardRef: HTMLDivElement | null, mounted: boolean): Error | null {
-  const plotNodes = getExportPlotNodes(dashboardRef);
-  const plotItems = plotNodes.filter((node) => elementHasContent(node));
-
-  if (plotItems.length === 0) {
-    return new Error("No plots are available to export yet.");
-  }
-
-  if (!mounted) return null;
-
-  const width = 900;
-  const sectionHeight = 360;
-
-  const body = plotItems.map((node, index) => {
-    const title = node.dataset?.exportPlot || "Plot";
-    const svgEl = findChartSvg(node);
-    const imgEl = node.querySelector("img") as HTMLImageElement | null;
-    const y = index * sectionHeight + 48;
-    let visual = "";
-
-    if (svgEl) {
-      const dims = getSvgDimensions(svgEl);
-      const cw = dims.w;
-      const ch = dims.h;
-      const clone = svgEl.cloneNode(true) as SVGSVGElement;
-      clone.setAttribute("width", String(cw));
-      clone.setAttribute("height", String(ch));
-      clone.setAttribute("x", "0");
-      clone.setAttribute("y", "0");
-      const all = clone.querySelectorAll("*");
-      for (let i = 0; i < all.length; i++) {
-        const el = all[i];
-        for (const attr of ["fill", "stroke", "color", "stop-color"]) {
-          const val = el.getAttribute(attr);
-          if (val && val.includes("var(")) el.setAttribute(attr, resolveCssVar(val));
-        }
-      }
-      visual = new XMLSerializer().serializeToString(clone);
-    } else if (imgEl) {
-      const iw = imgEl.naturalWidth || Math.round(imgEl.getBoundingClientRect().width) || 760;
-      const ih = imgEl.naturalHeight || Math.round(imgEl.getBoundingClientRect().height) || 260;
-      visual = `<image href="${escapeXml(imgEl.src)}" width="${iw}" height="${ih}" preserveAspectRatio="xMidYMid meet" />`;
-    }
-
-    return `
-      <text x="24" y="${index * sectionHeight + 28}" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#0f172a">${escapeXml(title)}</text>
-      <g transform="translate(24 ${y})">${visual}</g>
-    `;
-  }).join("");
-
-  const combinedSvg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${plotItems.length * sectionHeight}" viewBox="0 0 ${width} ${plotItems.length * sectionHeight}">
-      <rect width="100%" height="100%" fill="#ffffff"/>
-      ${body}
-    </svg>
-  `.trim();
-
-  downloadBlob(new Blob([combinedSvg], { type: "image/svg+xml;charset=utf-8" }), "insightpilot-plots.svg");
-  return null;
 }
 
 export function exportPlotsAsPdf(dashboardRef: HTMLDivElement | null): Error | null {

@@ -5,7 +5,6 @@ import {
   LayoutDashboard,
   Download,
   FileDown,
-  FileType2,
   GitMerge,
   Terminal,
   CalendarClock,
@@ -53,7 +52,7 @@ import { DashboardEditor } from "@/components/DashboardEditor";
 import { DataProfiler } from "@/components/DataProfiler";
 import { VizTools } from "@/components/VizTools";
 import type { AuthUser } from "@/lib/api";
-import { exportPlotsAsSvg, exportPlotsAsPdf } from "@/lib/export";
+import { exportPlotsAsPdf } from "@/lib/export";
 import type {
   AnalysisResult,
   Dataset,
@@ -358,11 +357,6 @@ export default function Workspace() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "CSV export failed");
     }
-  }
-
-  function handleExportSvg() {
-    const err = exportPlotsAsSvg(dashboardRef.current, mounted);
-    if (err) setError(err.message);
   }
 
   function handleExportPdf() {
@@ -788,14 +782,6 @@ export default function Workspace() {
                   <FileDown size={24} className="text-indigo-500 mb-2" />
                   <div className="text-sm font-semibold text-slate-800">Export Cleaned CSV</div>
                   <div className="text-xs text-slate-400 mt-1">Download selected datasets as CSV</div>
-                </button>
-                <button
-                  onClick={handleExportSvg}
-                  className="p-6 bg-white rounded-xl border border-slate-200 shadow-sm hover:border-indigo-300 hover:shadow-md transition-all text-left"
-                >
-                  <FileType2 size={24} className="text-indigo-500 mb-2" />
-                  <div className="text-sm font-semibold text-slate-800">Export SVG</div>
-                  <div className="text-xs text-slate-400 mt-1">Save dashboard plots as SVG</div>
                 </button>
                 <button
                   onClick={handleExportPdf}

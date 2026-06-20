@@ -21,7 +21,7 @@ import {
   Legend,
   ZAxis,
 } from 'recharts';
-import { downloadChartSvg, downloadChartPng, downloadChartJpeg } from '@/lib/export';
+import { downloadChartPng, downloadChartJpeg } from '@/lib/export';
 
 const LOADING_QUOTES = [
   { icon: Brain, text: "Teaching the AI to read your data... it's not looking great." },
@@ -100,21 +100,24 @@ function PinButton({ onClick }: { onClick?: () => void }) {
 
 function DownloadDropdown({ elementRef }: { elementRef: React.RefObject<HTMLDivElement | null> }) {
   const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleDownload = useCallback(async (format: "png" | "jpeg" | "svg") => {
+  const handleDownload = useCallback(async (format: "png" | "jpeg") => {
     setOpen(false);
+    setError(null);
     if (!elementRef.current) return;
     const title = elementRef.current.dataset?.exportPlot || "chart";
     try {
-      if (format === "svg") {
-        downloadChartSvg(elementRef.current, title);
-      } else if (format === "png") {
+      if (format === "png") {
         await downloadChartPng(elementRef.current, title);
       } else {
         await downloadChartJpeg(elementRef.current, title);
       }
     } catch (e) {
+      const msg = e instanceof Error ? e.message : "Download failed";
       console.error("Download failed:", e);
+      setError(msg);
+      setTimeout(() => setError(null), 4000);
     }
   }, [elementRef]);
 
@@ -127,6 +130,11 @@ function DownloadDropdown({ elementRef }: { elementRef: React.RefObject<HTMLDivE
       >
         <Download size={16} />
       </button>
+      {error && (
+        <div className="absolute right-0 top-full mt-1 z-30 bg-red-50 border border-red-200 rounded-lg px-3 py-1.5 text-xs text-red-600 whitespace-nowrap shadow animate-fade-in">
+          {error}
+        </div>
+      )}
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
@@ -142,12 +150,6 @@ function DownloadDropdown({ elementRef }: { elementRef: React.RefObject<HTMLDivE
               className="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-indigo-600 transition-colors"
             >
               JPEG
-            </button>
-            <button
-              onClick={() => handleDownload("svg")}
-              className="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-indigo-600 transition-colors"
-            >
-              SVG
             </button>
           </div>
         </>
