@@ -425,6 +425,7 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		DatasetIds []string `json:"datasetIds"`
 		Prompt     string   `json:"prompt"`
 		SessionId  string   `json:"sessionId,omitempty"`
+		VizType    string   `json:"vizType,omitempty"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -559,11 +560,17 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Determine visualization library
+	vizType := body.VizType
+	if vizType == "" {
+		vizType = VizTypeMatplotlib
+	}
+
 	// Generate Python plot for the first dataset that has a file path
 	var plotURL string
 	for _, ds := range activeDatasets {
 		if ds.FilePath != "" {
-			plotURL = h.plotService.GeneratePlot(ds, body.Prompt)
+			plotURL = h.plotService.GeneratePlot(ds, body.Prompt, vizType)
 			if plotURL != "" {
 				break
 			}
@@ -587,6 +594,7 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		"notebook": resp.Notebook,
 		"plan":     resp.Plan,
 		"plotUrl":  plotURL,
+		"plotType": vizType,
 		"dashboard": map[string]interface{}{
 			"title":           resp.Dashboard.Title,
 			"kpis":            resp.Dashboard.KPIs,

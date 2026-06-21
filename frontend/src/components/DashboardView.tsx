@@ -73,6 +73,7 @@ export function DashboardView({ result, dashboardRef, onPinChart }: DashboardVie
         <div className="animate-fade-in">
           <PythonPlot
             url={result.dashboard.plotUrl}
+            plotType={result.dashboard.plotType}
             onPin={() =>
               result.dashboard.plotUrl
                 ? onPinChart("python_plot", "Python Plot", { url: result.dashboard.plotUrl }, result.dashboard.plotUrl)

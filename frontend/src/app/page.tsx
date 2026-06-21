@@ -50,7 +50,7 @@ import { SQLQueryEditor } from "@/components/SQLQueryEditor";
 import { ScheduleManager } from "@/components/ScheduleManager";
 import { DashboardEditor } from "@/components/DashboardEditor";
 import { DataProfiler } from "@/components/DataProfiler";
-import { VizTools } from "@/components/VizTools";
+import { VizWidget } from "@/components/VizWidget";
 import type { AuthUser } from "@/lib/api";
 import { exportPlotsAsPdf } from "@/lib/export";
 import type {
@@ -111,6 +111,10 @@ export default function Workspace() {
   const [fontSize, setFontSize] = useState<string>(
     () => (typeof window !== "undefined" ? localStorage.getItem("insightpilot-font-size") : null) ?? "medium"
   );
+  const [vizType, setVizType] = useState<string>(
+    () => (typeof window !== "undefined" ? localStorage.getItem("insightpilot-viz-type") : null) ?? "matplotlib"
+  );
+  const [selectedChartType, setSelectedChartType] = useState<string | null>(null);
 
   // --- Initialization ---
 
@@ -297,7 +301,7 @@ export default function Workspace() {
     const currentPrompt = suggestionPrompt ?? prompt;
     setPrompt("");
     try {
-      const data = await runAnalysis(selectedDatasetIds, currentPrompt, sessionId ?? undefined);
+      const data = await runAnalysis(selectedDatasetIds, currentPrompt, sessionId ?? undefined, vizType);
       setResult(data);
       if (data.sessionId) {
         setSessionId(data.sessionId);
@@ -313,8 +317,8 @@ export default function Workspace() {
     }
   }
 
-  function handleApplySuggestion(suggestionPrompt: string) {
-    handleRunAnalysis(suggestionPrompt);
+  function handleFillPrompt(suggestionPrompt: string) {
+    setPrompt(suggestionPrompt);
   }
 
   async function handleNewAnalysis() {
@@ -362,6 +366,11 @@ export default function Workspace() {
   function handleExportPdf() {
     const err = exportPlotsAsPdf(dashboardRef.current);
     if (err) setError(err.message);
+  }
+
+  function handleVizTypeChange(newVizType: string) {
+    setVizType(newVizType);
+    localStorage.setItem("insightpilot-viz-type", newVizType);
   }
 
   async function handlePinChart(type: PinnedChart["chart_type"], label: string, data: unknown, url?: string) {
@@ -662,18 +671,25 @@ export default function Workspace() {
                 />
               </div>
 
-              <VizTools
+              <VizWidget
                 datasets={availableDatasets}
                 selectedDatasetIds={selectedDatasetIds}
-                onApplySuggestion={handleApplySuggestion}
+                onFillPrompt={handleFillPrompt}
+                onRunAnalysis={() => handleRunAnalysis()}
                 accentColor={accentColor}
                 chartScheme={chartScheme}
                 fontFamily={fontFamily}
                 fontSize={fontSize}
+                vizType={vizType}
                 onAccentChange={setAccentColor}
                 onSchemeChange={setChartScheme}
                 onFontFamilyChange={setFontFamily}
                 onFontSizeChange={setFontSize}
+                onVizTypeChange={handleVizTypeChange}
+                selectedChartType={selectedChartType}
+                onChartTypeSelect={setSelectedChartType}
+                analyzeLoading={analyzeLoading}
+                canAnalyze={!analyzeLoading && selectedDatasetIds.length > 0 && selectedChartType !== null}
               />
             </div>
           )}

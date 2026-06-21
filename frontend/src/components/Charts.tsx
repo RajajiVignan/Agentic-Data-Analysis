@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Pin, Info, ChevronDown, ChevronRight, Download, Loader2, Clock, Brain, Coffee, BarChart3, Activity } from 'lucide-react';
+import { Pin, Info, ChevronDown, ChevronRight, Download, Loader2, Clock, Brain, Coffee, BarChart3, Activity, Image, Code, BarChart as BarChartIcon } from 'lucide-react';
 import {
   BarChart,
   Bar,
@@ -51,7 +51,7 @@ export function PlotLoading() {
 
   useEffect(() => {
     const timer = setInterval(() => {
-      setIdx((prev) => (prev + 1) % LOADING_QUOTES.length);
+      setIdx(() => Math.floor(Math.random() * LOADING_QUOTES.length));
     }, 15000);
     return () => clearInterval(timer);
   }, []);
@@ -216,17 +216,19 @@ export function MetricTile({ label, value, change, onPin }: KpiProps & { onPin?:
   );
 }
 
-export function PythonPlot({ url, onPin }: { url: string; onPin?: () => void }) {
+export function PythonPlot({ url, plotType, onPin }: { url?: string; plotType?: string; onPin?: () => void }) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(false);
   const [retry, setRetry] = useState(0);
 
   if (!url) return null;
 
+  const isHtml = plotType === 'bokeh' || plotType === 'plotly' || url.endsWith('.html');
+  const badge = isHtml ? `Python (${plotType === 'bokeh' ? 'Bokeh' : 'Plotly'})` : 'Python (Matplotlib/Seaborn)';
   const src = retry > 0 ? `${url}${url.includes('?') ? '&' : '?'}_retry=${retry}` : url;
 
   return (
-    <ChartCard title="AI Generated Visualization" badge="Python (Matplotlib/Seaborn)" onPin={onPin} data-export-plot="Python Plot">
+    <ChartCard title="AI Generated Visualization" badge={badge} onPin={onPin} data-export-plot="Python Plot">
       {!loaded && !error && <PlotLoading />}
       {error && (
         <div className="flex flex-col items-center justify-center gap-3 py-8 text-center">
@@ -239,16 +241,59 @@ export function PythonPlot({ url, onPin }: { url: string; onPin?: () => void }) 
           </button>
         </div>
       )}
-      <div className={`flex justify-center bg-slate-50/50 rounded-xl overflow-hidden border border-slate-100/80 ${loaded ? '' : 'hidden'}`}>
-        <img
-          src={src}
-          alt="AI Visualization"
-          className="w-full h-auto object-contain"
-          onLoad={() => setLoaded(true)}
-          onError={() => { setLoaded(true); setError(true); }}
-        />
-      </div>
+      {isHtml ? (
+        <div className={`w-full rounded-xl overflow-hidden border border-slate-100/80 ${loaded ? '' : 'hidden'}`} style={{ height: '520px' }}>
+          <iframe
+            src={src}
+            className="w-full h-full"
+            title="Interactive Visualization"
+            onLoad={() => setLoaded(true)}
+            onError={() => { setLoaded(true); setError(true); }}
+            sandbox="allow-scripts allow-same-origin"
+          />
+        </div>
+      ) : (
+        <div className={`flex justify-center bg-slate-50/50 rounded-xl overflow-hidden border border-slate-100/80 ${loaded ? '' : 'hidden'}`}>
+          <img
+            src={src}
+            alt="AI Visualization"
+            className="w-full h-auto object-contain"
+            onLoad={() => setLoaded(true)}
+            onError={() => { setLoaded(true); setError(true); }}
+          />
+        </div>
+      )}
     </ChartCard>
+  );
+}
+
+export function VizTypeSelector({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const options = [
+    { id: 'matplotlib', label: 'Matplotlib', icon: Image },
+    { id: 'bokeh', label: 'Bokeh', icon: Code },
+    { id: 'plotly', label: 'Plotly', icon: BarChartIcon },
+  ];
+
+  return (
+    <div className="flex items-center gap-1.5">
+      {options.map((opt) => {
+        const active = value === opt.id;
+        return (
+          <button
+            key={opt.id}
+            onClick={() => onChange(opt.id)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
+              active
+                ? 'bg-indigo-100 text-indigo-700 shadow-sm ring-1 ring-indigo-200'
+                : 'bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-slate-700'
+            }`}
+          >
+            <opt.icon size={14} />
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

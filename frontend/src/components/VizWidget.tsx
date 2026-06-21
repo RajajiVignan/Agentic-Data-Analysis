@@ -18,21 +18,31 @@ import {
   Palette,
   Type,
   Minus,
+  Image,
+  Code,
+  Play,
 } from "lucide-react";
 import type { Dataset, Column } from "@/lib/api";
 
-type VizToolsProps = {
+type VizWidgetProps = {
   datasets: Dataset[];
   selectedDatasetIds: string[];
-  onApplySuggestion: (prompt: string) => void;
+  onFillPrompt: (prompt: string) => void;
+  onRunAnalysis: () => void;
   accentColor: string;
   chartScheme: string;
   fontFamily: string;
   fontSize: string;
+  vizType: string;
   onAccentChange: (v: string) => void;
   onSchemeChange: (v: string) => void;
   onFontFamilyChange: (v: string) => void;
   onFontSizeChange: (v: string) => void;
+  onVizTypeChange: (v: string) => void;
+  selectedChartType: string | null;
+  onChartTypeSelect: (v: string | null) => void;
+  analyzeLoading: boolean;
+  canAnalyze: boolean;
 };
 
 type ChartTool = {
@@ -212,13 +222,18 @@ function generateSuggestions(columns: Column[], toolId: string): Suggestion[] {
   return suggestions.slice(0, 5);
 }
 
-export function VizTools({
-  datasets, selectedDatasetIds, onApplySuggestion,
-  accentColor, chartScheme, fontFamily, fontSize,
-  onAccentChange, onSchemeChange, onFontFamilyChange, onFontSizeChange,
-}: VizToolsProps) {
-  const [selectedTool, setSelectedTool] = useState<string | null>(null);
+const VIZ_ENGINES = [
+  { id: "matplotlib", label: "Matplotlib", icon: Image },
+  { id: "bokeh", label: "Bokeh", icon: Code },
+  { id: "plotly", label: "Plotly", icon: BarChart3 },
+];
 
+export function VizWidget({
+  datasets, selectedDatasetIds, onFillPrompt, onRunAnalysis,
+  accentColor, chartScheme, fontFamily, fontSize, vizType,
+  onAccentChange, onSchemeChange, onFontFamilyChange, onFontSizeChange,
+  onVizTypeChange, selectedChartType, onChartTypeSelect, analyzeLoading, canAnalyze,
+}: VizWidgetProps) {
   const selectedColumns = useMemo(() => {
     if (selectedDatasetIds.length === 0) return [];
     const cols: Column[] = [];
@@ -232,20 +247,19 @@ export function VizTools({
   }, [datasets, selectedDatasetIds]);
 
   const suggestions = useMemo(() => {
-    if (!selectedTool || selectedColumns.length === 0) return [];
-    return generateSuggestions(selectedColumns, selectedTool);
-  }, [selectedTool, selectedColumns]);
+    if (!selectedChartType || selectedColumns.length === 0) return [];
+    return generateSuggestions(selectedColumns, selectedChartType);
+  }, [selectedChartType, selectedColumns]);
 
   const handleToolClick = (toolId: string) => {
-    setSelectedTool(selectedTool === toolId ? null : toolId);
+    onChartTypeSelect(selectedChartType === toolId ? null : toolId);
   };
 
-  const handleApply = (prompt: string) => {
-    onApplySuggestion(prompt);
-    setSelectedTool(null);
+  const handleFill = (suggestionPrompt: string) => {
+    onFillPrompt(suggestionPrompt);
   };
 
-  const activeTool = CHART_TOOLS.find((t) => t.id === selectedTool);
+  const activeTool = CHART_TOOLS.find((t) => t.id === selectedChartType);
 
   return (
     <div className="w-full lg:w-72 shrink-0">
@@ -255,13 +269,13 @@ export function VizTools({
           <div className="p-1.5 bg-indigo-100 rounded-lg">
             <MousePointerClick size={14} className="text-indigo-600" />
           </div>
-          <span className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Viz Tools</span>
+          <span className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Plots</span>
         </div>
 
         {/* Tool buttons grid */}
         <div className="grid grid-cols-4 gap-1.5">
           {CHART_TOOLS.map((tool) => {
-            const isActive = selectedTool === tool.id;
+            const isActive = selectedChartType === tool.id;
             const noData = selectedDatasetIds.length === 0;
             return (
               <button
@@ -285,7 +299,7 @@ export function VizTools({
         </div>
 
         {/* Suggestions panel */}
-        {selectedTool && (
+        {selectedChartType && (
           <div className="animate-slide-up space-y-3 pt-2 border-t border-slate-100">
             <div className="flex items-center gap-2 px-1">
               <div className="p-1 bg-indigo-100 rounded-md">
@@ -310,7 +324,7 @@ export function VizTools({
                 {suggestions.map((s, i) => (
                   <button
                     key={i}
-                    onClick={() => handleApply(s.prompt)}
+                    onClick={() => handleFill(s.prompt)}
                     className="w-full text-left p-3 rounded-xl bg-slate-50 hover:bg-indigo-50 border border-transparent hover:border-indigo-100 transition-all group"
                   >
                     <div className="flex items-start justify-between gap-2">
@@ -330,13 +344,13 @@ export function VizTools({
             {/* Footer hint */}
             <div className="flex items-center gap-1.5 px-1 text-[10px] text-slate-400">
               <Eye size={10} />
-              <span>Click a suggestion to run analysis</span>
+              <span>Click to fill prompt, then press Analyze</span>
             </div>
           </div>
         )}
 
         {/* Empty state when no tool selected */}
-        {!selectedTool && selectedDatasetIds.length > 0 && (
+        {!selectedChartType && selectedDatasetIds.length > 0 && (
           <div className="flex flex-col items-center gap-2 pt-2 pb-1 border-t border-slate-100">
             <Lightbulb size={16} className="text-slate-300" />
             <p className="text-[11px] text-slate-400 text-center leading-relaxed">
@@ -436,6 +450,55 @@ export function VizTools({
               <option value="large">Large</option>
             </select>
           </div>
+        </div>
+
+        {/* --- Visualization Engine Section --- */}
+        <div className="pt-3 border-t border-slate-100 space-y-3">
+          <div className="flex items-center gap-2 px-1">
+            <div className="p-1.5 bg-indigo-100 rounded-lg">
+              <Image size={14} className="text-indigo-600" />
+            </div>
+            <span className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Style</span>
+          </div>
+
+          <div className="flex gap-1.5 px-1">
+            {VIZ_ENGINES.map((eng) => {
+              const active = vizType === eng.id;
+              const Icon = eng.icon;
+              return (
+                <button
+                  key={eng.id}
+                  onClick={() => onVizTypeChange(eng.id)}
+                  className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-xl transition-all flex-1 ${
+                    active
+                      ? "bg-indigo-100 text-indigo-700 shadow-sm ring-1 ring-indigo-200"
+                      : "bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                  }`}
+                >
+                  <Icon size={14} />
+                  {eng.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* --- Analyze Button --- */}
+        <div className="pt-3 border-t border-slate-100 space-y-1.5">
+          <button
+            onClick={onRunAnalysis}
+            disabled={!canAnalyze || analyzeLoading}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-700 hover:to-indigo-600 text-white rounded-xl font-semibold text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-sm shadow-indigo-500/20 hover:shadow-md hover:shadow-indigo-500/30 active:scale-[0.98]"
+          >
+            <Play size={16} fill="currentColor" />
+            {analyzeLoading ? "Analyzing..." : "Analyze"}
+          </button>
+          {!canAnalyze && !analyzeLoading && selectedDatasetIds.length > 0 && !selectedChartType && (
+            <p className="text-[10px] text-slate-400 text-center px-1">Select a chart type above to enable analysis</p>
+          )}
+          {selectedDatasetIds.length === 0 && (
+            <p className="text-[10px] text-slate-400 text-center px-1">Select a dataset first</p>
+          )}
         </div>
       </div>
     </div>

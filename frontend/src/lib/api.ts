@@ -55,6 +55,7 @@ export type AnalysisResult = {
     recommendations: string[];
     narrative?: string;
     plotUrl?: string | null;
+    plotType?: string;
     chartType?: string;
     chartTypes?: string[];
     explanations?: Explanation[];
@@ -213,10 +214,10 @@ export async function uploadFile(file: File): Promise<{ datasetId: string; filen
   return { datasetId: data.datasetId, filename: data.filename };
 }
 
-export async function runAnalysis(datasetIds: string[], prompt: string, sessionId?: string): Promise<AnalysisResult> {
+export async function runAnalysis(datasetIds: string[], prompt: string, sessionId?: string, vizType?: string): Promise<AnalysisResult> {
   const res = await apiFetch("/analyze", {
     method: "POST",
-    body: JSON.stringify({ datasetIds, prompt, sessionId }),
+    body: JSON.stringify({ datasetIds, prompt, sessionId, vizType }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error ?? "Analysis failed");
@@ -229,6 +230,7 @@ export async function runAnalysis(datasetIds: string[], prompt: string, sessionI
       recommendations: data.dashboard?.recommendations ?? [],
       narrative: data.dashboard?.narrative ?? "",
       plotUrl: data.plotUrl ?? null,
+      plotType: data.plotType ?? undefined,
       chartType: data.dashboard?.chartType ?? "",
       chartTypes: data.dashboard?.chartTypes ?? [],
       explanations: data.dashboard?.explanations ?? [],
@@ -239,6 +241,16 @@ export async function runAnalysis(datasetIds: string[], prompt: string, sessionI
     sqlQueries: data.sqlQueries ?? [],
     sessionId: data.sessionId,
   };
+}
+
+export async function regeneratePlot(datasetId: string, prompt: string, vizType: string): Promise<{ plotUrl: string; vizType: string } | null> {
+  try {
+    const res = await apiFetch(`/python-plot?datasetId=${encodeURIComponent(datasetId)}&prompt=${encodeURIComponent(prompt)}&vizType=${encodeURIComponent(vizType)}`);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
 }
 
 export async function clearSession(sessionId: string): Promise<void> {

@@ -32,19 +32,19 @@ func NewPlotService(plotsDir, uploadDir string, bridge *PythonBridge) *PlotServi
 	}
 }
 
-// GeneratePlot generates a Python visualization for the given dataset.
-// It first tries LLM-driven code generation (if configured), then falls back
-// to the deterministic template. Returns the URL path to the generated plot
-// image, or empty string on failure.
-func (ps *PlotService) GeneratePlot(ds *data.Dataset, prompt string) string {
+// GeneratePlot generates a Python visualization for the given dataset using the
+// specified visualization library (matplotlib, bokeh, or plotly). It first tries
+// LLM-driven code generation (if configured), then falls back to the deterministic
+// template. Returns the URL path to the generated plot image, or empty string on failure.
+func (ps *PlotService) GeneratePlot(ds *data.Dataset, prompt, vizType string) string {
 	scriptID := "auto_" + newID()
 
 	profileJSON, _ := json.Marshal(ds.Profile)
 
 	// Try LLM-driven code generation first
-	llmScript, err := ps.bridge.GeneratePlotScriptLLM(scriptID, prompt, string(profileJSON))
+	llmScript, err := ps.bridge.GeneratePlotScriptLLM(scriptID, prompt, string(profileJSON), vizType)
 	if err == nil && llmScript != "" {
-		plotURL, execErr := ps.bridge.ExecuteScript(scriptID, llmScript, ds.FilePath)
+		plotURL, execErr := ps.bridge.ExecuteScript(scriptID, llmScript, ds.FilePath, vizType)
 		if execErr == nil {
 			return plotURL
 		}
@@ -54,8 +54,8 @@ func (ps *PlotService) GeneratePlot(ds *data.Dataset, prompt string) string {
 	}
 
 	// Fallback to deterministic template
-	scriptContent := ps.bridge.GeneratePlotScript(scriptID, "")
-	plotURL, err := ps.bridge.ExecuteScript(scriptID, scriptContent, ds.FilePath)
+	scriptContent := ps.bridge.GeneratePlotScript(scriptID, "", vizType)
+	plotURL, err := ps.bridge.ExecuteScript(scriptID, scriptContent, ds.FilePath, vizType)
 	if err != nil {
 		fmt.Printf("Deterministic plot generation failed for dataset %s: %v\n", ds.ID, err)
 		return ""
@@ -63,7 +63,7 @@ func (ps *PlotService) GeneratePlot(ds *data.Dataset, prompt string) string {
 	return plotURL
 }
 
-// ServePlot serves a generated plot image by filename.
+// ServePlot serves a generated plot image or HTML file by filename.
 func (ps *PlotService) ServePlot(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -80,15 +80,29 @@ func (ps *PlotService) ServePlot(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Not found", http.StatusNotFound)
 		return
 	}
-	w.Header().Set("Content-Type", "image/png")
+
+	ext := filepath.Ext(name)
+	switch ext {
+	case ".html":
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	case ".png":
+		w.Header().Set("Content-Type", "image/png")
+	default:
+		w.Header().Set("Content-Type", "application/octet-stream")
+	}
 	w.Header().Set("Cache-Control", "public, max-age=3600")
 	http.ServeFile(w, r, plotPath)
 }
 
 // HandlePythonPlot handles the on-demand /api/python-plot endpoint.
+// Accepts optional vizType query param (matplotlib, bokeh, plotly; defaults to matplotlib).
 func (ps *PlotService) HandlePythonPlot(w http.ResponseWriter, r *http.Request, datasets map[string]*data.Dataset) {
 	datasetID := r.URL.Query().Get("datasetId")
 	prompt := r.URL.Query().Get("prompt")
+	vizType := r.URL.Query().Get("vizType")
+	if vizType == "" {
+		vizType = VizTypeMatplotlib
+	}
 	if datasetID == "" {
 		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "datasetId query parameter required"})
 		return
@@ -105,7 +119,7 @@ func (ps *PlotService) HandlePythonPlot(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	plotURL := ps.GeneratePlot(ds, prompt)
+	plotURL := ps.GeneratePlot(ds, prompt, vizType)
 	if plotURL == "" {
 		SendJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to generate plot"})
 		return
@@ -113,6 +127,7 @@ func (ps *PlotService) HandlePythonPlot(w http.ResponseWriter, r *http.Request, 
 
 	SendJSON(w, http.StatusOK, map[string]interface{}{
 		"plotUrl": plotURL,
+		"vizType": vizType,
 	})
 }
 

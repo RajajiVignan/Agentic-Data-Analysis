@@ -6,4 +6,4 @@ export { DashboardView, AnalysisSkeleton } from "./DashboardView";
 export { PinnedDashboard } from "./PinnedDashboard";
 export { DataConnections } from "./DataConnections";
 export { TransformationPanel } from "./TransformationPanel";
-export { VizTools } from "./VizTools";
+export { VizWidget } from "./VizWidget";
