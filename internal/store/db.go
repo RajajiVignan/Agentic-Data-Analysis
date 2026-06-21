@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -389,24 +390,25 @@ func (db *DB) LoadUsers() ([]UserRecord, error) {
 
 // SaveJWTSecret persists the JWT signing secret to the database.
 func (db *DB) SaveJWTSecret(secret []byte) error {
+	encoded := fmt.Sprintf("%x", secret)
 	_, err := db.conn.Exec(
 		`INSERT INTO app_config (key, value) VALUES ('jwt_secret', $1)
 		 ON CONFLICT (key) DO UPDATE SET value=$1`,
-		string(secret),
+		encoded,
 	)
 	return err
 }
 
 // LoadJWTSecret retrieves the JWT signing secret from the database.
 func (db *DB) LoadJWTSecret() ([]byte, error) {
-	var value string
+	var encoded string
 	err := db.conn.QueryRow(
 		`SELECT value FROM app_config WHERE key = 'jwt_secret'`,
-	).Scan(&value)
+	).Scan(&encoded)
 	if err != nil {
 		return nil, err
 	}
-	return []byte(value), nil
+	return hex.DecodeString(encoded)
 }
 
 // --- Datasets ---

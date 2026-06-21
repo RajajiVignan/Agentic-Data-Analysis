@@ -187,12 +187,12 @@ func (pb *PythonBridge) ExecuteScript(scriptID, scriptContent, csvPath, vizType,
 //
 // If the LLM is not configured, returns an empty string and nil error
 // (caller should fall back to GeneratePlotScript).
-func (pb *PythonBridge) GeneratePlotScriptLLM(scriptID, prompt, profileJSON, vizType string) (string, error) {
+func (pb *PythonBridge) GeneratePlotScriptLLM(scriptID, prompt, profileJSON, vizType, designJSON string) (string, error) {
 	if !pb.llmConfig.Enabled || pb.llmConfig.APIKey == "" || pb.llmConfig.BaseURL == "" {
 		return "", nil
 	}
 
-	code, err := pb.callLLMForCode(prompt, profileJSON, vizType)
+	code, err := pb.callLLMForCode(prompt, profileJSON, vizType, designJSON)
 	if err != nil {
 		return "", fmt.Errorf("LLM code generation failed: %w", err)
 	}
@@ -208,7 +208,7 @@ func (pb *PythonBridge) GeneratePlotScriptLLM(scriptID, prompt, profileJSON, viz
 
 // callLLMForCode sends a request to the LLM asking for Python visualization code
 // using the specified library (matplotlib, bokeh, or plotly).
-func (pb *PythonBridge) callLLMForCode(prompt, profileJSON, vizType string) (string, error) {
+func (pb *PythonBridge) callLLMForCode(prompt, profileJSON, vizType, designJSON string) (string, error) {
 	var systemPrompt string
 	switch vizType {
 	case VizTypeBokeh:
@@ -217,6 +217,11 @@ func (pb *PythonBridge) callLLMForCode(prompt, profileJSON, vizType string) (str
 CRITICAL RULES:
 - The script MUST read the CSV file path from sys.argv[1]
 - The script MUST save the plot to the path in sys.argv[2] using output_file(sys.argv[2]) and save()
+- sys.argv[3] (if present) contains a JSON design config. Parse it and apply:
+  import json
+  _design = json.loads(sys.argv[3]) if len(sys.argv) > 3 else {}
+  _accent = _design.get('accentColor', '#6366f1')
+- Use _accent as the primary color for all plot elements (bars, lines, markers, fills)
 - Do NOT use matplotlib or plotly; only use bokeh and pandas
 - Only use these libraries: pandas, bokeh, numpy, json, sys, datetime
 - Do NOT import: os, subprocess, socket, urllib, requests, shutil, pickle, ctypes, threading, multiprocessing, matplotlib
@@ -231,6 +236,11 @@ CRITICAL RULES:
 CRITICAL RULES:
 - The script MUST read the CSV file path from sys.argv[1]
 - The script MUST save the plot to the path in sys.argv[2] using plotly.io.write_html(fig, sys.argv[2])
+- sys.argv[3] (if present) contains a JSON design config. Parse it and apply:
+  import json
+  _design = json.loads(sys.argv[3]) if len(sys.argv) > 3 else {}
+  _accent = _design.get('accentColor', '#6366f1')
+- Use _accent as the primary color for all plot elements (bars, lines, markers, fills) via color_discrete_sequence=[_accent] or similar
 - Do NOT use matplotlib or bokeh; only use plotly and pandas
 - Only use these libraries: pandas, plotly, numpy, json, sys, datetime
 - Do NOT import: os, subprocess, socket, urllib, requests, shutil, pickle, ctypes, threading, multiprocessing, matplotlib
@@ -246,6 +256,11 @@ CRITICAL RULES:
 - The script MUST read the CSV file path from sys.argv[1]
 - The script MUST save the plot to the path in sys.argv[2] using plt.savefig(sys.argv[2], dpi=150, bbox_inches='tight')
 - Use matplotlib.use('Agg') at the very top (after imports)
+- sys.argv[3] (if present) contains a JSON design config. Parse it and apply:
+  import json
+  _design = json.loads(sys.argv[3]) if len(sys.argv) > 3 else {}
+  _accent = _design.get('accentColor', '#6366f1')
+- Use _accent as the primary color for all plot elements (bars, lines, markers, fills)
 - Only use these libraries: pandas, matplotlib, seaborn, numpy, json, sys, datetime
 - Do NOT import: os, subprocess, socket, urllib, requests, shutil, pickle, ctypes, threading, multiprocessing
 - Do NOT use: eval, exec, compile, open(), __import__, globals, locals
@@ -257,8 +272,9 @@ CRITICAL RULES:
 	userPrompt := fmt.Sprintf(`User question: %s
 
 Dataset profile (JSON): %s
+Design config (JSON): %s
 
-Write a Python visualization script that best answers the user's question about this data.`, prompt, profileJSON)
+Write a Python visualization script that best answers the user's question about this data. Use the accent color from the design config for all plot elements.`, prompt, profileJSON, designJSON)
 
 	model := pb.llmConfig.Model
 	if model == "" {

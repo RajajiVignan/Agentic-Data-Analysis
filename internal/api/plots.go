@@ -43,7 +43,7 @@ func (ps *PlotService) GeneratePlot(ds *data.Dataset, prompt, vizType, designJSO
 	profileJSON, _ := json.Marshal(ds.Profile)
 
 	// Try LLM-driven code generation first
-	llmScript, err := ps.bridge.GeneratePlotScriptLLM(scriptID, prompt, string(profileJSON), vizType)
+	llmScript, err := ps.bridge.GeneratePlotScriptLLM(scriptID, prompt, string(profileJSON), vizType, designJSON)
 	if err == nil && llmScript != "" {
 		plotURL, execErr := ps.bridge.ExecuteScript(scriptID, llmScript, ds.FilePath, vizType, designJSON)
 		if execErr == nil {

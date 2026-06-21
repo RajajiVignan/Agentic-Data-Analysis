@@ -267,7 +267,7 @@ func (e *DuckDBEngine) ExecuteQueryWithContext(ctx context.Context, csvPaths []s
 	tableRefs := ""
 	for i, path := range csvPaths {
 		tname := fmt.Sprintf("t%d", i)
-		tableDefs += fmt.Sprintf("con.execute(\"CREATE TABLE %s AS SELECT * FROM read_csv_auto(?)\", [%q])\n", tname, path)
+		tableDefs += fmt.Sprintf("    con.execute(\"CREATE TABLE %s AS SELECT * FROM read_csv_auto(?)\", [%q])\n", tname, path)
 		if i > 0 {
 			tableRefs += ", "
 		}
