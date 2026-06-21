@@ -1,5 +1,3 @@
-/* eslint-disable no-unused-vars */
-
 function escapeHtml(value: string): string {
   return value.replace(/[<>&"']/g, (char) => ({
     "<": "&lt;",
