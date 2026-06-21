@@ -148,8 +148,8 @@ func TestApplyNullFill(t *testing.T) {
 	step := TransformStep{
 		Type: "null_handle",
 		Params: map[string]interface{}{
-			"column":   "revenue",
-			"strategy": "fill",
+			"column":    "revenue",
+			"strategy":  "fill",
 			"fillValue": "0",
 		},
 	}

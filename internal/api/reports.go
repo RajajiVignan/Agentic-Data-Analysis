@@ -67,20 +67,20 @@ type AlertRule struct {
 }
 
 const (
-	maxEmailBodyBytes  = 10 * 1024   // 10 KB max email body
-	maxWebhookBodyBytes = 2 * 1024   // 2 KB max webhook body
+	maxEmailBodyBytes    = 10 * 1024 // 10 KB max email body
+	maxWebhookBodyBytes  = 2 * 1024  // 2 KB max webhook body
 	alertCooldownMinutes = 60        // don't re-fire same alert within 60 minutes
 )
 
 type ReportService struct {
-	mu            sync.RWMutex
-	reports       map[string]*ScheduledReport
-	alerts        map[string]*AlertRule
-	alertFiredAt  map[string]time.Time // alert ID → last time notification was sent
-	stopCh        chan struct{}
-	smtpConfig    *SMTPConfig
-	db            reportStore
-	cooldownDur   time.Duration
+	mu           sync.RWMutex
+	reports      map[string]*ScheduledReport
+	alerts       map[string]*AlertRule
+	alertFiredAt map[string]time.Time // alert ID → last time notification was sent
+	stopCh       chan struct{}
+	smtpConfig   *SMTPConfig
+	db           reportStore
+	cooldownDur  time.Duration
 }
 
 type reportStore interface {
@@ -362,7 +362,7 @@ func (rs *ReportService) checkSchedules(h *Handler) {
 		r.LastSent = now.Format(time.RFC3339)
 		r.NextRun = rs.computeNextRun(r)
 		if rs.db != nil {
-			rs.db.SaveReport(r)
+			_ = rs.db.SaveReport(r)
 		}
 		rs.mu.Unlock()
 	}
@@ -503,7 +503,7 @@ func (rs *ReportService) evaluateAlert(h *Handler, a *AlertRule) {
 	rs.mu.Lock()
 	a.LastChecked = time.Now().Format(time.RFC3339)
 	if rs.db != nil {
-		rs.db.SaveAlert(a)
+		_ = rs.db.SaveAlert(a)
 	}
 	rs.mu.Unlock()
 }
@@ -767,9 +767,9 @@ func (s *dbStore) LoadReports() ([]*ScheduledReport, error) {
 	reports := make([]*ScheduledReport, 0, len(records))
 	for _, rec := range records {
 		var datasetIDs []string
-		json.Unmarshal([]byte(rec.DatasetIDs), &datasetIDs)
+		_ = json.Unmarshal([]byte(rec.DatasetIDs), &datasetIDs)
 		var emails []string
-		json.Unmarshal([]byte(rec.Emails), &emails)
+		_ = json.Unmarshal([]byte(rec.Emails), &emails)
 		if datasetIDs == nil {
 			datasetIDs = []string{}
 		}
@@ -813,7 +813,7 @@ func (s *dbStore) LoadAlerts() ([]*AlertRule, error) {
 	alerts := make([]*AlertRule, 0, len(records))
 	for _, rec := range records {
 		var emails []string
-		json.Unmarshal([]byte(rec.Emails), &emails)
+		_ = json.Unmarshal([]byte(rec.Emails), &emails)
 		if emails == nil {
 			emails = []string{}
 		}
@@ -852,7 +852,7 @@ func (s *dbStore) LoadLayouts() ([]*DashboardLayout, error) {
 	layouts := make([]*DashboardLayout, 0, len(records))
 	for _, rec := range records {
 		var tiles []DashboardTile
-		json.Unmarshal([]byte(rec.Tiles), &tiles)
+		_ = json.Unmarshal([]byte(rec.Tiles), &tiles)
 		if tiles == nil {
 			tiles = []DashboardTile{}
 		}

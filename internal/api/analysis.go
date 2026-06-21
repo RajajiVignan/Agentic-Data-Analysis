@@ -285,7 +285,8 @@ func duckDBKPI(duckDB *data.DuckDBEngine, ds *data.Dataset, metricCol *data.Colu
 		return data.BuildKPIs(ds.Rows, metricCol, nil), sql
 	}
 	kpis := make([]map[string]string, 0)
-	for _, row := range results {
+	if len(results) > 0 {
+		row := results[0]
 		if total, ok := row["total"]; ok && total != "" {
 			kpis = append(kpis, map[string]string{"label": "Total", "value": total, "change": "Sum"})
 		}
@@ -295,7 +296,6 @@ func duckDBKPI(duckDB *data.DuckDBEngine, ds *data.Dataset, metricCol *data.Colu
 		if cnt, ok := row["row_count"]; ok && cnt != "" {
 			kpis = append(kpis, map[string]string{"label": "Rows", "value": cnt, "change": "Count"})
 		}
-		break
 	}
 	return kpis, ""
 }

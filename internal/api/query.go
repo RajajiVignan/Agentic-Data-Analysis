@@ -15,10 +15,10 @@ import (
 
 func (h *Handler) handleQuery(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		DatasetIDs  []string `json:"datasetIds"`
-		SQL         string   `json:"sql"`
-		Page        int      `json:"page"`
-		PageSize    int      `json:"pageSize"`
+		DatasetIDs []string `json:"datasetIds"`
+		SQL        string   `json:"sql"`
+		Page       int      `json:"page"`
+		PageSize   int      `json:"pageSize"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -172,10 +172,10 @@ func (h *Handler) handleQuerySchema(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			schemas = append(schemas, map[string]interface{}{
-				"datasetId":  d.ID,
-				"filename":   d.Filename,
-				"rowCount":   d.Profile.RowCount,
-				"columns":    cols,
+				"datasetId": d.ID,
+				"filename":  d.Filename,
+				"rowCount":  d.Profile.RowCount,
+				"columns":   cols,
 				"tableAlias": fmt.Sprintf("ds_%s", strings.Map(func(r rune) rune {
 					if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' {
 						return r
@@ -260,7 +260,7 @@ func simpleInMemorySelect(ds *data.Dataset, sql string, columns []string) []map[
 	if idx := strings.LastIndex(lower, "limit"); idx >= 0 {
 		after := strings.TrimSpace(lower[idx+5:])
 		after = strings.TrimSuffix(after, ";")
-		fmt.Sscanf(after, "%d", &limit)
+		_, _ = fmt.Sscanf(after, "%d", &limit)
 	}
 
 	orderCol := ""

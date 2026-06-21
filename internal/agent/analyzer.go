@@ -13,9 +13,9 @@ type AnalysisRequest struct {
 	Prompt     string
 	Datasets   []*data.Dataset
 	TimeoutSec int
-	SessionID  string                `json:"sessionId,omitempty"`
-	History    []ConversationTurn    `json:"history,omitempty"`
-	Context    *ConversationContext  `json:"context,omitempty"`
+	SessionID  string               `json:"sessionId,omitempty"`
+	History    []ConversationTurn   `json:"history,omitempty"`
+	Context    *ConversationContext `json:"context,omitempty"`
 }
 
 // AnalysisResponse is the structured output from an analyzer.
@@ -23,17 +23,17 @@ type AnalysisRequest struct {
 // in Dashboard from local execution. Deterministic analyzers
 // fill Dashboard directly.
 type AnalysisResponse struct {
-	Question          string                   `json:"question"`
-	Dataset           DatasetSummary           `json:"dataset"`
-	Notebook          []NotebookStep           `json:"notebook"`
-	Plan              *LLMPlan                 `json:"plan,omitempty"`
-	Dashboard         DashboardSpec            `json:"dashboard"`
-	Assumptions       []string                 `json:"assumptions"`
-	Warnings          []string                 `json:"warnings"`
-	UsedDeterministic bool                     `json:"used_deterministic"`
-	SQLQueries        []string                 `json:"sqlQueries,omitempty"`
-	SessionID         string                   `json:"sessionId,omitempty"`
-	Context           *ConversationContext     `json:"context,omitempty"`
+	Question          string               `json:"question"`
+	Dataset           DatasetSummary       `json:"dataset"`
+	Notebook          []NotebookStep       `json:"notebook"`
+	Plan              *LLMPlan             `json:"plan,omitempty"`
+	Dashboard         DashboardSpec        `json:"dashboard"`
+	Assumptions       []string             `json:"assumptions"`
+	Warnings          []string             `json:"warnings"`
+	UsedDeterministic bool                 `json:"used_deterministic"`
+	SQLQueries        []string             `json:"sqlQueries,omitempty"`
+	SessionID         string               `json:"sessionId,omitempty"`
+	Context           *ConversationContext `json:"context,omitempty"`
 }
 
 // DatasetSummary describes the primary dataset used in analysis.
@@ -57,8 +57,8 @@ type LLMPlan struct {
 	MetricColumn    string         `json:"metricColumn"`
 	CategoryColumn  string         `json:"categoryColumn"`
 	DateColumn      string         `json:"dateColumn"`
-	Aggregation     string         `json:"aggregation"`   // "sum", "avg", "count", "min", "max"
-	ChartTypes      []string       `json:"chartTypes"`     // e.g. ["bar", "line", "pie"]
+	Aggregation     string         `json:"aggregation"` // "sum", "avg", "count", "min", "max"
+	ChartTypes      []string       `json:"chartTypes"`  // e.g. ["bar", "line", "pie"]
 	GroupBy         string         `json:"groupBy"`
 	Title           string         `json:"title"`
 	Recommendations []string       `json:"recommendations"`

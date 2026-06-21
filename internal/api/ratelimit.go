@@ -91,10 +91,6 @@ func (rl *rateLimiter) allow(ip, path string) bool {
 	return true
 }
 
-func (rl *rateLimiter) stop() {
-	close(rl.stopCh)
-}
-
 func (h *Handler) rateLimitMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip := r.RemoteAddr

@@ -3,18 +3,18 @@ package agent
 import "time"
 
 type ConversationSession struct {
-	ID           string
-	DatasetIDs   []string
-	History      []ConversationTurn
+	ID            string
+	DatasetIDs    []string
+	History       []ConversationTurn
 	ActiveContext *ConversationContext
-	CreatedAt    time.Time
-	LastActiveAt time.Time
+	CreatedAt     time.Time
+	LastActiveAt  time.Time
 }
 
 type ConversationTurn struct {
-	Prompt    string         `json:"prompt"`
+	Prompt    string           `json:"prompt"`
 	Response  AnalysisResponse `json:"response"`
-	Timestamp time.Time      `json:"timestamp"`
+	Timestamp time.Time        `json:"timestamp"`
 }
 
 type ConversationContext struct {

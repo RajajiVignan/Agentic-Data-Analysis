@@ -10,15 +10,15 @@ import (
 
 // Dataset represents an uploaded or connected dataset.
 type Dataset struct {
-	ID                string
-	Filename          string
-	FilePath          string // empty for connected sources
-	Profile           Profile
-	Rows              []map[string]string
-	ConnectionString  string // PostgreSQL connection string for live DB connections
+	ID                 string
+	Filename           string
+	FilePath           string // empty for connected sources
+	Profile            Profile
+	Rows               []map[string]string
+	ConnectionString   string // PostgreSQL connection string for live DB connections
 	ConnectionConfigID string // reference to ConnectionConfig for encrypted password resolution
-	TableName         string // source table name for DB connections
-	OwnerID           string // authenticated user ID for scoping
+	TableName          string // source table name for DB connections
+	OwnerID            string // authenticated user ID for scoping
 }
 
 // Profile represents the column profile of a dataset.
@@ -43,29 +43,29 @@ type Connection struct {
 
 // ColumnStat holds computed statistics for a single column.
 type ColumnStat struct {
-	Name      string   `json:"name"`
-	Type      string   `json:"type"`
-	NonEmpty  int      `json:"nonEmpty"`
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	NonEmpty int    `json:"nonEmpty"`
 	// Number stats
-	Min       *float64 `json:"min,omitempty"`
-	Max       *float64 `json:"max,omitempty"`
-	Avg       *float64 `json:"avg,omitempty"`
-	Sum       *float64 `json:"sum,omitempty"`
+	Min *float64 `json:"min,omitempty"`
+	Max *float64 `json:"max,omitempty"`
+	Avg *float64 `json:"avg,omitempty"`
+	Sum *float64 `json:"sum,omitempty"`
 	// Text stats
 	UniqueValues []string `json:"uniqueValues,omitempty"`
 	UniqueCount  int      `json:"uniqueCount"`
 	// Date stats
-	MinDate   string `json:"minDate,omitempty"`
-	MaxDate   string `json:"maxDate,omitempty"`
+	MinDate string `json:"minDate,omitempty"`
+	MaxDate string `json:"maxDate,omitempty"`
 }
 
 // DatasetMetadata is a privacy-safe summary of a dataset.
 // It contains schema and statistics but NO raw row data.
 type DatasetMetadata struct {
-	ID         string        `json:"id"`
-	Filename   string        `json:"filename"`
-	RowCount   int           `json:"rowCount"`
-	Columns    []ColumnStat  `json:"columns"`
+	ID       string       `json:"id"`
+	Filename string       `json:"filename"`
+	RowCount int          `json:"rowCount"`
+	Columns  []ColumnStat `json:"columns"`
 }
 
 // ComputeMetadata builds a DatasetMetadata from a Dataset without exposing raw rows.
@@ -95,8 +95,12 @@ func ComputeMetadata(ds *Dataset, maxUniqueValues int) DatasetMetadata {
 			if len(vals) > 0 {
 				min, max, sum := vals[0], vals[0], 0.0
 				for _, v := range vals {
-					if v < min { min = v }
-					if v > max { max = v }
+					if v < min {
+						min = v
+					}
+					if v > max {
+						max = v
+					}
 					sum += v
 				}
 				avg := sum / float64(len(vals))

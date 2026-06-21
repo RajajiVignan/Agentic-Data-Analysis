@@ -124,11 +124,11 @@ func initLogger() {
 func validateEnv() {
 	missing := false
 	optional := map[string]string{
-		"SUPABASE_URL":    "Database URL for Supabase",
-		"SUPABASE_KEY":    "Database key for Supabase",
-		"SMTP_HOST":       "SMTP host for email delivery (reports/alerts)",
-		"SMTP_USER":       "SMTP user for email delivery",
-		"SMTP_PASSWORD":   "SMTP password for email delivery",
+		"SUPABASE_URL":       "Database URL for Supabase",
+		"SUPABASE_KEY":       "Database key for Supabase",
+		"SMTP_HOST":          "SMTP host for email delivery (reports/alerts)",
+		"SMTP_USER":          "SMTP user for email delivery",
+		"SMTP_PASSWORD":      "SMTP password for email delivery",
 		"OPENROUTER_API_KEY": "API key for LLM-powered analysis",
 	}
 

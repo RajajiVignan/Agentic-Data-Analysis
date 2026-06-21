@@ -55,7 +55,7 @@ func NewAuthService(db *store.DB) *AuthService {
 	// Generate a new secret if none was loaded
 	if len(secret) != 32 {
 		secret = make([]byte, 32)
-		rand.Read(secret)
+		_, _ = rand.Read(secret)
 		// Persist the new secret
 		if db != nil {
 			if err := db.SaveJWTSecret(secret); err != nil {
@@ -249,17 +249,6 @@ func (h *Handler) authMiddleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
-}
-
-func (h *Handler) requireAuth(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		user := getUserFromContext(r)
-		if user == nil {
-			h.sendJSON(w, http.StatusUnauthorized, map[string]string{"error": "Authentication required"})
-			return
-		}
-		next(w, r)
-	}
 }
 
 func getUserFromContext(r *http.Request) *User {

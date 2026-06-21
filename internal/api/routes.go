@@ -32,7 +32,7 @@ func (h *Handler) chiRouter() http.Handler {
 					if strings.HasPrefix(r.URL.Path, "/api/") {
 						w.Header().Set("Content-Type", "application/json; charset=utf-8")
 						w.WriteHeader(http.StatusInternalServerError)
-						json.NewEncoder(w).Encode(map[string]string{
+						_ = json.NewEncoder(w).Encode(map[string]string{
 							"error": fmt.Sprintf("Internal server error: %v", rec),
 						})
 					} else {
@@ -172,7 +172,7 @@ func (h *Handler) serveFrontend(dirPath string) http.Handler {
 		// 1. Try exact file match
 		if content, contentType, ok := readFile(dirPath, path); ok {
 			w.Header().Set("Content-Type", contentType)
-			w.Write(content)
+			_, _ = w.Write(content)
 			return
 		}
 
@@ -181,7 +181,7 @@ func (h *Handler) serveFrontend(dirPath string) http.Handler {
 			htmlPath := path + ".html"
 			if content, contentType, ok := readFile(dirPath, htmlPath); ok {
 				w.Header().Set("Content-Type", contentType)
-				w.Write(content)
+				_, _ = w.Write(content)
 				return
 			}
 		}
@@ -189,7 +189,7 @@ func (h *Handler) serveFrontend(dirPath string) http.Handler {
 		// 3. Fall back to index.html (SPA client-side routing)
 		if content, _, ok := readFile(dirPath, "/index.html"); ok {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			w.Write(content)
+			_, _ = w.Write(content)
 			return
 		}
 

@@ -44,7 +44,7 @@ type Handler struct {
 	rateLimiter       *rateLimiter
 	uploadDir         string
 	allowedOrigins    map[string]bool
-	stopCh           chan struct{}
+	stopCh            chan struct{}
 	mu                sync.RWMutex
 	sessionMu         sync.RWMutex
 	pipelines         map[string]*data.TransformPipeline
@@ -61,13 +61,13 @@ func NewHandler(cfg agent.Config) *Handler {
 
 	// Configure LLM-driven visualization if credentials are available
 	llmCfg := LLMConfig{
-		Enabled:       cfg.Enabled && cfg.APIKey != "" && cfg.BaseURL != "",
-		APIKey:        cfg.APIKey,
-		BaseURL:       cfg.BaseURL,
-		Model:         cfg.Model,
-		MaxTokens:     4096,
-		Temperature:   0.3,
-		TimeoutSec:    60,
+		Enabled:     cfg.Enabled && cfg.APIKey != "" && cfg.BaseURL != "",
+		APIKey:      cfg.APIKey,
+		BaseURL:     cfg.BaseURL,
+		Model:       cfg.Model,
+		MaxTokens:   4096,
+		Temperature: 0.3,
+		TimeoutSec:  60,
 	}
 	pb.SetLLMConfig(llmCfg)
 
@@ -102,7 +102,7 @@ func NewHandler(cfg agent.Config) *Handler {
 			for _, rec := range records {
 				profile := data.Profile{}
 				if len(rec.Profile) > 0 {
-					json.Unmarshal(rec.Profile, &profile)
+					_ = json.Unmarshal(rec.Profile, &profile)
 				}
 				h.datasets[rec.ID] = &data.Dataset{
 					ID:       rec.ID,
@@ -176,7 +176,7 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, v interface{}) bool {
 func SendJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
+	_ = json.NewEncoder(w).Encode(data)
 }
 
 func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -352,7 +352,7 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-id := newID()
+	id := newID()
 	safeName := sanitizeFilename(header.Filename)
 	ext := strings.ToLower(filepath.Ext(safeName))
 	if ext != ".csv" && ext != ".json" {
@@ -421,15 +421,15 @@ id := newID()
 
 func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		DatasetId    string   `json:"datasetId"`
-		DatasetIds   []string `json:"datasetIds"`
-		Prompt       string   `json:"prompt"`
-		SessionId    string   `json:"sessionId,omitempty"`
-		VizType      string   `json:"vizType,omitempty"`
-		AccentColor  string   `json:"accentColor,omitempty"`
-		ChartScheme  string   `json:"chartScheme,omitempty"`
-		FontFamily   string   `json:"fontFamily,omitempty"`
-		FontSize     string   `json:"fontSize,omitempty"`
+		DatasetId   string   `json:"datasetId"`
+		DatasetIds  []string `json:"datasetIds"`
+		Prompt      string   `json:"prompt"`
+		SessionId   string   `json:"sessionId,omitempty"`
+		VizType     string   `json:"vizType,omitempty"`
+		AccentColor string   `json:"accentColor,omitempty"`
+		ChartScheme string   `json:"chartScheme,omitempty"`
+		FontFamily  string   `json:"fontFamily,omitempty"`
+		FontSize    string   `json:"fontSize,omitempty"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -462,10 +462,10 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	if len(activeDatasets) > 1 {
 		primary = data.MergeDatasets(activeDatasets)
 		slog.Info("Merged datasets into one",
-				"component", "analyze",
-				"count", len(activeDatasets),
-				"rows", primary.Profile.RowCount,
-				"cols", len(primary.Profile.Columns))
+			"component", "analyze",
+			"count", len(activeDatasets),
+			"rows", primary.Profile.RowCount,
+			"cols", len(primary.Profile.Columns))
 	}
 
 	// --- Session / Conversation Management ---
@@ -525,24 +525,24 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 
 	if resp.Plan != nil {
 		slog.Info("Executing LLM plan",
-				"component", "execPlan",
-				"metric", resp.Plan.MetricColumn,
-				"category", resp.Plan.CategoryColumn,
-				"date", resp.Plan.DateColumn,
-				"agg", resp.Plan.Aggregation,
-				"filters", resp.Plan.Filters)
+			"component", "execPlan",
+			"metric", resp.Plan.MetricColumn,
+			"category", resp.Plan.CategoryColumn,
+			"date", resp.Plan.DateColumn,
+			"agg", resp.Plan.Aggregation,
+			"filters", resp.Plan.Filters)
 		execPlan(resp.Plan, primary, &resp)
 		slog.Info("Plan execution complete",
-				"component", "execPlan",
-				"kpis", len(resp.Dashboard.KPIs),
-				"trendPoints", len(resp.Dashboard.Trend),
-				"segments", len(resp.Dashboard.Segments))
+			"component", "execPlan",
+			"kpis", len(resp.Dashboard.KPIs),
+			"trendPoints", len(resp.Dashboard.Trend),
+			"segments", len(resp.Dashboard.Segments))
 	} else {
 		slog.Info("No plan (deterministic path)",
-				"component", "execPlan",
-				"kpis", len(resp.Dashboard.KPIs),
-				"trendPoints", len(resp.Dashboard.Trend),
-				"segments", len(resp.Dashboard.Segments))
+			"component", "execPlan",
+			"kpis", len(resp.Dashboard.KPIs),
+			"trendPoints", len(resp.Dashboard.Trend),
+			"segments", len(resp.Dashboard.Segments))
 	}
 
 	// Apply filters from plan (for LLM path) to the dataset before computing
@@ -709,7 +709,7 @@ func (h *Handler) handleExportCsv(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="cleaned-data.csv"`)
 	w.WriteHeader(http.StatusOK)
-	w.Write(buf.Bytes())
+	_, _ = w.Write(buf.Bytes())
 }
 
 func (h *Handler) handleClearSession(w http.ResponseWriter, r *http.Request) {
@@ -933,11 +933,11 @@ func (h *Handler) stopRefreshScheduler() {
 func (h *Handler) refreshConnectedDatasets() {
 	h.mu.RLock()
 	type refreshTask struct {
-		id             string
-		tableName      string
-		filename       string
-		configID       string
-		legacyConnStr  string
+		id            string
+		tableName     string
+		filename      string
+		configID      string
+		legacyConnStr string
 	}
 	tasks := make([]refreshTask, 0)
 	for id, ds := range h.datasets {
@@ -988,12 +988,6 @@ func (h *Handler) refreshConnectedDatasets() {
 
 		slog.Info("Refreshed dataset", "component", "refresh", "datasetId", t.id, "filename", t.filename, "rows", len(rows))
 	}
-}
-
-func (h *Handler) getDataset(id string) *data.Dataset {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return h.datasets[id]
 }
 
 // --- Package-level helpers ---

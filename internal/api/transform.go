@@ -7,10 +7,6 @@ import (
 	"insightpilot/internal/data"
 )
 
-type transformHandler struct {
-	h *Handler
-}
-
 // getPipeline returns the pipeline for a dataset, creating one if needed.
 func (h *Handler) getPipeline(datasetID string) *data.TransformPipeline {
 	h.mu.Lock()
@@ -28,8 +24,8 @@ func (h *Handler) getPipeline(datasetID string) *data.TransformPipeline {
 
 func (h *Handler) handleTransformPreview(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		DatasetID string                 `json:"datasetId"`
-		Step      data.TransformStep     `json:"step"`
+		DatasetID string             `json:"datasetId"`
+		Step      data.TransformStep `json:"step"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -57,8 +53,8 @@ func (h *Handler) handleTransformPreview(w http.ResponseWriter, r *http.Request)
 
 func (h *Handler) handleTransformApply(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		DatasetID string                 `json:"datasetId"`
-		Step      data.TransformStep     `json:"step"`
+		DatasetID string             `json:"datasetId"`
+		Step      data.TransformStep `json:"step"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -86,12 +82,12 @@ func (h *Handler) handleTransformApply(w http.ResponseWriter, r *http.Request) {
 	h.mu.Unlock()
 
 	SendJSON(w, http.StatusOK, map[string]interface{}{
-		"ok":           true,
-		"rowCount":     len(transformed.Rows),
-		"columns":      transformed.Profile.Columns,
-		"steps":        pipeline.Steps,
-		"canUndo":      pipeline.CanUndo(),
-		"canRedo":      pipeline.CanRedo(),
+		"ok":       true,
+		"rowCount": len(transformed.Rows),
+		"columns":  transformed.Profile.Columns,
+		"steps":    pipeline.Steps,
+		"canUndo":  pipeline.CanUndo(),
+		"canRedo":  pipeline.CanRedo(),
 	})
 }
 
@@ -128,12 +124,12 @@ func (h *Handler) handleTransformUndo(w http.ResponseWriter, r *http.Request) {
 	h.mu.Unlock()
 
 	SendJSON(w, http.StatusOK, map[string]interface{}{
-		"ok":           true,
-		"rowCount":     len(transformed.Rows),
-		"columns":      transformed.Profile.Columns,
-		"steps":        pipeline.Steps,
-		"canUndo":      pipeline.CanUndo(),
-		"canRedo":      pipeline.CanRedo(),
+		"ok":       true,
+		"rowCount": len(transformed.Rows),
+		"columns":  transformed.Profile.Columns,
+		"steps":    pipeline.Steps,
+		"canUndo":  pipeline.CanUndo(),
+		"canRedo":  pipeline.CanRedo(),
 	})
 }
 
@@ -170,12 +166,12 @@ func (h *Handler) handleTransformRedo(w http.ResponseWriter, r *http.Request) {
 	h.mu.Unlock()
 
 	SendJSON(w, http.StatusOK, map[string]interface{}{
-		"ok":           true,
-		"rowCount":     len(transformed.Rows),
-		"columns":      transformed.Profile.Columns,
-		"steps":        pipeline.Steps,
-		"canUndo":      pipeline.CanUndo(),
-		"canRedo":      pipeline.CanRedo(),
+		"ok":       true,
+		"rowCount": len(transformed.Rows),
+		"columns":  transformed.Profile.Columns,
+		"steps":    pipeline.Steps,
+		"canUndo":  pipeline.CanUndo(),
+		"canRedo":  pipeline.CanRedo(),
 	})
 }
 
@@ -196,10 +192,10 @@ func (h *Handler) handleTransformHistory(w http.ResponseWriter, r *http.Request)
 
 	pipeline := h.getPipeline(datasetID)
 	SendJSON(w, http.StatusOK, map[string]interface{}{
-		"steps":   pipeline.Steps,
-		"undone":  pipeline.Undone,
-		"canUndo": pipeline.CanUndo(),
-		"canRedo": pipeline.CanRedo(),
+		"steps":    pipeline.Steps,
+		"undone":   pipeline.Undone,
+		"canUndo":  pipeline.CanUndo(),
+		"canRedo":  pipeline.CanRedo(),
 		"rowCount": len(ds.Rows),
 		"columns":  ds.Profile.Columns,
 	})

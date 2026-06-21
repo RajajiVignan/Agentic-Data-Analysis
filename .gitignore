@@ -9,3 +9,6 @@ frontend/.env*
 frontend/next-env.d.ts
 
 Reviews
+
+server
+server_bin

@@ -36,13 +36,13 @@ type DuckDBEngine struct {
 }
 
 func NewDuckDBEngine(scriptsDir string) *DuckDBEngine {
-	os.MkdirAll(scriptsDir, 0755)
+	_ = os.MkdirAll(scriptsDir, 0755)
 	return &DuckDBEngine{scriptsDir: scriptsDir}
 }
 
 func duckdbID() string {
 	b := make([]byte, 8)
-	rand.Read(b)
+	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }
 
@@ -176,7 +176,7 @@ func (e *DuckDBEngine) ProfileCSV(csvPath string) (Profile, error) {
 		countRows, err := e.executeSQL(csvPath, countSQL)
 		var nonEmpty int
 		if err == nil && len(countRows) > 0 {
-			fmt.Sscanf(countRows[0]["non_empty"], "%d", &nonEmpty)
+			_, _ = fmt.Sscanf(countRows[0]["non_empty"], "%d", &nonEmpty)
 		}
 
 		sampleSQL := fmt.Sprintf(`SELECT DISTINCT %s as val FROM data WHERE %s IS NOT NULL AND CAST(%s AS VARCHAR) != '' LIMIT 5`, qCol, qCol, qCol)
@@ -202,7 +202,7 @@ func (e *DuckDBEngine) ProfileCSV(csvPath string) (Profile, error) {
 	countRows, err := e.executeSQL(csvPath, rowCountSQL)
 	rowCount := 0
 	if err == nil && len(countRows) > 0 {
-		fmt.Sscanf(countRows[0]["cnt"], "%d", &rowCount)
+		_, _ = fmt.Sscanf(countRows[0]["cnt"], "%d", &rowCount)
 	}
 
 	return Profile{RowCount: rowCount, Columns: cols}, nil

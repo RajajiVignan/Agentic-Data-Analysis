@@ -16,10 +16,10 @@ import (
 
 // PlotService handles Python plot generation, serving, and cleanup.
 type PlotService struct {
-	plotsDir     string
-	uploadDir    string
-	bridge       *PythonBridge
-	stopCleanup  chan struct{}
+	plotsDir    string
+	uploadDir   string
+	bridge      *PythonBridge
+	stopCleanup chan struct{}
 }
 
 // NewPlotService creates a new PlotService.
@@ -105,7 +105,7 @@ func (ps *PlotService) HandlePythonPlot(w http.ResponseWriter, r *http.Request, 
 		vizType = VizTypeMatplotlib
 	}
 	// Build design JSON from query params
-	designJSON := "" 
+	designJSON := ""
 	accent := r.URL.Query().Get("accentColor")
 	scheme := r.URL.Query().Get("chartScheme")
 	fontFam := r.URL.Query().Get("fontFamily")

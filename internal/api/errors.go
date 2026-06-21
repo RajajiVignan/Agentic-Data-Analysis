@@ -8,16 +8,16 @@ import (
 type ErrorCode string
 
 const (
-	ErrInvalidRequest   ErrorCode = "INVALID_REQUEST"
-	ErrNotFound         ErrorCode = "NOT_FOUND"
-	ErrUnauthorized     ErrorCode = "UNAUTHORIZED"
-	ErrForbidden        ErrorCode = "FORBIDDEN"
-	ErrConflict         ErrorCode = "CONFLICT"
-	ErrRateLimited      ErrorCode = "RATE_LIMITED"
-	ErrInternal         ErrorCode = "INTERNAL_ERROR"
-	ErrValidation       ErrorCode = "VALIDATION_ERROR"
-	ErrUploadFailed     ErrorCode = "UPLOAD_FAILED"
-	ErrAnalysisFailed   ErrorCode = "ANALYSIS_FAILED"
+	ErrInvalidRequest ErrorCode = "INVALID_REQUEST"
+	ErrNotFound       ErrorCode = "NOT_FOUND"
+	ErrUnauthorized   ErrorCode = "UNAUTHORIZED"
+	ErrForbidden      ErrorCode = "FORBIDDEN"
+	ErrConflict       ErrorCode = "CONFLICT"
+	ErrRateLimited    ErrorCode = "RATE_LIMITED"
+	ErrInternal       ErrorCode = "INTERNAL_ERROR"
+	ErrValidation     ErrorCode = "VALIDATION_ERROR"
+	ErrUploadFailed   ErrorCode = "UPLOAD_FAILED"
+	ErrAnalysisFailed ErrorCode = "ANALYSIS_FAILED"
 )
 
 // APIError is a structured error response.

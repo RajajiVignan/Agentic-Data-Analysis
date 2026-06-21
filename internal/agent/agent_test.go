@@ -306,9 +306,9 @@ func TestAggregateToolComputesStats(t *testing.T) {
 
 func TestAggregateToolMissingColumn(t *testing.T) {
 	ds := &data.Dataset{
-		ID:       "agg-test",
-		Profile:  data.Profile{Columns: []data.Column{{Name: "revenue", Type: "number"}}},
-		Rows:     []map[string]string{{"revenue": "100"}},
+		ID:      "agg-test",
+		Profile: data.Profile{Columns: []data.Column{{Name: "revenue", Type: "number"}}},
+		Rows:    []map[string]string{{"revenue": "100"}},
 	}
 
 	tool := &AggregateTool{}

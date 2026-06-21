@@ -14,11 +14,11 @@ import (
 type TileType string
 
 const (
-	TileChart     TileType = "chart"
-	TileText      TileType = "text"
-	TileDivider   TileType = "divider"
-	TileImage     TileType = "image"
-	TileMetric    TileType = "metric"
+	TileChart   TileType = "chart"
+	TileText    TileType = "text"
+	TileDivider TileType = "divider"
+	TileImage   TileType = "image"
+	TileMetric  TileType = "metric"
 )
 
 type DashboardTile struct {
@@ -37,18 +37,18 @@ type DashboardTile struct {
 }
 
 type DashboardLayout struct {
-	ID        string           `json:"id"`
-	Name      string           `json:"name"`
-	IsDefault bool             `json:"isDefault,omitempty"`
-	Tiles     []DashboardTile  `json:"tiles"`
-	CreatedAt string           `json:"createdAt"`
-	UpdatedAt string           `json:"updatedAt"`
+	ID        string          `json:"id"`
+	Name      string          `json:"name"`
+	IsDefault bool            `json:"isDefault,omitempty"`
+	Tiles     []DashboardTile `json:"tiles"`
+	CreatedAt string          `json:"createdAt"`
+	UpdatedAt string          `json:"updatedAt"`
 }
 
 type DashboardEditorService struct {
-	mu        sync.RWMutex
-	layouts   map[string]*DashboardLayout
-	db        reportStore
+	mu      sync.RWMutex
+	layouts map[string]*DashboardLayout
+	db      reportStore
 }
 
 func NewDashboardEditorService(database *store.DB) *DashboardEditorService {

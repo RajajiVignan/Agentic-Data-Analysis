@@ -318,9 +318,9 @@ func TestAuthRegisterInvalidEmail(t *testing.T) {
 	mux := handler.Routes()
 
 	tests := []struct {
-		name  string
-		body  string
-		code  int
+		name string
+		body string
+		code int
 	}{
 		{"missing @", `{"email":"invalid","password":"secret123","name":"Test"}`, http.StatusBadRequest},
 		{"missing domain", `{"email":"user@","password":"secret123","name":"Test"}`, http.StatusBadRequest},

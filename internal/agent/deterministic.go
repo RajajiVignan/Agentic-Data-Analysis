@@ -231,7 +231,7 @@ func (a *DeterministicAnalyzer) Analyze(ctx context.Context, req AnalysisRequest
 			Filename: primary.Filename,
 			RowCount: len(filteredRows),
 		},
-		Notebook:  notebook,
+		Notebook:   notebook,
 		SQLQueries: sqlQueries,
 		Dashboard: DashboardSpec{
 			Title:           "Insights Board",

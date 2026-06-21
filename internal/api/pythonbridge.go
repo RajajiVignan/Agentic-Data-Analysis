@@ -15,13 +15,13 @@ import (
 
 // LLMConfig holds the minimal config needed for LLM-driven code generation.
 type LLMConfig struct {
-	Enabled       bool
-	APIKey        string
-	BaseURL       string
-	Model         string
-	MaxTokens     int
-	Temperature   float64
-	TimeoutSec    int
+	Enabled     bool
+	APIKey      string
+	BaseURL     string
+	Model       string
+	MaxTokens   int
+	Temperature float64
+	TimeoutSec  int
 }
 
 // VizType constants
@@ -70,15 +70,15 @@ func (dc DesignConfig) hexAccent() string {
 
 // PythonBridge handles execution of Python visualization scripts.
 type PythonBridge struct {
-	plotsDir    string
-	llmConfig   LLMConfig
-	validator   *SandboxValidator
-	httpClient  *http.Client
+	plotsDir   string
+	llmConfig  LLMConfig
+	validator  *SandboxValidator
+	httpClient *http.Client
 }
 
 // NewPythonBridge creates a new Python bridge with the given plots directory.
 func NewPythonBridge(plotsDir string) *PythonBridge {
-	os.MkdirAll(plotsDir, 0755)
+	_ = os.MkdirAll(plotsDir, 0755)
 	return &PythonBridge{
 		plotsDir:  plotsDir,
 		validator: NewSandboxValidator(),
@@ -170,7 +170,7 @@ func (pb *PythonBridge) ExecuteScript(scriptID, scriptContent, csvPath, vizType,
 			return "", fmt.Errorf("python execution failed: %v, stderr: %s", err, stderr.String())
 		}
 	case <-time.After(30 * time.Second):
-		cmd.Process.Kill()
+		_ = cmd.Process.Kill()
 		return "", fmt.Errorf("python script timed out after 30s")
 	}
 
@@ -321,7 +321,7 @@ Write a Python visualization script that best answers the user's question about 
 	req.Header.Set("Authorization", "Bearer "+normalizeBearer(pb.llmConfig.APIKey))
 
 	client := &http.Client{
-		Timeout: time.Duration(timeout) * time.Second,
+		Timeout:   time.Duration(timeout) * time.Second,
 		Transport: pb.httpClient.Transport,
 	}
 
@@ -367,7 +367,7 @@ Write a Python visualization script that best answers the user's question about 
 func (pb *PythonBridge) GeneratePlotScript(scriptID, prompt, vizType, designJSON string) string {
 	dc := defaultDesignConfig()
 	if designJSON != "" {
-		json.Unmarshal([]byte(designJSON), &dc)
+		_ = json.Unmarshal([]byte(designJSON), &dc)
 	}
 	switch vizType {
 	case VizTypeBokeh:

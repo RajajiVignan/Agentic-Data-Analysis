@@ -32,18 +32,18 @@ type ReportRecord struct {
 
 // AlertRecord represents a persisted alert rule.
 type AlertRecord struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	DatasetID   string `json:"dataset_id"`
-	MetricCol   string `json:"metric_col"`
-	Condition   string `json:"condition"`
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	DatasetID   string  `json:"dataset_id"`
+	MetricCol   string  `json:"metric_col"`
+	Condition   string  `json:"condition"`
 	Threshold   float64 `json:"threshold"`
-	Period      string `json:"period"`
-	Emails      string `json:"emails"`
-	SlackHook   string `json:"slack_hook"`
-	Enabled     bool   `json:"enabled"`
-	LastChecked string `json:"last_checked"`
-	CreatedAt   string `json:"created_at"`
+	Period      string  `json:"period"`
+	Emails      string  `json:"emails"`
+	SlackHook   string  `json:"slack_hook"`
+	Enabled     bool    `json:"enabled"`
+	LastChecked string  `json:"last_checked"`
+	CreatedAt   string  `json:"created_at"`
 }
 
 // LayoutRecord represents a persisted dashboard layout.
@@ -311,7 +311,7 @@ func (db *DB) GetPinnedCharts() ([]PinnedChartRecord, error) {
 			return nil, fmt.Errorf("scan pinned chart: %w", err)
 		}
 		if len(dataJSON) > 0 {
-			json.Unmarshal(dataJSON, &c.Data)
+			_ = json.Unmarshal(dataJSON, &c.Data)
 		}
 		charts = append(charts, c)
 	}
@@ -464,7 +464,7 @@ func (db *DB) LoadDatasets() ([]DatasetRecord, error) {
 			return nil, fmt.Errorf("scan dataset: %w", err)
 		}
 		if len(rowsJSON) > 0 {
-			json.Unmarshal(rowsJSON, &d.Rows)
+			_ = json.Unmarshal(rowsJSON, &d.Rows)
 		}
 		if d.Rows == nil {
 			d.Rows = []map[string]string{}
@@ -497,7 +497,7 @@ func (db *DB) InitDatasetsTable() error {
 		return err
 	}
 	// Add owner_id column for existing tables (best-effort, ignore if already exists)
-	db.conn.Exec(`ALTER TABLE datasets ADD COLUMN IF NOT EXISTS owner_id TEXT DEFAULT ''`)
+	_, _ = db.conn.Exec(`ALTER TABLE datasets ADD COLUMN IF NOT EXISTS owner_id TEXT DEFAULT ''`)
 	return nil
 }
 
@@ -555,7 +555,7 @@ func (db *DB) GetDashboards() ([]DashboardRecord, error) {
 			return nil, fmt.Errorf("scan dashboard: %w", err)
 		}
 		if len(idsJSON) > 0 {
-			json.Unmarshal(idsJSON, &d.ChartIDs)
+			_ = json.Unmarshal(idsJSON, &d.ChartIDs)
 		}
 		if d.ChartIDs == nil {
 			d.ChartIDs = []string{}

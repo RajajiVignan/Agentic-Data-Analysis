@@ -242,7 +242,7 @@ export function PythonPlot({ url, plotType, onPin }: { url?: string; plotType?: 
       {!loaded && !error && <PlotLoading />}
       {error && (
         <div className="flex flex-col items-center justify-center gap-3 py-8 text-center">
-          <p className="text-sm text-slate-400 italic">Plot escaped. We're looking for it.</p>
+          <p className="text-sm text-slate-400 italic">Plot escaped. We&apos;re looking for it.</p>
           <button
             onClick={() => { setError(false); setLoaded(false); setRetry(r => r + 1); }}
             className="px-4 py-2 text-xs font-medium text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors"

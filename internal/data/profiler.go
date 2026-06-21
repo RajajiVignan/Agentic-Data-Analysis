@@ -10,40 +10,40 @@ import (
 
 // DetailedProfile holds comprehensive column-level statistics.
 type DetailedProfile struct {
-	DatasetID    string           `json:"datasetId"`
-	Filename     string           `json:"filename"`
-	RowCount     int              `json:"rowCount"`
-	ColumnCount  int              `json:"columnCount"`
-	Columns      []ColumnProfile  `json:"columns"`
+	DatasetID    string          `json:"datasetId"`
+	Filename     string          `json:"filename"`
+	RowCount     int             `json:"rowCount"`
+	ColumnCount  int             `json:"columnCount"`
+	Columns      []ColumnProfile `json:"columns"`
 	Correlations []Correlation   `json:"correlations,omitempty"`
 	Duplicates   DuplicateInfo   `json:"duplicates"`
 	Histograms   []Histogram     `json:"histograms,omitempty"`
 }
 
 type ColumnProfile struct {
-	Name       string   `json:"name"`
-	Type       string   `json:"type"`
-	NonEmpty   int      `json:"nonEmpty"`
-	NullCount  int      `json:"nullCount"`
-	UniqueCount int     `json:"uniqueCount"`
-	Min        *float64 `json:"min,omitempty"`
-	Max        *float64 `json:"max,omitempty"`
-	Mean       *float64 `json:"mean,omitempty"`
-	Median     *float64 `json:"median,omitempty"`
-	StdDev     *float64 `json:"stdDev,omitempty"`
-	Sample     []string `json:"sample,omitempty"`
+	Name        string   `json:"name"`
+	Type        string   `json:"type"`
+	NonEmpty    int      `json:"nonEmpty"`
+	NullCount   int      `json:"nullCount"`
+	UniqueCount int      `json:"uniqueCount"`
+	Min         *float64 `json:"min,omitempty"`
+	Max         *float64 `json:"max,omitempty"`
+	Mean        *float64 `json:"mean,omitempty"`
+	Median      *float64 `json:"median,omitempty"`
+	StdDev      *float64 `json:"stdDev,omitempty"`
+	Sample      []string `json:"sample,omitempty"`
 }
 
 type Histogram struct {
-	Column   string   `json:"column"`
-	Buckets  []Bucket `json:"buckets"`
+	Column  string   `json:"column"`
+	Buckets []Bucket `json:"buckets"`
 }
 
 type Bucket struct {
-	Label  string  `json:"label"`
-	Min    float64 `json:"min"`
-	Max    float64 `json:"max"`
-	Count  int     `json:"count"`
+	Label string  `json:"label"`
+	Min   float64 `json:"min"`
+	Max   float64 `json:"max"`
+	Count int     `json:"count"`
 }
 
 type Correlation struct {
@@ -53,9 +53,9 @@ type Correlation struct {
 }
 
 type DuplicateInfo struct {
-	TotalRows    int        `json:"totalRows"`
-	DuplicateRows int       `json:"duplicateRows"`
-	DuplicateKeys []string   `json:"duplicateKeys,omitempty"`
+	TotalRows     int      `json:"totalRows"`
+	DuplicateRows int      `json:"duplicateRows"`
+	DuplicateKeys []string `json:"duplicateKeys,omitempty"`
 }
 
 // ComputeDetailedProfile computes comprehensive statistics for a dataset.
@@ -70,11 +70,11 @@ func ComputeDetailedProfile(ds *Dataset) *DetailedProfile {
 
 	for _, col := range ds.Profile.Columns {
 		cp := ColumnProfile{
-			Name:       col.Name,
-			Type:       col.Type,
-			NonEmpty:   col.NonEmpty,
-			NullCount:  len(ds.Rows) - col.NonEmpty,
-			Sample:     col.Sample,
+			Name:      col.Name,
+			Type:      col.Type,
+			NonEmpty:  col.NonEmpty,
+			NullCount: len(ds.Rows) - col.NonEmpty,
+			Sample:    col.Sample,
 		}
 		cp.computeStats(ds.Rows, col)
 		dp.Columns = append(dp.Columns, cp)

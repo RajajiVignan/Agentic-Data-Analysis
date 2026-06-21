@@ -141,12 +141,12 @@ func (h *Handler) handleConnectionCreate(w http.ResponseWriter, r *http.Request)
 	}
 
 	ds := &data.Dataset{
-		ID:                dsID,
-		Filename:          filename,
-		Profile:           data.Profile{RowCount: len(rows), Columns: cols},
-		Rows:              rows,
+		ID:                 dsID,
+		Filename:           filename,
+		Profile:            data.Profile{RowCount: len(rows), Columns: cols},
+		Rows:               rows,
 		ConnectionConfigID: connID,
-		TableName:         tableName,
+		TableName:          tableName,
 	}
 	cfg.DatasetID = dsID
 	cfg.Filename = filename

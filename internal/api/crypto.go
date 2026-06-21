@@ -11,7 +11,7 @@ import (
 
 func generateEncryptionKey() []byte {
 	key := make([]byte, 32)
-	io.ReadFull(rand.Reader, key)
+	_, _ = io.ReadFull(rand.Reader, key)
 	return key
 }
 

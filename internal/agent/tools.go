@@ -41,8 +41,10 @@ func parseFloat(s string) (float64, bool) {
 // ProfileTool returns the column profile of a dataset.
 type ProfileTool struct{}
 
-func (t *ProfileTool) Name() string        { return "get_dataset_profile" }
-func (t *ProfileTool) Description() string { return "Return column names, types, and row count for a dataset." }
+func (t *ProfileTool) Name() string { return "get_dataset_profile" }
+func (t *ProfileTool) Description() string {
+	return "Return column names, types, and row count for a dataset."
+}
 
 func (t *ProfileTool) Execute(ctx context.Context, args map[string]interface{}) (map[string]interface{}, error) {
 	ds, ok := args["dataset"].(*data.Dataset)
@@ -70,8 +72,10 @@ func (t *ProfileTool) Execute(ctx context.Context, args map[string]interface{}) 
 // AggregateTool computes sum, avg, min, max for a numeric column.
 type AggregateTool struct{}
 
-func (t *AggregateTool) Name() string        { return "aggregate_metric" }
-func (t *AggregateTool) Description() string { return "Compute sum, avg, min, max for a numeric column. Args: dataset, column (name of numeric column)" }
+func (t *AggregateTool) Name() string { return "aggregate_metric" }
+func (t *AggregateTool) Description() string {
+	return "Compute sum, avg, min, max for a numeric column. Args: dataset, column (name of numeric column)"
+}
 
 func (t *AggregateTool) Execute(ctx context.Context, args map[string]interface{}) (map[string]interface{}, error) {
 	ds, ok := args["dataset"].(*data.Dataset)
@@ -133,8 +137,10 @@ func (t *AggregateTool) Execute(ctx context.Context, args map[string]interface{}
 // GroupByTool groups rows by a dimension and aggregates a metric.
 type GroupByTool struct{}
 
-func (t *GroupByTool) Name() string        { return "group_by_dimension" }
-func (t *GroupByTool) Description() string { return "Group rows by a categorical column and sum a metric. Args: dataset, category_column (group-by column), metric_column (numeric column to sum)" }
+func (t *GroupByTool) Name() string { return "group_by_dimension" }
+func (t *GroupByTool) Description() string {
+	return "Group rows by a categorical column and sum a metric. Args: dataset, category_column (group-by column), metric_column (numeric column to sum)"
+}
 
 func (t *GroupByTool) Execute(ctx context.Context, args map[string]interface{}) (map[string]interface{}, error) {
 	ds, ok := args["dataset"].(*data.Dataset)
@@ -213,8 +219,10 @@ func (t *GroupByTool) Execute(ctx context.Context, args map[string]interface{}) 
 // BuildTrendTool aggregates a metric over a date dimension.
 type BuildTrendTool struct{}
 
-func (t *BuildTrendTool) Name() string        { return "build_trend" }
-func (t *BuildTrendTool) Description() string { return "Aggregate a metric by date for trend analysis. Args: dataset, date_column, metric_column" }
+func (t *BuildTrendTool) Name() string { return "build_trend" }
+func (t *BuildTrendTool) Description() string {
+	return "Aggregate a metric by date for trend analysis. Args: dataset, date_column, metric_column"
+}
 
 func (t *BuildTrendTool) Execute(ctx context.Context, args map[string]interface{}) (map[string]interface{}, error) {
 	ds, ok := args["dataset"].(*data.Dataset)
