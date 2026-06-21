@@ -36,7 +36,8 @@ func NewPlotService(plotsDir, uploadDir string, bridge *PythonBridge) *PlotServi
 // specified visualization library (matplotlib, bokeh, or plotly). It first tries
 // LLM-driven code generation (if configured), then falls back to the deterministic
 // template. Returns the URL path to the generated plot image, or empty string on failure.
-func (ps *PlotService) GeneratePlot(ds *data.Dataset, prompt, vizType string) string {
+// designJSON is an optional JSON string with visual design settings.
+func (ps *PlotService) GeneratePlot(ds *data.Dataset, prompt, vizType, designJSON string) string {
 	scriptID := "auto_" + newID()
 
 	profileJSON, _ := json.Marshal(ds.Profile)
@@ -44,7 +45,7 @@ func (ps *PlotService) GeneratePlot(ds *data.Dataset, prompt, vizType string) st
 	// Try LLM-driven code generation first
 	llmScript, err := ps.bridge.GeneratePlotScriptLLM(scriptID, prompt, string(profileJSON), vizType)
 	if err == nil && llmScript != "" {
-		plotURL, execErr := ps.bridge.ExecuteScript(scriptID, llmScript, ds.FilePath, vizType)
+		plotURL, execErr := ps.bridge.ExecuteScript(scriptID, llmScript, ds.FilePath, vizType, designJSON)
 		if execErr == nil {
 			return plotURL
 		}
@@ -54,8 +55,8 @@ func (ps *PlotService) GeneratePlot(ds *data.Dataset, prompt, vizType string) st
 	}
 
 	// Fallback to deterministic template
-	scriptContent := ps.bridge.GeneratePlotScript(scriptID, "", vizType)
-	plotURL, err := ps.bridge.ExecuteScript(scriptID, scriptContent, ds.FilePath, vizType)
+	scriptContent := ps.bridge.GeneratePlotScript(scriptID, "", vizType, designJSON)
+	plotURL, err := ps.bridge.ExecuteScript(scriptID, scriptContent, ds.FilePath, vizType, designJSON)
 	if err != nil {
 		fmt.Printf("Deterministic plot generation failed for dataset %s: %v\n", ds.ID, err)
 		return ""
@@ -103,6 +104,24 @@ func (ps *PlotService) HandlePythonPlot(w http.ResponseWriter, r *http.Request, 
 	if vizType == "" {
 		vizType = VizTypeMatplotlib
 	}
+	// Build design JSON from query params
+	designJSON := "" 
+	accent := r.URL.Query().Get("accentColor")
+	scheme := r.URL.Query().Get("chartScheme")
+	fontFam := r.URL.Query().Get("fontFamily")
+	fontSz := r.URL.Query().Get("fontSize")
+	if accent != "" || scheme != "" || fontFam != "" || fontSz != "" {
+		dc := DesignConfig{
+			AccentColor: accent,
+			ChartScheme: scheme,
+			FontFamily:  fontFam,
+			FontSize:    fontSz,
+		}
+		if b, err := json.Marshal(dc); err == nil {
+			designJSON = string(b)
+		}
+	}
+
 	if datasetID == "" {
 		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "datasetId query parameter required"})
 		return
@@ -119,7 +138,7 @@ func (ps *PlotService) HandlePythonPlot(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	plotURL := ps.GeneratePlot(ds, prompt, vizType)
+	plotURL := ps.GeneratePlot(ds, prompt, vizType, designJSON)
 	if plotURL == "" {
 		SendJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to generate plot"})
 		return

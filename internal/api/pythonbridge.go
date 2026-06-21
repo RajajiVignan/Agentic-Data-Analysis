@@ -31,6 +31,43 @@ const (
 	VizTypePlotly     = "plotly"
 )
 
+// DesignConfig holds visual design settings for plot generation.
+type DesignConfig struct {
+	AccentColor string `json:"accentColor"`
+	ChartScheme string `json:"chartScheme"`
+	FontFamily  string `json:"fontFamily"`
+	FontSize    string `json:"fontSize"`
+}
+
+func defaultDesignConfig() DesignConfig {
+	return DesignConfig{
+		AccentColor: "#6366f1",
+		ChartScheme: "default",
+		FontFamily:  "sans-serif",
+		FontSize:    "medium",
+	}
+}
+
+// hexAccent returns the CSS-compatible hex color from the design config.
+// If the config value is a named color (e.g. "indigo", "emerald"), map it.
+func (dc DesignConfig) hexAccent() string {
+	palette := map[string]string{
+		"indigo":  "#6366f1",
+		"blue":    "#3b82f6",
+		"emerald": "#10b981",
+		"amber":   "#f59e0b",
+		"rose":    "#f43f5e",
+		"violet":  "#8b5cf6",
+	}
+	if c, ok := palette[dc.AccentColor]; ok {
+		return c
+	}
+	if dc.AccentColor != "" {
+		return dc.AccentColor
+	}
+	return "#6366f1"
+}
+
 // PythonBridge handles execution of Python visualization scripts.
 type PythonBridge struct {
 	plotsDir    string
@@ -93,9 +130,10 @@ func (pb *PythonBridge) CleanupOlderThan(maxAge time.Duration) (int, error) {
 }
 
 // ExecuteScript runs a Python script and returns the path to the generated plot.
-// The script receives csvPath as sys.argv[1] and plotPath as sys.argv[2].
+// The script receives csvPath as sys.argv[1], plotPath as sys.argv[2],
+// and an optional design JSON as sys.argv[3].
 // The vizType determines the output format: matplotlib -> .png, bokeh/plotly -> .html.
-func (pb *PythonBridge) ExecuteScript(scriptID, scriptContent, csvPath, vizType string) (string, error) {
+func (pb *PythonBridge) ExecuteScript(scriptID, scriptContent, csvPath, vizType, designJSON string) (string, error) {
 	scriptPath := filepath.Join(pb.plotsDir, fmt.Sprintf("%s.py", scriptID))
 	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0644); err != nil {
 		return "", fmt.Errorf("write script: %w", err)
@@ -107,7 +145,11 @@ func (pb *PythonBridge) ExecuteScript(scriptID, scriptContent, csvPath, vizType 
 	}
 	plotPath := filepath.Join(pb.plotsDir, fmt.Sprintf("%s_plot%s", scriptID, ext))
 
-	cmd := exec.Command("python3", scriptPath, csvPath, plotPath)
+	args := []string{scriptPath, csvPath, plotPath}
+	if designJSON != "" {
+		args = append(args, designJSON)
+	}
+	cmd := exec.Command("python3", args...)
 
 	done := make(chan error, 1)
 	var stdout, stderr strings.Builder
@@ -305,19 +347,26 @@ Write a Python visualization script that best answers the user's question about 
 // GeneratePlotScript creates a deterministic Python script for visualizing the given dataset
 // using the specified library (matplotlib, bokeh, or plotly).
 // This is the fallback when LLM is not available or fails.
-func (pb *PythonBridge) GeneratePlotScript(scriptID, prompt, vizType string) string {
+// designJSON is an optional JSON string with visual design settings.
+func (pb *PythonBridge) GeneratePlotScript(scriptID, prompt, vizType, designJSON string) string {
+	dc := defaultDesignConfig()
+	if designJSON != "" {
+		json.Unmarshal([]byte(designJSON), &dc)
+	}
 	switch vizType {
 	case VizTypeBokeh:
-		return pb.bokehTemplate()
+		return pb.bokehTemplate(dc)
 	case VizTypePlotly:
-		return pb.plotlyTemplate()
+		return pb.plotlyTemplate(dc)
 	default:
-		return pb.matplotlibTemplate()
+		return pb.matplotlibTemplate(dc)
 	}
 }
 
-func (pb *PythonBridge) matplotlibTemplate() string {
-	return `import sys
+func (pb *PythonBridge) matplotlibTemplate(dc DesignConfig) string {
+	accent := dc.hexAccent()
+	return fmt.Sprintf(`import sys
+import json
 import pandas as pd
 import matplotlib
 matplotlib.use('Agg')
@@ -331,6 +380,12 @@ if len(sys.argv) < 3:
 csv_path = sys.argv[1]
 plot_path = sys.argv[2]
 
+# Design config
+_design = json.loads(sys.argv[3]) if len(sys.argv) > 3 else {}
+_accent = _design.get('accentColor', '%[1]s')
+_font_family = _design.get('fontFamily', 'sans-serif')
+_font_size = _design.get('fontSize', 'medium')
+
 try:
     data = pd.read_csv(csv_path)
 except Exception as e:
@@ -338,6 +393,8 @@ except Exception as e:
     sys.exit(1)
 
 sns.set_style("whitegrid")
+sns.set_context("notebook", font_scale={"small": 0.8, "medium": 1.0, "large": 1.2}.get(_font_size, 1.0))
+plt.rcParams['font.family'] = _font_family
 plt.figure(figsize=(10, 6))
 
 numeric_cols = data.select_dtypes(include='number').columns.tolist()
@@ -350,7 +407,7 @@ if len(numeric_cols) >= 2:
         metric_col = numeric_cols[0]
         data[date_col] = pd.to_datetime(data[date_col], errors='coerce')
         sorted_data = data.sort_values(date_col)
-        plt.plot(sorted_data[date_col], sorted_data[metric_col], marker='o', linewidth=2)
+        plt.plot(sorted_data[date_col], sorted_data[metric_col], marker='o', linewidth=2, color=_accent)
         plt.title(f'{metric_col} over {date_col}')
         plt.xlabel(date_col)
         plt.ylabel(metric_col)
@@ -360,20 +417,20 @@ if len(numeric_cols) >= 2:
             cat_col = cat_cols[0]
             metric_col = numeric_cols[0]
             grouped = data.groupby(cat_col)[metric_col].sum().sort_values(ascending=False).head(10)
-            ax = grouped.plot(kind='bar', color='#6366f1')
+            ax = grouped.plot(kind='bar', color=_accent)
             plt.title(f'Total {metric_col} by {cat_col}')
             plt.xlabel(cat_col)
             plt.ylabel(metric_col)
             plt.xticks(rotation=45)
             for container in ax.containers:
-                ax.bar_label(container, fmt='%.0f', padding=3, fontsize=8)
+                ax.bar_label(container, fmt='%%.0f', padding=3, fontsize=8)
         else:
-            plt.hist(data[numeric_cols[0]].dropna(), bins=20, color='#6366f1', edgecolor='white')
+            plt.hist(data[numeric_cols[0]].dropna(), bins=20, color=_accent, edgecolor='white')
             plt.title(f'Distribution of {numeric_cols[0]}')
             plt.xlabel(numeric_cols[0])
             plt.ylabel('Frequency')
 elif len(numeric_cols) == 1:
-    plt.hist(data[numeric_cols[0]].dropna(), bins=20, color='#6366f1', edgecolor='white')
+    plt.hist(data[numeric_cols[0]].dropna(), bins=20, color=_accent, edgecolor='white')
     plt.title(f'Distribution of {numeric_cols[0]}')
     plt.xlabel(numeric_cols[0])
     plt.ylabel('Frequency')
@@ -384,11 +441,13 @@ else:
 plt.tight_layout()
 plt.savefig(plot_path, dpi=150, bbox_inches='tight')
 print(f"Plot saved to {plot_path}")
-`
+`, accent)
 }
 
-func (pb *PythonBridge) bokehTemplate() string {
-	return `import sys
+func (pb *PythonBridge) bokehTemplate(dc DesignConfig) string {
+	accent := dc.hexAccent()
+	return fmt.Sprintf(`import sys
+import json
 import pandas as pd
 from bokeh.plotting import figure, output_file, save
 from bokeh.io import output_file, save
@@ -397,7 +456,6 @@ from bokeh.layouts import column
 from bokeh.transform import factor_cmap
 from bokeh.palettes import Category10
 import numpy as np
-import json
 from math import pi
 
 if len(sys.argv) < 3:
@@ -406,6 +464,10 @@ if len(sys.argv) < 3:
 
 csv_path = sys.argv[1]
 plot_path = sys.argv[2]
+
+# Design config
+_design = json.loads(sys.argv[3]) if len(sys.argv) > 3 else {}
+_accent = _design.get('accentColor', '%[1]s')
 
 try:
     data = pd.read_csv(csv_path)
@@ -429,9 +491,9 @@ if len(numeric_cols) >= 2:
         source = ColumnDataSource(data=dict(x=df[date_col].tolist(), y=df[metric_col].tolist()))
         p = figure(title=f'{metric_col} over {date_col}', x_axis_label=date_col, y_axis_label=metric_col,
                    tools=TOOLS, x_axis_type='datetime', width=900, height=500, toolbar_location='above')
-        p.line('x', 'y', source=source, line_width=2, color='#6366f1')
-        p.circle('x', 'y', source=source, size=6, color='#6366f1', alpha=0.6)
-        p.add_tools(HoverTool(tooltips=[('Date', '@x{%F}'), ('Value', '@y{0,0.00}')], formatters={'@x': 'datetime'}))
+        p.line('x', 'y', source=source, line_width=2, color=_accent)
+        p.circle('x', 'y', source=source, size=6, color=_accent, alpha=0.6)
+        p.add_tools(HoverTool(tooltips=[('Date', '@x{%%F}'), ('Value', '@y{%%0,0.00}')], formatters={'@x': 'datetime'}))
         output_file(plot_path, title='Time Series')
         save(p)
     else:
@@ -444,10 +506,10 @@ if len(numeric_cols) >= 2:
             source = ColumnDataSource(data=dict(cats=cats, vals=vals))
             p = figure(x_range=cats, title=f'Total {metric_col} by {cat_col}', x_axis_label=cat_col, y_axis_label=metric_col,
                        tools=TOOLS, width=900, height=500, toolbar_location='above')
-            p.vbar(x='cats', top='vals', source=source, width=0.7, color='#6366f1', legend_label=metric_col)
+            p.vbar(x='cats', top='vals', source=source, width=0.7, color=_accent, legend_label=metric_col)
             p.xgrid.grid_line_color = None
             p.xaxis.major_label_orientation = pi/4
-            p.add_tools(HoverTool(tooltips=[(cat_col, '@cats'), (metric_col, '@vals{0,0.00}')]))
+            p.add_tools(HoverTool(tooltips=[(cat_col, '@cats'), (metric_col, '@vals{%%0,0.00}')]))
             output_file(plot_path, title='Bar Chart')
             save(p)
         else:
@@ -456,7 +518,7 @@ if len(numeric_cols) >= 2:
             source = ColumnDataSource(data=dict(top=hist, left=edges[:-1], right=edges[1:]))
             p = figure(title=f'Distribution of {col}', x_axis_label=col, y_axis_label='Frequency',
                        tools=TOOLS, width=900, height=500, toolbar_location='above')
-            p.quad(top='top', bottom=0, left='left', right='right', source=source, fill_color='#6366f1', line_color='white')
+            p.quad(top='top', bottom=0, left='left', right='right', source=source, fill_color=_accent, line_color='white')
             output_file(plot_path, title='Histogram')
             save(p)
 elif len(numeric_cols) == 1:
@@ -465,7 +527,7 @@ elif len(numeric_cols) == 1:
     source = ColumnDataSource(data=dict(top=hist, left=edges[:-1], right=edges[1:]))
     p = figure(title=f'Distribution of {col}', x_axis_label=col, y_axis_label='Frequency',
                tools=TOOLS, width=900, height=500, toolbar_location='above')
-    p.quad(top='top', bottom=0, left='left', right='right', source=source, fill_color='#6366f1', line_color='white')
+    p.quad(top='top', bottom=0, left='left', right='right', source=source, fill_color=_accent, line_color='white')
     output_file(plot_path, title='Histogram')
     save(p)
 else:
@@ -476,16 +538,17 @@ else:
     save(p)
 
 print(f"Plot saved to {plot_path}")
-`
+`, accent)
 }
 
-func (pb *PythonBridge) plotlyTemplate() string {
-	return `import sys
+func (pb *PythonBridge) plotlyTemplate(dc DesignConfig) string {
+	accent := dc.hexAccent()
+	return fmt.Sprintf(`import sys
+import json
 import pandas as pd
 import plotly.express as px
 import plotly.io as pio
 import numpy as np
-import json
 
 if len(sys.argv) < 3:
     print("Error: CSV path or plot path not provided", file=sys.stderr)
@@ -493,6 +556,10 @@ if len(sys.argv) < 3:
 
 csv_path = sys.argv[1]
 plot_path = sys.argv[2]
+
+# Design config
+_design = json.loads(sys.argv[3]) if len(sys.argv) > 3 else {}
+_accent = _design.get('accentColor', '%[1]s')
 
 try:
     data = pd.read_csv(csv_path)
@@ -512,7 +579,7 @@ if len(numeric_cols) >= 2:
         df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
         df = df.sort_values(date_col).dropna(subset=[date_col, metric_col])
         fig = px.line(df, x=date_col, y=metric_col, title=f'{metric_col} over {date_col}',
-                      markers=True, template='plotly_white')
+                      markers=True, template='plotly_white', color_discrete_sequence=[_accent])
         fig.update_layout(width=900, height=500, hovermode='x unified')
     else:
         if cat_cols:
@@ -520,17 +587,17 @@ if len(numeric_cols) >= 2:
             metric_col = numeric_cols[0]
             grouped = data.groupby(cat_col)[metric_col].sum().sort_values(ascending=False).head(10).reset_index()
             fig = px.bar(grouped, x=cat_col, y=metric_col, title=f'Total {metric_col} by {cat_col}',
-                         color=cat_col, color_discrete_sequence=['#6366f1'], template='plotly_white')
+                         color=cat_col, color_discrete_sequence=[_accent], template='plotly_white')
             fig.update_layout(width=900, height=500, showlegend=False, xaxis_tickangle=-45)
         else:
             col = numeric_cols[0]
             fig = px.histogram(data, x=col, nbins=20, title=f'Distribution of {col}',
-                               template='plotly_white', color_discrete_sequence=['#6366f1'])
+                               template='plotly_white', color_discrete_sequence=[_accent])
             fig.update_layout(width=900, height=500, bargap=0.05)
 elif len(numeric_cols) == 1:
     col = numeric_cols[0]
     fig = px.histogram(data, x=col, nbins=20, title=f'Distribution of {col}',
-                       template='plotly_white', color_discrete_sequence=['#6366f1'])
+                       template='plotly_white', color_discrete_sequence=[_accent])
     fig.update_layout(width=900, height=500, bargap=0.05)
 else:
     fig = px.scatter(title='Dataset Overview', template='plotly_white')
@@ -540,7 +607,7 @@ else:
 
 pio.write_html(fig, plot_path, auto_open=False, include_plotlyjs='cdn')
 print(f"Plot saved to {plot_path}")
-`
+`, accent)
 }
 
 // stripCodeFences removes ```python ... ``` or ``` ... ``` wrappers from LLM output.

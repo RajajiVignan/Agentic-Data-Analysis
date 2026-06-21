@@ -44,8 +44,10 @@ import {
   fetchMe,
   logout as apiLogout,
   clearSession as apiClearSession,
+  regeneratePlot,
 } from "@/lib/api";
 import { JoinConfigurator } from "@/components/JoinConfigurator";
+import { SchemaDesigner } from "@/components/SchemaDesigner";
 import { SQLQueryEditor } from "@/components/SQLQueryEditor";
 import { ScheduleManager } from "@/components/ScheduleManager";
 import { DashboardEditor } from "@/components/DashboardEditor";
@@ -63,7 +65,7 @@ import type {
   SharedDashboardData,
 } from "@/lib/api";
 
-type NavTab = "explore" | "dashboards" | "data" | "context" | "share" | "joins" | "query" | "reports" | "editor" | "profiler";
+type NavTab = "explore" | "dashboards" | "data" | "context" | "share" | "schema" | "query" | "reports" | "editor" | "profiler";
 
 export default function Workspace() {
   const dashboardRef = useRef<HTMLDivElement | null>(null);
@@ -301,7 +303,7 @@ export default function Workspace() {
     const currentPrompt = suggestionPrompt ?? prompt;
     setPrompt("");
     try {
-      const data = await runAnalysis(selectedDatasetIds, currentPrompt, sessionId ?? undefined, vizType);
+      const data = await runAnalysis(selectedDatasetIds, currentPrompt, sessionId ?? undefined, vizType, accentColor, chartScheme, fontFamily, fontSize);
       setResult(data);
       if (data.sessionId) {
         setSessionId(data.sessionId);
@@ -478,6 +480,51 @@ export default function Workspace() {
     URL.revokeObjectURL(url);
   }
 
+  // Auto-regenerate Python plot when design settings change
+  const lastDesignRef = useRef<string>("");
+  useEffect(() => {
+    if (!result?.dashboard?.plotUrl || selectedDatasetIds.length === 0) return;
+    if (conversationTurns.length === 0) return;
+    const designKey = `${accentColor}|${chartScheme}|${fontFamily}|${fontSize}|${vizType}`;
+    if (designKey === lastDesignRef.current) return;
+    lastDesignRef.current = designKey;
+    const lastPrompt = conversationTurns[conversationTurns.length - 1]?.prompt ?? "";
+    const dsId = selectedDatasetIds[0];
+    let cancelled = false;
+    (async () => {
+      const newPlot = await regeneratePlot(dsId, lastPrompt, vizType, accentColor, chartScheme, fontFamily, fontSize);
+      if (!cancelled && newPlot?.plotUrl && newPlot.plotUrl !== result?.dashboard?.plotUrl) {
+        setResult((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            dashboard: {
+              ...prev.dashboard,
+              plotUrl: newPlot.plotUrl,
+              plotType: newPlot.vizType,
+            },
+          };
+        });
+        setConversationTurns((prev) => {
+          if (prev.length === 0) return prev;
+          const updated = [...prev];
+          const last = { ...updated[updated.length - 1] };
+          last.result = {
+            ...last.result,
+            dashboard: {
+              ...last.result.dashboard,
+              plotUrl: newPlot.plotUrl,
+              plotType: newPlot.vizType,
+            },
+          };
+          updated[updated.length - 1] = last;
+          return updated;
+        });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [accentColor, chartScheme, fontFamily, fontSize, vizType, result?.dashboard?.plotUrl, selectedDatasetIds]);
+
   // --- Nav-based page title ---
 
   const pageTitle: Record<NavTab, { subtitle: string; title: string }> = {
@@ -486,7 +533,7 @@ export default function Workspace() {
     data: { subtitle: "Data Sources", title: "Connections & Datasets" },
     context: { subtitle: "Context", title: "Verified Context" },
     share: { subtitle: "Share", title: "Share & Export" },
-    joins: { subtitle: "Data Joins", title: "Cross-Dataset Joins" },
+    schema: { subtitle: "Schema Designer", title: "Visual Schema Designer" },
     query: { subtitle: "SQL Mode", title: "Custom SQL Query" },
     reports: { subtitle: "Automation", title: "Scheduled Reports & Alerts" },
     editor: { subtitle: "Dashboard Editor", title: "Drag-and-Drop Editor" },
@@ -570,21 +617,6 @@ export default function Workspace() {
             >
               {theme === "light" ? <Moon size={16} /> : <Sun size={16} />}
             </button>
-            <div
-              className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase flex items-center gap-1.5 ${
-                backendStatus === "online"
-                  ? "bg-emerald-100 text-emerald-600"
-                  : "bg-red-100 text-red-600"
-              }`}
-            >
-              <span
-                className={`w-1.5 h-1.5 rounded-full ${
-                  backendStatus === "online" ? "bg-emerald-500" : "bg-red-500"
-                }`}
-              />
-              <span className="hidden sm:inline">Backend </span>
-              {backendStatus}
-            </div>
           </div>
         </header>
 
@@ -735,21 +767,15 @@ export default function Workspace() {
             </div>
           )}
 
-          {/* --- JOINS TAB (Feature 4) --- */}
-          {activeNav === "joins" && (
-            <div className="space-y-4">
-              <JoinConfigurator
-                datasets={availableDatasets}
-                onJoinComplete={(datasetId) => {
-                  setSelectedDatasetIds((prev) => [...prev, datasetId]);
-                  loadDatasets();
-                }}
-              />
-              <div className="text-xs text-slate-400 bg-slate-50 rounded-xl p-4">
-                <strong>How it works:</strong> Select two datasets and their join keys, then choose a join type.
-                The result is saved as a new dataset you can analyze.
-              </div>
-            </div>
+          {/* --- SCHEMA TAB --- */}
+          {activeNav === "schema" && (
+            <SchemaDesigner
+              datasets={availableDatasets}
+              onSchemaApplied={(relationships) => {
+                // Apply schema: for now just notify the user
+                setError(`Schema applied with ${relationships.length} relationship(s). Use the query tab to run cross-table queries.`);
+              }}
+            />
           )}
 
           {/* --- QUERY TAB (Feature 5) --- */}

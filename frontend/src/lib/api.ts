@@ -214,10 +214,19 @@ export async function uploadFile(file: File): Promise<{ datasetId: string; filen
   return { datasetId: data.datasetId, filename: data.filename };
 }
 
-export async function runAnalysis(datasetIds: string[], prompt: string, sessionId?: string, vizType?: string): Promise<AnalysisResult> {
+export async function runAnalysis(
+  datasetIds: string[],
+  prompt: string,
+  sessionId?: string,
+  vizType?: string,
+  accentColor?: string,
+  chartScheme?: string,
+  fontFamily?: string,
+  fontSize?: string,
+): Promise<AnalysisResult> {
   const res = await apiFetch("/analyze", {
     method: "POST",
-    body: JSON.stringify({ datasetIds, prompt, sessionId, vizType }),
+    body: JSON.stringify({ datasetIds, prompt, sessionId, vizType, accentColor, chartScheme, fontFamily, fontSize }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error ?? "Analysis failed");
@@ -243,9 +252,14 @@ export async function runAnalysis(datasetIds: string[], prompt: string, sessionI
   };
 }
 
-export async function regeneratePlot(datasetId: string, prompt: string, vizType: string): Promise<{ plotUrl: string; vizType: string } | null> {
+export async function regeneratePlot(datasetId: string, prompt: string, vizType: string, accentColor?: string, chartScheme?: string, fontFamily?: string, fontSize?: string): Promise<{ plotUrl: string; vizType: string } | null> {
   try {
-    const res = await apiFetch(`/python-plot?datasetId=${encodeURIComponent(datasetId)}&prompt=${encodeURIComponent(prompt)}&vizType=${encodeURIComponent(vizType)}`);
+    let url = `/python-plot?datasetId=${encodeURIComponent(datasetId)}&prompt=${encodeURIComponent(prompt)}&vizType=${encodeURIComponent(vizType)}`;
+    if (accentColor) url += `&accentColor=${encodeURIComponent(accentColor)}`;
+    if (chartScheme) url += `&chartScheme=${encodeURIComponent(chartScheme)}`;
+    if (fontFamily) url += `&fontFamily=${encodeURIComponent(fontFamily)}`;
+    if (fontSize) url += `&fontSize=${encodeURIComponent(fontSize)}`;
+    const res = await apiFetch(url);
     if (!res.ok) return null;
     return await res.json();
   } catch {

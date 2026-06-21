@@ -79,7 +79,17 @@ type KpiProps = {
   change: string;
 };
 
-const COLORS = ['#6366f1', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#06b6d4', '#a855f7'];
+function getChartColors(): string[] {
+  if (typeof document === 'undefined') return ['#6366f1', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#06b6d4', '#a855f7'];
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--chart-colors').trim();
+  if (!raw) return ['#6366f1', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#06b6d4', '#a855f7'];
+  return raw.split(',').map(s => s.trim());
+}
+
+function getAccentColor(): string {
+  if (typeof document === 'undefined') return '#6366f1';
+  return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#6366f1';
+}
 
 type ChartPoint = {
   label: string;
@@ -324,6 +334,7 @@ export function TrendChart({ data, onPin }: { data: ChartPoint[]; onPin?: () => 
 
 export function SegmentChart({ data, onPin }: { data: ChartPoint[]; onPin?: () => void }) {
   if (!data || data.length === 0) return null;
+  const colors = getChartColors();
   return (
     <ChartCard title="Interactive Segments" badge="Recharts Pie" onPin={onPin} data-export-plot="Segment Chart">
       <ResponsiveContainer width="100%" height={280}>
@@ -338,7 +349,7 @@ export function SegmentChart({ data, onPin }: { data: ChartPoint[]; onPin?: () =
             label={({ name, percent }) => `${name ?? ""} ${((percent ?? 0) * 100).toFixed(0)}%`}
           >
             {data.map((_, i) => (
-              <Cell key={i} fill={COLORS[i % COLORS.length]} />
+              <Cell key={i} fill={colors[i % colors.length]} />
             ))}
           </Pie>
           <Tooltip
@@ -416,29 +427,30 @@ type ScatterPoint = {
 
 export function ScatterTrendChart({ data, onPin }: { data: ScatterPoint[]; onPin?: () => void }) {
   if (!data || data.length === 0) return null;
+  const colors = getChartColors();
   return (
     <ChartCard title="Correlation Explorer" badge="Recharts Scatter" onPin={onPin} data-export-plot="Scatter Plot">
       <ResponsiveContainer width="100%" height={280}>
-        <ScatterChart margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" strokeOpacity={0.5} />
-          <XAxis dataKey="x" name="x" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
-          <YAxis dataKey="y" name="y" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
-          <ZAxis dataKey="z" range={[60, 400]} />
-          <Tooltip
-            contentStyle={{
-              background: '#fff',
-              border: '1px solid #e2e8f0',
-              borderRadius: '10px',
-              fontSize: '12px',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
-            }}
-            cursor={{ strokeDasharray: '3 3' }}
-          />
-          <Scatter data={data} fill="var(--accent, #6366f1)" fillOpacity={0.6}>
-            {data.map((point, i) => (
-              <Cell key={i} fill={COLORS[i % COLORS.length]} />
-            ))}
-          </Scatter>
+      <ScatterChart margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" strokeOpacity={0.5} />
+        <XAxis dataKey="x" name="x" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+        <YAxis dataKey="y" name="y" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+        <ZAxis dataKey="z" range={[60, 400]} />
+        <Tooltip
+          contentStyle={{
+            background: '#fff',
+            border: '1px solid #e2e8f0',
+            borderRadius: '10px',
+            fontSize: '12px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
+          }}
+          cursor={{ strokeDasharray: '3 3' }}
+        />
+        <Scatter data={data} fill="var(--accent, #6366f1)" fillOpacity={0.6}>
+          {data.map((point, i) => (
+            <Cell key={i} fill={colors[i % colors.length]} />
+          ))}
+        </Scatter>
         </ScatterChart>
       </ResponsiveContainer>
     </ChartCard>

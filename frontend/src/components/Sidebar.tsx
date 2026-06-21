@@ -8,6 +8,7 @@ import {
   Plus,
   Check,
   GitMerge,
+  Split,
   Terminal,
   CalendarClock,
   Layout,
@@ -112,7 +113,7 @@ export function Sidebar({ datasets, selectedDatasetIds, onToggleDataset, onConne
           <div className="pt-4 pb-1 text-[10px] font-semibold text-slate-600 uppercase tracking-widest px-3">
             Advanced
           </div>
-          <NavItem icon={<GitMerge size={18} />} label="Joins" active={activeNav === 'joins'} onClick={() => handleNavChange('joins')} />
+          <NavItem icon={<Split size={18} />} label="Schema" active={activeNav === 'schema'} onClick={() => handleNavChange('schema')} />
           <NavItem icon={<Terminal size={18} />} label="SQL Query" active={activeNav === 'query'} onClick={() => handleNavChange('query')} />
           <NavItem icon={<CalendarClock size={18} />} label="Reports" active={activeNav === 'reports'} onClick={() => handleNavChange('reports')} />
           <NavItem icon={<Layout size={18} />} label="Editor" active={activeNav === 'editor'} onClick={() => handleNavChange('editor')} />

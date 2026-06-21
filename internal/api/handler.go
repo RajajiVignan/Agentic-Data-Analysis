@@ -421,11 +421,15 @@ id := newID()
 
 func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		DatasetId  string   `json:"datasetId"`
-		DatasetIds []string `json:"datasetIds"`
-		Prompt     string   `json:"prompt"`
-		SessionId  string   `json:"sessionId,omitempty"`
-		VizType    string   `json:"vizType,omitempty"`
+		DatasetId    string   `json:"datasetId"`
+		DatasetIds   []string `json:"datasetIds"`
+		Prompt       string   `json:"prompt"`
+		SessionId    string   `json:"sessionId,omitempty"`
+		VizType      string   `json:"vizType,omitempty"`
+		AccentColor  string   `json:"accentColor,omitempty"`
+		ChartScheme  string   `json:"chartScheme,omitempty"`
+		FontFamily   string   `json:"fontFamily,omitempty"`
+		FontSize     string   `json:"fontSize,omitempty"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -566,11 +570,25 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		vizType = VizTypeMatplotlib
 	}
 
+	// Build design JSON for Python plot
+	designJSON := ""
+	if body.AccentColor != "" || body.ChartScheme != "" || body.FontFamily != "" || body.FontSize != "" {
+		dc := DesignConfig{
+			AccentColor: body.AccentColor,
+			ChartScheme: body.ChartScheme,
+			FontFamily:  body.FontFamily,
+			FontSize:    body.FontSize,
+		}
+		if b, err := json.Marshal(dc); err == nil {
+			designJSON = string(b)
+		}
+	}
+
 	// Generate Python plot for the first dataset that has a file path
 	var plotURL string
 	for _, ds := range activeDatasets {
 		if ds.FilePath != "" {
-			plotURL = h.plotService.GeneratePlot(ds, body.Prompt, vizType)
+			plotURL = h.plotService.GeneratePlot(ds, body.Prompt, vizType, designJSON)
 			if plotURL != "" {
 				break
 			}
