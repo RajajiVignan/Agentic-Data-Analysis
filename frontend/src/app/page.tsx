@@ -53,6 +53,8 @@ import { ScheduleManager } from "@/components/ScheduleManager";
 import { DashboardEditor } from "@/components/DashboardEditor";
 import { DataProfiler } from "@/components/DataProfiler";
 import { VizWidget } from "@/components/VizWidget";
+import { CommandPalette } from "@/components/CommandPalette";
+import { useToast } from "@/components/ToastProvider";
 import type { AuthUser } from "@/lib/api";
 import { exportPlotsAsPdf } from "@/lib/export";
 import type {
@@ -117,6 +119,7 @@ export default function Workspace() {
     () => (typeof window !== "undefined" ? localStorage.getItem("insightpilot-viz-type") : null) ?? "matplotlib"
   );
   const [selectedChartType, setSelectedChartType] = useState<string | null>(null);
+  const { addToast } = useToast();
 
   // --- Initialization ---
 
@@ -277,18 +280,19 @@ export default function Workspace() {
     if (!file) return;
 
     setUploadLoading(true);
-    setError(null);
-    try {
-      const data = await uploadFile(file);
-      await loadDatasets();
-      setSelectedDatasetIds([data.datasetId]);
-      setPrompt("");
-      setResult(null);
-      setSessionId(null);
-      setConversationTurns([]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed");
-    } finally {
+      setError(null);
+      try {
+        const data = await uploadFile(file);
+        await loadDatasets();
+        setSelectedDatasetIds([data.datasetId]);
+        setPrompt("");
+        setResult(null);
+        setSessionId(null);
+        setConversationTurns([]);
+        addToast("File uploaded successfully", "success");
+      } catch (err) {
+        addToast(err instanceof Error ? err.message : "Upload failed", "error");
+      } finally {
       setUploadLoading(false);
     }
   }
@@ -312,8 +316,9 @@ export default function Workspace() {
         ...prev,
         { prompt: currentPrompt, result: data },
       ]);
+      addToast("Analysis complete", "success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Analysis failed");
+      addToast(err instanceof Error ? err.message : "Analysis failed", "error");
     } finally {
       setAnalyzeLoading(false);
     }
@@ -346,8 +351,9 @@ export default function Workspace() {
       if (data.datasetId) {
         setSelectedDatasetIds((prev) => [...prev, data.datasetId]);
       }
+      addToast("Sample data connected", "success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to connect data source");
+      addToast(err instanceof Error ? err.message : "Failed to connect data source", "error");
     }
   }
 
@@ -360,8 +366,9 @@ export default function Workspace() {
       setError(null);
       const blob = await exportCleanedCsv(selectedDatasetIds);
       downloadBlob(blob, selectedDatasetIds.length === 1 ? "cleaned-data.csv" : "cleaned-datasets.csv");
+      addToast("CSV exported successfully", "success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "CSV export failed");
+      addToast(err instanceof Error ? err.message : "CSV export failed", "error");
     }
   }
 
@@ -383,8 +390,9 @@ export default function Workspace() {
         await apiAddChartToDashboard(activeDashboardId, saved.id);
         await loadDashboards();
       }
+      addToast("Chart pinned to dashboard", "success");
     } catch (e) {
-      console.error("Pinning failed", e);
+      addToast("Failed to pin chart", "error");
     }
   }
 
@@ -396,8 +404,9 @@ export default function Workspace() {
         await apiRemoveChartFromDashboard(activeDashboardId, id);
         await loadDashboards();
       }
+      addToast("Chart unpinned", "success");
     } catch (e) {
-      console.error("Unpin failed", e);
+      addToast("Failed to unpin chart", "error");
     }
   }
 
@@ -407,14 +416,15 @@ export default function Workspace() {
     try {
       const chartIds = pinnedCharts.map((c) => c.id);
       if (chartIds.length === 0) {
-        setError("Pin some charts first before creating a share link.");
+        addToast("Pin some charts first before creating a share link.", "warning");
         setShareLoading(false);
         return;
       }
       const data = await createShareLink(chartIds);
       setShareLink(data.url);
+      addToast("Share link created!", "success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create share link");
+      addToast(err instanceof Error ? err.message : "Failed to create share link", "error");
     } finally {
       setShareLoading(false);
     }
@@ -427,7 +437,7 @@ export default function Workspace() {
       await loadDatasets();
     } catch (e) {
       console.error("Refresh failed", e);
-      setError(e instanceof Error ? e.message : "Refresh failed");
+      addToast(e instanceof Error ? e.message : "Refresh failed", "error");
     } finally {
       setRefreshingId(null);
     }
@@ -438,8 +448,9 @@ export default function Workspace() {
       const d = await apiCreateDashboard(name);
       setDashboards((prev) => [...prev, d]);
       setActiveDashboardId(d.id);
+      addToast("Dashboard created", "success");
     } catch (e) {
-      console.error("Failed to create dashboard", e);
+      addToast("Failed to create dashboard", "error");
     }
   }
 
@@ -556,6 +567,16 @@ export default function Workspace() {
 
   return (
     <div className="flex min-h-dvh bg-slate-50 text-slate-900">
+      <CommandPalette
+        onNavigate={(tab) => setActiveNav(tab as NavTab)}
+        onNewAnalysis={handleNewAnalysis}
+        onToggleTheme={() => setTheme(theme === "light" ? "dark" : "light")}
+        onExportCsv={handleExportCsv}
+        onExportPdf={handleExportPdf}
+        theme={theme}
+        hasData={selectedDatasetIds.length > 0}
+        hasResults={conversationTurns.length > 0}
+      />
       <Sidebar
         datasets={availableDatasets}
         selectedDatasetIds={selectedDatasetIds}
@@ -654,7 +675,7 @@ export default function Workspace() {
                 {conversationTurns.length > 0 && (
                   <div className="space-y-8">
                     {conversationTurns.map((turn, i) => (
-                      <div key={i} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                      <div key={i} className="bg-white rounded-2xl overflow-hidden card-modern">
                         <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 flex items-center gap-3">
                           <div className="w-6 h-6 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0">
                             <span className="text-[10px] font-bold text-indigo-600">Q</span>
@@ -678,7 +699,7 @@ export default function Workspace() {
 
                 {/* Export PDF — all conversation visualizations */}
                 {(conversationTurns.length > 0 || result) && (
-                  <div className="flex items-center gap-2 p-3 bg-white rounded-2xl border border-slate-200/80 shadow-sm">
+                  <div className="flex items-center gap-2 p-3 bg-white rounded-2xl card-modern">
                     <span className="text-xs font-medium text-slate-400 mr-2">Export</span>
                     <button
                       onClick={handleExportPdf}
@@ -800,7 +821,7 @@ export default function Workspace() {
           {activeNav === "profiler" && (
             <div className="space-y-4">
               {selectedDatasetIds.length === 0 ? (
-                <div className="p-8 text-center text-sm text-slate-400 bg-white rounded-2xl border border-slate-200 shadow-sm">
+                <div className="p-8 text-center text-sm text-slate-400 bg-white rounded-2xl card-modern">
                   <BarChart3 size={32} className="mx-auto mb-3 opacity-50" />
                   <p>Select a dataset from the sidebar to view its profile</p>
                 </div>
@@ -819,7 +840,7 @@ export default function Workspace() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <button
                   onClick={handleExportCsv}
-                  className="p-6 bg-white rounded-xl border border-slate-200 shadow-sm hover:border-indigo-300 hover:shadow-md transition-all text-left"
+                  className="p-6 bg-white rounded-xl card-modern hover:shadow-md transition-all text-left hover-glow"
                 >
                   <FileDown size={24} className="text-indigo-500 mb-2" />
                   <div className="text-sm font-semibold text-slate-800">Export Cleaned CSV</div>
@@ -827,7 +848,7 @@ export default function Workspace() {
                 </button>
                 <button
                   onClick={handleExportPdf}
-                  className="p-6 bg-white rounded-xl border border-slate-200 shadow-sm hover:border-indigo-300 hover:shadow-md transition-all text-left"
+                  className="p-6 bg-white rounded-xl card-modern hover:shadow-md transition-all text-left hover-glow"
                 >
                   <Download size={24} className="text-indigo-500 mb-2" />
                   <div className="text-sm font-semibold text-slate-800">Export PDF</div>
@@ -836,7 +857,7 @@ export default function Workspace() {
                 <button
                   onClick={handleCreateShareLink}
                   disabled={shareLoading || pinnedCharts.length === 0}
-                  className="p-6 bg-white rounded-xl border border-slate-200 shadow-sm hover:border-indigo-300 hover:shadow-md transition-all text-left disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="p-6 bg-white rounded-xl card-modern hover:shadow-md transition-all text-left disabled:opacity-50 disabled:cursor-not-allowed hover-glow"
                 >
                   <LayoutDashboard size={24} className="text-indigo-500 mb-2" />
                   <div className="text-sm font-semibold text-slate-800">Share Dashboard</div>
@@ -848,7 +869,7 @@ export default function Workspace() {
                 </button>
               </div>
               {shareLink && (
-                <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-xl">
+                <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-xl card-modern">
                   <div className="text-sm font-semibold text-indigo-800 mb-2">Share Link Ready</div>
                   <div className="flex gap-2">
                     <input

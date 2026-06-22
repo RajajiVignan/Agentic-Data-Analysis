@@ -18,12 +18,12 @@ function AnalysisSkeleton() {
         {Array.from({ length: 3 }).map((_, i) => (
           <div
             key={i}
-            className="h-28 rounded-2xl border border-slate-200 bg-gradient-to-r from-slate-100 via-slate-50 to-slate-100 animate-pulse"
+            className="h-28 rounded-2xl animate-shimmer rounded-xl"
             style={{ animationDelay: `${i * 100}ms` }}
           />
         ))}
       </div>
-      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm">
+      <div className="card-modern rounded-2xl">
         <PlotLoading />
       </div>
     </div>
@@ -43,7 +43,7 @@ export function DashboardView({ result, dashboardRef, onPinChart }: DashboardVie
     <div ref={dashboardRef} className="space-y-6 animate-slide-up">
       {/* Narrative summary */}
       {hasNarrative && (
-        <div className="p-5 bg-gradient-to-br from-indigo-50/80 to-purple-50/80 border border-indigo-100/80 rounded-2xl shadow-sm card-hover backdrop-blur-sm">
+        <div className="p-5 bg-gradient-to-br from-indigo-50/80 to-purple-50/80 border border-indigo-100/80 rounded-2xl card-hover backdrop-blur-sm">
           <div className="flex items-start gap-3">
             <div className="mt-0.5 p-1.5 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg shadow-sm">
               <Sparkles size={16} className="text-white" />
@@ -193,7 +193,7 @@ export function DashboardView({ result, dashboardRef, onPinChart }: DashboardVie
 
       {/* SQL Queries */}
       {result.sqlQueries && result.sqlQueries.length > 0 && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden card-hover">
+        <div className="bg-white rounded-2xl overflow-hidden card-hover card-modern">
           <button
             onClick={() => setShowSql(!showSql)}
             className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"

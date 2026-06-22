@@ -20,6 +20,7 @@ import {
   Cell,
   Legend,
   ZAxis,
+  Brush,
 } from 'recharts';
 import { downloadChartPng, downloadChartJpeg } from '@/lib/export';
 
@@ -185,7 +186,7 @@ function ChartCard({ children, title, badge, onPin, className = "" }: {
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
   return (
-    <div ref={cardRef} className={`p-5 bg-white rounded-2xl border border-slate-200/80 shadow-sm space-y-4 relative group card-hover ${className}`} data-export-plot={title}>
+    <div ref={cardRef} className={`p-5 bg-white rounded-2xl space-y-4 relative group card-hover card-modern ${className}`} data-export-plot={title}>
       <div className="flex items-center justify-between">
         <strong className="text-sm font-semibold text-slate-800">{title}</strong>
         <div className="flex items-center gap-1">
@@ -202,7 +203,7 @@ function ChartCard({ children, title, badge, onPin, className = "" }: {
 export function MetricTile({ label, value, change, onPin }: KpiProps & { onPin?: () => void }) {
   const isPositive = change.includes('+');
   return (
-    <div className="p-5 bg-white rounded-2xl border border-slate-200/80 shadow-sm space-y-1.5 relative group card-hover">
+    <div className="p-5 bg-white rounded-2xl space-y-1.5 relative group card-hover card-modern">
       <div className="absolute top-3 right-3">
         <button
           onClick={onPin}
@@ -325,7 +326,8 @@ export function TrendChart({ data, onPin }: { data: ChartPoint[]; onPin?: () => 
               boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
             }}
           />
-          <Bar dataKey="value" fill="var(--accent, #6366f1)" radius={[6, 6, 0, 0]} maxBarSize={48} />
+          <Bar dataKey="value" fill="var(--accent, #6366f1)" radius={[6, 6, 0, 0]} maxBarSize={48} animationDuration={600} animationEasing="ease-out" />
+          {data.length > 5 && <Brush dataKey="label" height={24} stroke="var(--accent, #6366f1)" fill="#e2e8f0" />}
         </BarChart>
       </ResponsiveContainer>
     </ChartCard>
@@ -346,6 +348,9 @@ export function SegmentChart({ data, onPin }: { data: ChartPoint[]; onPin?: () =
             cx="50%"
             cy="50%"
             outerRadius={100}
+            animationBegin={0}
+            animationDuration={800}
+            animationEasing="ease-out"
             label={({ name, percent }) => `${name ?? ""} ${((percent ?? 0) * 100).toFixed(0)}%`}
           >
             {data.map((_, i) => (
@@ -386,7 +391,8 @@ export function LineTrendChart({ data, onPin }: { data: ChartPoint[]; onPin?: ()
               boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
             }}
           />
-          <Line type="monotone" dataKey="value" stroke="var(--accent, #6366f1)" strokeWidth={2.5} dot={{ fill: 'var(--accent, #6366f1)', r: 4, strokeWidth: 2, stroke: '#fff' }} activeDot={{ r: 6, strokeWidth: 0 }} />
+          <Line type="monotone" dataKey="value" stroke="var(--accent, #6366f1)" strokeWidth={2.5} dot={{ fill: 'var(--accent, #6366f1)', r: 4, strokeWidth: 2, stroke: '#fff' }} activeDot={{ r: 6, strokeWidth: 0 }} animationDuration={600} animationEasing="ease-out" />
+          {data.length > 5 && <Brush dataKey="label" height={24} stroke="var(--accent, #6366f1)" fill="#e2e8f0" />}
         </LineChart>
       </ResponsiveContainer>
     </ChartCard>
@@ -411,7 +417,7 @@ export function AreaTrendChart({ data, onPin }: { data: ChartPoint[]; onPin?: ()
               boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
             }}
           />
-          <Area type="monotone" dataKey="value" stroke="var(--accent, #6366f1)" fill="var(--accent, #6366f1)" fillOpacity={0.1} strokeWidth={2.5} />
+          <Area type="monotone" dataKey="value" stroke="var(--accent, #6366f1)" fill="var(--accent, #6366f1)" fillOpacity={0.1} strokeWidth={2.5} animationDuration={600} animationEasing="ease-out" />
         </AreaChart>
       </ResponsiveContainer>
     </ChartCard>
@@ -446,7 +452,7 @@ export function ScatterTrendChart({ data, onPin }: { data: ScatterPoint[]; onPin
           }}
           cursor={{ strokeDasharray: '3 3' }}
         />
-        <Scatter data={data} fill="var(--accent, #6366f1)" fillOpacity={0.6}>
+        <Scatter data={data} fill="var(--accent, #6366f1)" fillOpacity={0.6} animationDuration={600} animationEasing="ease-out">
           {data.map((point, i) => (
             <Cell key={i} fill={colors[i % colors.length]} />
           ))}
@@ -486,8 +492,8 @@ export function ComboChart({ data, onPin, barKey = "bars", lineKey = "line" }: {
               boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
             }}
           />
-          <Bar dataKey={barKey} fill="var(--accent, #6366f1)" radius={[4, 4, 0, 0]} maxBarSize={32} />
-          <Line type="monotone" dataKey={lineKey} stroke="#ef4444" strokeWidth={2.5} dot={{ fill: '#ef4444', r: 4, strokeWidth: 2, stroke: '#fff' }} />
+          <Bar dataKey={barKey} fill="var(--accent, #6366f1)" radius={[4, 4, 0, 0]} maxBarSize={32} animationDuration={600} animationEasing="ease-out" />
+          <Line type="monotone" dataKey={lineKey} stroke="#ef4444" strokeWidth={2.5} dot={{ fill: '#ef4444', r: 4, strokeWidth: 2, stroke: '#fff' }} animationDuration={600} animationEasing="ease-out" />
         </ComposedChart>
       </ResponsiveContainer>
     </ChartCard>
@@ -533,7 +539,7 @@ export function HistogramChart({ column, buckets }: { column: string; buckets: {
   if (!buckets || buckets.length === 0) return null;
   const maxCount = Math.max(...buckets.map((x) => x.count));
   return (
-    <div className="p-4 bg-white rounded-2xl border border-slate-200/80 shadow-sm space-y-3 card-hover">
+    <div className="p-4 bg-white rounded-2xl space-y-3 card-hover card-modern">
       <strong className="text-xs font-semibold text-slate-700">{column}</strong>
       <div className="space-y-1.5">
         {buckets.map((b, i) => {
@@ -560,7 +566,7 @@ export function ExplainSection({ explanations }: { explanations: { chart: string
   const [open, setOpen] = useState(false);
   if (!explanations || explanations.length === 0) return null;
   return (
-    <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden card-hover">
+    <div className="bg-white rounded-2xl overflow-hidden card-hover card-modern">
       <button
         onClick={() => setOpen(!open)}
         className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
