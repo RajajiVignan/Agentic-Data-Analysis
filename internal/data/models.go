@@ -160,6 +160,19 @@ func ComputeMetadata(ds *Dataset, maxUniqueValues int) DatasetMetadata {
 	return meta
 }
 
+// MetricDefinition represents a named, reusable metric formula
+// in the business glossary (semantic layer).
+type MetricDefinition struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Expression  string `json:"expression"`
+	Description string `json:"description"`
+	DatasetID   string `json:"datasetId,omitempty"`
+	ReturnType  string `json:"returnType"` // "number", "percentage", "currency", "ratio"
+	CreatedAt   string `json:"createdAt"`
+	UpdatedAt   string `json:"updatedAt"`
+}
+
 func parseDateStr(s string) (time.Time, error) {
 	formats := []string{
 		"2006-01-02",

@@ -207,6 +207,8 @@ func (a *DeterministicAnalyzer) Analyze(ctx context.Context, req AnalysisRequest
 
 	explanations := buildExplanations(metricCol, catCol, dateCol, sqlQueries)
 
+	suggestedQuestions := BuildSuggestedQuestions(primary, metricCol, catCol, dateCol, activeCtx)
+
 	notebook := []NotebookStep{
 		{Title: "Data Profile", Body: fmt.Sprintf("Dataset %q has %d rows and %d columns.", primary.Filename, primary.Profile.RowCount, len(primary.Profile.Columns))},
 		{Title: "Column Selection", Body: fmt.Sprintf("Metric: %s, Category: %s, Date: %s", colName(metricCol), colName(catCol), colName(dateCol))},
@@ -244,10 +246,11 @@ func (a *DeterministicAnalyzer) Analyze(ctx context.Context, req AnalysisRequest
 			ChartTypes:      chartTypes,
 			Explanations:    explanations,
 		},
-		Assumptions:       assumptions,
-		Warnings:          warnings,
-		UsedDeterministic: true,
-		Context:           activeCtx,
+		Assumptions:        assumptions,
+		Warnings:           warnings,
+		UsedDeterministic:  true,
+		Context:            activeCtx,
+		SuggestedQuestions: suggestedQuestions,
 	}, nil
 }
 
@@ -460,6 +463,62 @@ func buildRecommendations(metricCol, catCol *data.Column) []string {
 		"Publish this board after validating with the data owner.",
 	)
 	return recs
+}
+
+// BuildSuggestedQuestions generates context-aware follow-up questions
+// based on the available columns and current filters.
+func BuildSuggestedQuestions(ds *data.Dataset, metricCol, catCol, dateCol *data.Column, ctx *ConversationContext) []string {
+	var questions []string
+	hasFilters := len(ctx.Filters) > 0
+
+	if catCol != nil && metricCol != nil {
+		questions = append(questions,
+			fmt.Sprintf("Show me the top 5 %s by %s", catCol.Name, metricCol.Name),
+			fmt.Sprintf("Filter by a specific %s", catCol.Name),
+		)
+	}
+
+	if dateCol != nil && metricCol != nil {
+		if hasFilters {
+			questions = append(questions,
+				fmt.Sprintf("Compare %s trend before and after filtering", metricCol.Name),
+			)
+		}
+		questions = append(questions,
+			fmt.Sprintf("Show me month-over-month growth for %s", metricCol.Name),
+			fmt.Sprintf("Which %s had the highest growth last period?", metricCol.Name),
+		)
+	}
+
+	if catCol != nil && dateCol != nil && metricCol != nil {
+		questions = append(questions,
+			fmt.Sprintf("Show me %s by %s over time", metricCol.Name, catCol.Name),
+		)
+	}
+
+	if metricCol != nil {
+		// Find another numeric column for correlation
+		for _, col := range ds.Profile.Columns {
+			if col.Type == "number" && col.Name != metricCol.Name {
+				questions = append(questions,
+					fmt.Sprintf("Is there a correlation between %s and %s?", metricCol.Name, col.Name),
+				)
+				break
+			}
+		}
+	}
+
+	if hasFilters {
+		questions = append(questions, "Reset filters and show me everything")
+	} else if catCol != nil {
+		questions = append(questions, "Give me a detailed breakdown by all segments")
+	}
+
+	if len(questions) > 6 {
+		questions = questions[:6]
+	}
+
+	return questions
 }
 
 func colName(c *data.Column) string {

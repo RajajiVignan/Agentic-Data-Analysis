@@ -9,6 +9,8 @@ import (
 	"os"
 	"time"
 
+	"insightpilot/internal/data"
+
 	_ "github.com/lib/pq"
 )
 
@@ -197,6 +199,9 @@ func (db *DB) initSchema() error {
 	if err := db.initDashboardLayoutsTable(); err != nil {
 		return err
 	}
+	if err := db.initGlossaryTable(); err != nil {
+		return err
+	}
 	return db.initUsersTable()
 }
 
@@ -333,6 +338,22 @@ type UserRecord struct {
 	Name         string    `json:"name"`
 	PasswordHash string    `json:"password_hash"`
 	CreatedAt    time.Time `json:"created_at"`
+}
+
+func (db *DB) initGlossaryTable() error {
+	_, err := db.conn.Exec(`
+		CREATE TABLE IF NOT EXISTS glossary_defs (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			expression TEXT DEFAULT '',
+			description TEXT DEFAULT '',
+			dataset_id TEXT DEFAULT '',
+			return_type TEXT DEFAULT 'number',
+			created_at TEXT DEFAULT '',
+			updated_at TEXT DEFAULT ''
+		)
+	`)
+	return err
 }
 
 func (db *DB) initUsersTable() error {
@@ -676,5 +697,42 @@ func (db *DB) LoadLayouts() ([]LayoutRecord, error) {
 
 func (db *DB) DeleteLayout(id string) error {
 	_, err := db.conn.Exec(`DELETE FROM dashboard_layouts WHERE id = $1`, id)
+	return err
+}
+
+// --- Glossary (Semantic Layer) ---
+
+// SaveGlossaryDef persists a metric definition.
+func (db *DB) SaveGlossaryDef(def *data.MetricDefinition) error {
+	_, err := db.conn.Exec(
+		`INSERT INTO glossary_defs (id, name, expression, description, dataset_id, return_type, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+		 ON CONFLICT (id) DO UPDATE SET name=$2, expression=$3, description=$4, dataset_id=$5, return_type=$6, updated_at=$8`,
+		def.ID, def.Name, def.Expression, def.Description, def.DatasetID, def.ReturnType, def.CreatedAt, def.UpdatedAt,
+	)
+	return err
+}
+
+// LoadGlossaryDefs retrieves all metric definitions.
+func (db *DB) LoadGlossaryDefs() ([]*data.MetricDefinition, error) {
+	rows, err := db.conn.Query(`SELECT id, name, COALESCE(expression,''), COALESCE(description,''), COALESCE(dataset_id,''), COALESCE(return_type,'number'), COALESCE(created_at,''), COALESCE(updated_at,'') FROM glossary_defs ORDER BY name ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("query glossary: %w", err)
+	}
+	defer rows.Close()
+
+	var defs []*data.MetricDefinition
+	for rows.Next() {
+		d := &data.MetricDefinition{}
+		if err := rows.Scan(&d.ID, &d.Name, &d.Expression, &d.Description, &d.DatasetID, &d.ReturnType, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan glossary: %w", err)
+		}
+		defs = append(defs, d)
+	}
+	return defs, rows.Err()
+}
+
+// DeleteGlossaryDef removes a metric definition by ID.
+func (db *DB) DeleteGlossaryDef(id string) error {
+	_, err := db.conn.Exec(`DELETE FROM glossary_defs WHERE id = $1`, id)
 	return err
 }

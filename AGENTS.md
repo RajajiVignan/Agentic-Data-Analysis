@@ -7,36 +7,60 @@ Prompt-driven BI application. Go backend + Next.js frontend. User uploads CSV/JS
 
 ```
 .
-├── cmd/server/main.go          # Go backend entrypoint (port 3000)
+├── cmd/server/main.go              # Go backend entrypoint (port 3000)
 ├── internal/
 │   ├── api/
-│   │   ├── handler.go          # HTTP handlers, routes, CORS
-│   │   ├── pythonbridge.go     # Python viz bridge (executes matplotlib scripts)
-│   │   └── handler_test.go     # API tests
+│   │   ├── handler.go              # HTTP handlers, routes, CORS
+│   │   ├── routes.go               # Route registration
+│   │   ├── pythonbridge.go         # Python viz bridge (matplotlib/bokeh/plotly)
+│   │   ├── analysis.go             # Analysis endpoint logic
+│   │   ├── auth.go                 # Auth endpoints (login, register, guest)
+│   │   ├── connections.go          # DB connection endpoints
+│   │   ├── dashboards.go           # Dashboard CRUD endpoints
+│   │   ├── dashboard_editor.go     # Dashboard layout persistence
+│   │   ├── pinned.go               # Pin/unpin chart endpoints
+│   │   ├── plots.go                # Plot regeneration endpoint
+│   │   ├── transform.go            # ETL pipeline endpoint
+│   │   ├── joins.go                # Cross-dataset join endpoint
+│   │   ├── query.go                # Arbitrary SQL query endpoint
+│   │   ├── share.go                # Share link generation
+│   │   ├── reports.go              # Scheduled reports & alerts
+│   │   ├── ratelimit.go            # Per-IP rate limiting
+│   │   ├── sandbox_validator.go    # Generated code sandbox checks
+│   │   ├── crypto.go / uuid.go     # Helpers
+│   │   └── errors.go               # Structured API errors
 │   ├── agent/
-│   │   ├── analyzer.go         # Analyzer interface + request/response structs
-│   │   ├── deterministic.go    # Deterministic (no LLM) analyzer
-│   │   ├── llm.go              # OpenRouter LLM analyzer
-│   │   ├── tools.go            # Agent tools (profile, aggregate, group, trend)
-│   │   ├── guardrails.go       # Response validation + sanitization
-│   │   └── agent_test.go       # Agent tests
+│   │   ├── analyzer.go             # Analyzer interface + request/response structs
+│   │   ├── deterministic.go        # Deterministic (no LLM) analyzer
+│   │   ├── llm.go                  # OpenRouter LLM analyzer
+│   │   ├── planner.go              # Multi-step analysis planning
+│   │   ├── session.go              # Conversation session management
+│   │   ├── tools.go                # Agent tools (profile, agg, group, trend)
+│   │   ├── guardrails.go           # Response validation + sanitization
+│   │   ├── feedback.go             # User feedback ingestion
+│   │   └── validator.go            # Semantic validation
 │   ├── data/
-│   │   ├── models.go           # Dataset, Profile, Column, Connection structs
-│   │   ├── processor.go        # CSV/JSON parsing, profiling, KPI/trend/segment builders
-│   │   └── processor_test.go   # Data tests
-│   └── store/
-│       └── db.go               # Supabase PostgreSQL persistence (pinned charts)
+│   │   ├── models.go               # Dataset, Profile, Column, Connection structs
+│   │   ├── processor.go            # CSV/JSON parsing, KPI/trend/segment builders
+│   │   ├── profiler.go             # Advanced column profiling
+│   │   ├── duckdb.go               # Direct DuckDB SQL execution
+│   │   ├── transform.go            # ETL operations (filter, rename, derive, etc.)
+│   │   └── store/
+│   │       └── db.go               # Supabase PostgreSQL persistence
 ├── frontend/
-│   ├── src/app/page.tsx        # Main workspace page (upload, analyze, dashboard)
-│   └── src/components/
-│       ├── Charts.tsx          # MetricTile, TrendChart, SegmentChart, PythonPlot
-│       └── Sidebar.tsx         # Navigation sidebar
-├── uploads/                    # Uploaded files
-├── uploads/plots/              # Generated Python plot images (.py + .png)
-├── .env                        # SUPABASE_URL, SUPABASE_KEY, OPENROUTER_API_KEY, OPENROUTER_BASE_URL
-├── server_bin                  # Pre-built Go binary
-├── go.mod                      # Module: insightpilot (deps: godotenv, lib/pq)
-└── pinned_charts_schema.sql    # Supabase pinned_charts table schema
+│   ├── src/app/page.tsx            # Main workspace (upload, analyze, sidebar, 10+ tabs)
+│   ├── src/components/             # 19 components (Charts, Sidebar, DashboardView,
+│   │                               #   DataConnections, SchemaDesigner, SQLQueryEditor,
+│   │                               #   DashboardEditor, ScheduleManager, VizWidget, ...)
+│   └── src/lib/
+│       ├── api.ts                  # All API functions + types (793 lines)
+│       └── export.ts               # PNG/JPEG/PDF export utilities
+├── uploads/                        # Uploaded files
+├── uploads/plots/                  # Generated Python plot images (.py + .png)
+├── .env                            # Supabase + OpenRouter + SMTP config
+├── server_bin                      # Pre-built Go binary
+├── go.mod                          # Module: insightpilot
+└── pinned_charts_schema.sql        # Supabase pinned_charts table schema
 ```
 
 ## Key API Endpoints
@@ -114,9 +138,14 @@ cd frontend && npm run build
 - Reports, alerts, and dashboard layouts persist to Supabase when configured, with in-memory fallback
 - LLM analyzer returns 401 without valid OPENROUTER_API_KEY (falls back to deterministic)
 
-## Instruction Files (role-specific)
+## Token Efficiency Rules
 
-- `Instructions/Developer.md` — Backend/frontend implementation rules
-- `Instructions/Tester.md` — Testing procedures and smoke tests
-- `Instructions/Agentic_AI.md` — Future agentic AI design and milestones
-- `Instructions/Python_Visualizations.md` — Python viz guidelines
+These rules apply to all sessions to minimize context/token usage:
+
+1. **Prefers `grep` + `glob` over `read`** — search first, read targeted line ranges only
+2. **Use `task` sub-agent for exploration** — delegate open-ended codebase exploration to sub-agents
+3. **Batch all independent tool calls** into a single message
+4. **Never read entire files** unless the task absolutely requires it; use offset/limit
+5. **Avoid full-file writes** when an `edit` suffices
+6. **Keep responses under 4 lines** unless the user explicitly asks for detail
+7. **Use `bash` with `rg` for precise content searches** instead of reading full files

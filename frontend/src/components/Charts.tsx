@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Pin, Info, ChevronDown, ChevronRight, Download, Loader2, Clock, Brain, Coffee, BarChart3, Activity, Image, Code, BarChart as BarChartIcon } from 'lucide-react';
+import { Pin, Info, ChevronDown, ChevronRight, Download, Loader2, Clock, Brain, Coffee, BarChart3, Activity, Image, Code, BarChart as BarChartIcon, X } from 'lucide-react';
+import { useDashboardFilter } from '@/components/DashboardFilterContext';
 import {
   BarChart,
   Bar,
@@ -308,8 +309,15 @@ export function VizTypeSelector({ value, onChange }: { value: string; onChange: 
   );
 }
 
-export function TrendChart({ data, onPin }: { data: ChartPoint[]; onPin?: () => void }) {
+export function TrendChart({ data, onPin, filterColumn = "label" }: { data: ChartPoint[]; onPin?: () => void; filterColumn?: string }) {
+  const filter = useDashboardFilter();
   if (!data || data.length === 0) return null;
+  const accentColor = getAccentColor();
+
+  const handleBarClick = (entry: ChartPoint) => {
+    filter.addFilter({ column: filterColumn, value: entry.label, operator: "eq" });
+  };
+
   return (
     <ChartCard title="Interactive Trend" badge="Recharts Bar" onPin={onPin} data-export-plot="Trend Chart">
       <ResponsiveContainer width="100%" height={280}>
@@ -326,17 +334,44 @@ export function TrendChart({ data, onPin }: { data: ChartPoint[]; onPin?: () => 
               boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
             }}
           />
-          <Bar dataKey="value" fill="var(--accent, #6366f1)" radius={[6, 6, 0, 0]} maxBarSize={48} animationDuration={600} animationEasing="ease-out" />
-          {data.length > 5 && <Brush dataKey="label" height={24} stroke="var(--accent, #6366f1)" fill="#e2e8f0" />}
+          <Bar
+            dataKey="value"
+            fill={accentColor}
+            radius={[6, 6, 0, 0]}
+            maxBarSize={48}
+            animationDuration={600}
+            animationEasing="ease-out"
+            cursor="pointer"
+            onClick={(entry) => handleBarClick(entry.payload as ChartPoint)}
+          >
+            {data.map((entry, i) => {
+              const highlighted = filter.isActive(filterColumn, entry.label);
+              return (
+                <Cell
+                  key={i}
+                  fill={highlighted ? accentColor : `${accentColor}55`}
+                  stroke={highlighted ? accentColor : 'none'}
+                  strokeWidth={highlighted ? 2 : 0}
+                />
+              );
+            })}
+          </Bar>
+          {data.length > 5 && <Brush dataKey="label" height={24} stroke={accentColor} fill="#e2e8f0" />}
         </BarChart>
       </ResponsiveContainer>
     </ChartCard>
   );
 }
 
-export function SegmentChart({ data, onPin }: { data: ChartPoint[]; onPin?: () => void }) {
+export function SegmentChart({ data, onPin, filterColumn = "label" }: { data: ChartPoint[]; onPin?: () => void; filterColumn?: string }) {
+  const filter = useDashboardFilter();
   if (!data || data.length === 0) return null;
   const colors = getChartColors();
+
+  const handlePieClick = (entry: ChartPoint) => {
+    filter.addFilter({ column: filterColumn, value: entry.label, operator: "eq" });
+  };
+
   return (
     <ChartCard title="Interactive Segments" badge="Recharts Pie" onPin={onPin} data-export-plot="Segment Chart">
       <ResponsiveContainer width="100%" height={280}>
@@ -352,10 +387,21 @@ export function SegmentChart({ data, onPin }: { data: ChartPoint[]; onPin?: () =
             animationDuration={800}
             animationEasing="ease-out"
             label={({ name, percent }) => `${name ?? ""} ${((percent ?? 0) * 100).toFixed(0)}%`}
+            cursor="pointer"
+            onClick={(entry) => handlePieClick(entry.payload as ChartPoint)}
           >
-            {data.map((_, i) => (
-              <Cell key={i} fill={colors[i % colors.length]} />
-            ))}
+            {data.map((entry, i) => {
+              const highlighted = filter.isActive(filterColumn, entry.label);
+              return (
+                <Cell
+                  key={i}
+                  fill={colors[i % colors.length]}
+                  opacity={highlighted ? 1 : 0.5}
+                  stroke={highlighted ? colors[i % colors.length] : 'transparent'}
+                  strokeWidth={highlighted ? 2 : 0}
+                />
+              );
+            })}
           </Pie>
           <Tooltip
             contentStyle={{
@@ -373,8 +419,16 @@ export function SegmentChart({ data, onPin }: { data: ChartPoint[]; onPin?: () =
   );
 }
 
-export function LineTrendChart({ data, onPin }: { data: ChartPoint[]; onPin?: () => void }) {
+export function LineTrendChart({ data, onPin, filterColumn = "label" }: { data: ChartPoint[]; onPin?: () => void; filterColumn?: string }) {
+  const filter = useDashboardFilter();
   if (!data || data.length === 0) return null;
+  const accentColor = getAccentColor();
+
+  const handleDotClick = (entry: unknown) => {
+    const p = entry as { label?: string };
+    if (p?.label) filter.addFilter({ column: filterColumn, value: p.label, operator: "eq" });
+  };
+
   return (
     <ChartCard title="Time Series Trend" badge="Recharts Line" onPin={onPin} data-export-plot="Line Trend">
       <ResponsiveContainer width="100%" height={280}>
@@ -391,8 +445,18 @@ export function LineTrendChart({ data, onPin }: { data: ChartPoint[]; onPin?: ()
               boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
             }}
           />
-          <Line type="monotone" dataKey="value" stroke="var(--accent, #6366f1)" strokeWidth={2.5} dot={{ fill: 'var(--accent, #6366f1)', r: 4, strokeWidth: 2, stroke: '#fff' }} activeDot={{ r: 6, strokeWidth: 0 }} animationDuration={600} animationEasing="ease-out" />
-          {data.length > 5 && <Brush dataKey="label" height={24} stroke="var(--accent, #6366f1)" fill="#e2e8f0" />}
+          <Line
+            type="monotone"
+            dataKey="value"
+            stroke={accentColor}
+            strokeWidth={2.5}
+            dot={{ fill: accentColor, r: 4, strokeWidth: 2, stroke: '#fff', cursor: 'pointer' }}
+            activeDot={{ r: 6, strokeWidth: 0 } as Record<string, unknown>}
+            animationDuration={600}
+            animationEasing="ease-out"
+            onClick={(entry: unknown) => handleDotClick(entry)}
+          />
+          {data.length > 5 && <Brush dataKey="label" height={24} stroke={accentColor} fill="#e2e8f0" />}
         </LineChart>
       </ResponsiveContainer>
     </ChartCard>
@@ -600,6 +664,37 @@ export function ExplainSection({ explanations }: { explanations: { chart: string
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+export function DashboardFilterBar() {
+  const filter = useDashboardFilter();
+  if (filter.filters.length === 0) return null;
+
+  return (
+    <div className="flex items-center gap-2 p-3 bg-indigo-50/80 border border-indigo-100/80 rounded-2xl flex-wrap">
+      <span className="text-[10px] font-semibold text-indigo-600 uppercase tracking-wider">Cross-filter:</span>
+      {filter.filters.map((f, i) => (
+        <span
+          key={i}
+          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-white border border-indigo-200 rounded-full text-indigo-700"
+        >
+          <span className="opacity-60">{f.column}:</span> {f.value}
+          <button
+            onClick={() => filter.removeFilter(f.column)}
+            className="ml-0.5 p-0.5 rounded-full hover:bg-indigo-100 text-indigo-400 hover:text-indigo-600 transition-colors"
+          >
+            <X size={12} />
+          </button>
+        </span>
+      ))}
+      <button
+        onClick={filter.clearFilters}
+        className="px-2 py-1 text-[10px] font-medium text-indigo-500 hover:text-indigo-700 hover:bg-indigo-100 rounded-lg transition-colors"
+      >
+        Clear all
+      </button>
     </div>
   );
 }

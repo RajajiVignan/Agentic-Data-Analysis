@@ -52,6 +52,7 @@ import { SQLQueryEditor } from "@/components/SQLQueryEditor";
 import { ScheduleManager } from "@/components/ScheduleManager";
 import { DashboardEditor } from "@/components/DashboardEditor";
 import { DataProfiler } from "@/components/DataProfiler";
+import { GlossaryPanel } from "@/components/GlossaryPanel";
 import { VizWidget } from "@/components/VizWidget";
 import { CommandPalette } from "@/components/CommandPalette";
 import { useToast } from "@/components/ToastProvider";
@@ -67,7 +68,7 @@ import type {
   SharedDashboardData,
 } from "@/lib/api";
 
-type NavTab = "explore" | "dashboards" | "data" | "context" | "share" | "schema" | "query" | "reports" | "editor" | "profiler";
+type NavTab = "explore" | "dashboards" | "data" | "context" | "share" | "schema" | "query" | "reports" | "editor" | "profiler" | "glossary";
 
 export default function Workspace() {
   const dashboardRef = useRef<HTMLDivElement | null>(null);
@@ -549,6 +550,7 @@ export default function Workspace() {
     reports: { subtitle: "Automation", title: "Scheduled Reports & Alerts" },
     editor: { subtitle: "Dashboard Editor", title: "Drag-and-Drop Editor" },
     profiler: { subtitle: "Data Profiler", title: "Explore Your Data" },
+    glossary: { subtitle: "Business Glossary", title: "Semantic Layer" },
   };
 
   // --- Render ---
@@ -687,6 +689,7 @@ export default function Workspace() {
                             result={turn.result}
                             dashboardRef={dashboardRef}
                             onPinChart={handlePinChart}
+                            onRunFollowUp={handleRunAnalysis}
                           />
                         </div>
                       </div>
@@ -831,6 +834,11 @@ export default function Workspace() {
                 ))
               )}
             </div>
+          )}
+
+          {/* --- GLOSSARY TAB --- */}
+          {activeNav === "glossary" && (
+            <GlossaryPanel />
           )}
 
           {/* --- SHARE TAB --- */}

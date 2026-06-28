@@ -13,6 +13,7 @@ import {
   CalendarClock,
   Layout,
   BarChart3,
+  BookOpen,
   PanelRightClose,
   PanelRightOpen,
   X,
@@ -116,6 +117,7 @@ export function Sidebar({ datasets, selectedDatasetIds, onToggleDataset, onConne
           <NavItem icon={<Split size={18} />} label="Schema" active={activeNav === 'schema'} onClick={() => handleNavChange('schema')} />
           <NavItem icon={<Terminal size={18} />} label="SQL Query" active={activeNav === 'query'} onClick={() => handleNavChange('query')} />
           <NavItem icon={<CalendarClock size={18} />} label="Reports" active={activeNav === 'reports'} onClick={() => handleNavChange('reports')} />
+          <NavItem icon={<BookOpen size={18} />} label="Glossary" active={activeNav === 'glossary'} onClick={() => handleNavChange('glossary')} />
           <NavItem icon={<Layout size={18} />} label="Editor" active={activeNav === 'editor'} onClick={() => handleNavChange('editor')} />
         </nav>
 

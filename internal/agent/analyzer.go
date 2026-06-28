@@ -28,12 +28,13 @@ type AnalysisResponse struct {
 	Notebook          []NotebookStep       `json:"notebook"`
 	Plan              *LLMPlan             `json:"plan,omitempty"`
 	Dashboard         DashboardSpec        `json:"dashboard"`
-	Assumptions       []string             `json:"assumptions"`
-	Warnings          []string             `json:"warnings"`
-	UsedDeterministic bool                 `json:"used_deterministic"`
-	SQLQueries        []string             `json:"sqlQueries,omitempty"`
-	SessionID         string               `json:"sessionId,omitempty"`
-	Context           *ConversationContext `json:"context,omitempty"`
+	Assumptions        []string             `json:"assumptions"`
+	Warnings           []string             `json:"warnings"`
+	UsedDeterministic  bool                 `json:"used_deterministic"`
+	SQLQueries         []string             `json:"sqlQueries,omitempty"`
+	SessionID          string               `json:"sessionId,omitempty"`
+	Context            *ConversationContext `json:"context,omitempty"`
+	SuggestedQuestions []string             `json:"suggestedQuestions,omitempty"`
 }
 
 // DatasetSummary describes the primary dataset used in analysis.

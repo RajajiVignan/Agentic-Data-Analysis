@@ -2,13 +2,15 @@
 
 import React, { useState } from "react";
 import { ChevronDown, ChevronRight, Code, BarChart3, Sparkles } from "lucide-react";
-import { MetricTile, PythonPlot, SmartAutoViz, ExplainSection, PlotLoading } from "@/components/Charts";
+import { MetricTile, PythonPlot, SmartAutoViz, ExplainSection, PlotLoading, DashboardFilterBar } from "@/components/Charts";
+import { DashboardFilterProvider } from "@/components/DashboardFilterContext";
 import type { AnalysisResult, PinnedChart } from "@/lib/api";
 
 type DashboardViewProps = {
   result: AnalysisResult;
   dashboardRef: React.RefObject<HTMLDivElement | null>;
   onPinChart: (type: PinnedChart["chart_type"], label: string, data: unknown, url?: string) => void;
+  onRunFollowUp?: (prompt: string) => void;
 };
 
 function AnalysisSkeleton() {
@@ -30,7 +32,7 @@ function AnalysisSkeleton() {
   );
 }
 
-export function DashboardView({ result, dashboardRef, onPinChart }: DashboardViewProps) {
+export function DashboardView({ result, dashboardRef, onPinChart, onRunFollowUp }: DashboardViewProps) {
   const [showSql, setShowSql] = useState(false);
   const [chartMode, setChartMode] = useState<'auto' | 'all'>('auto');
   const hasTrend = result.dashboard.trend.length > 0;
@@ -40,6 +42,7 @@ export function DashboardView({ result, dashboardRef, onPinChart }: DashboardVie
   const suggestedChartType = result.dashboard.chartType ?? 'bar';
 
   return (
+    <DashboardFilterProvider>
     <div ref={dashboardRef} className="space-y-6 animate-slide-up">
       {/* Narrative summary */}
       {hasNarrative && (
@@ -55,6 +58,9 @@ export function DashboardView({ result, dashboardRef, onPinChart }: DashboardVie
           </div>
         </div>
       )}
+
+      {/* Cross-filter bar */}
+      <DashboardFilterBar />
 
       {/* KPI tiles */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 stagger-1">
@@ -176,6 +182,24 @@ export function DashboardView({ result, dashboardRef, onPinChart }: DashboardVie
         )
       ) : null}
 
+      {/* Suggested follow-up questions */}
+      {result.suggestedQuestions && result.suggestedQuestions.length > 0 && onRunFollowUp && (
+        <div className="bg-white rounded-2xl p-4 card-hover card-modern space-y-2">
+          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Try asking</p>
+          <div className="flex flex-wrap gap-2">
+            {result.suggestedQuestions.map((q, i) => (
+              <button
+                key={i}
+                onClick={() => onRunFollowUp(q)}
+                className="px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-full transition-all border border-indigo-100 hover:border-indigo-200"
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Warnings */}
       {result.warnings && result.warnings.length > 0 && (
         <div className="bg-amber-50/80 border border-amber-200/80 rounded-2xl p-4 text-xs text-amber-700 space-y-1 backdrop-blur-sm animate-fade-in">
@@ -219,6 +243,7 @@ export function DashboardView({ result, dashboardRef, onPinChart }: DashboardVie
         </div>
       )}
     </div>
+    </DashboardFilterProvider>
   );
 }
 

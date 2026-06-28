@@ -105,6 +105,11 @@ func (h *Handler) chiRouter() http.Handler {
 		r.Get("/alerts", h.handleListAlerts)
 		r.Post("/alerts", h.handleCreateAlert)
 		r.Delete("/alerts", h.handleDeleteAlert)
+		// Semantic Layer / Business Glossary
+		r.Get("/glossary", h.handleGlossaryList)
+		r.Post("/glossary", h.handleGlossaryCreate)
+		r.Put("/glossary", h.handleGlossaryUpdate)
+		r.Delete("/glossary", h.handleGlossaryDelete)
 		// Feature 7: Drag-and-Drop Dashboard Editor
 		r.Get("/dashboard-layouts", h.handleListLayouts)
 		r.Post("/dashboard-layouts", h.handleCreateLayout)

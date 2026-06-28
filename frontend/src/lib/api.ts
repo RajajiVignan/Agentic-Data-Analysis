@@ -65,6 +65,7 @@ export type AnalysisResult = {
   used_deterministic?: boolean;
   sqlQueries?: string[];
   sessionId?: string;
+  suggestedQuestions?: string[];
 };
 
 export type Dataset = {
@@ -249,6 +250,7 @@ export async function runAnalysis(
     used_deterministic: data.used_deterministic,
     sqlQueries: data.sqlQueries ?? [],
     sessionId: data.sessionId,
+    suggestedQuestions: data.suggestedQuestions ?? [],
   };
 }
 
@@ -731,6 +733,51 @@ export async function transformReset(datasetId: string): Promise<Record<string, 
   });
   if (!res.ok) throw new Error(await parseError(res));
   return res.json();
+}
+
+// --- Semantic Layer / Business Glossary ---
+
+export type MetricDefinition = {
+  id: string;
+  name: string;
+  expression: string;
+  description: string;
+  datasetId?: string;
+  returnType: 'number' | 'percentage' | 'currency' | 'ratio';
+  createdAt: string;
+  updatedAt: string;
+};
+
+export async function fetchGlossary(): Promise<MetricDefinition[]> {
+  const res = await apiFetch("/glossary");
+  if (!res.ok) throw new Error(await parseError(res));
+  const data = await res.json();
+  return data.definitions as MetricDefinition[];
+}
+
+export async function createGlossaryDef(def: Partial<MetricDefinition>): Promise<MetricDefinition> {
+  const res = await apiFetch("/glossary", {
+    method: "POST",
+    body: JSON.stringify(def),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function updateGlossaryDef(def: MetricDefinition): Promise<MetricDefinition> {
+  const res = await apiFetch("/glossary", {
+    method: "PUT",
+    body: JSON.stringify(def),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function deleteGlossaryDef(id: string): Promise<void> {
+  const res = await apiFetch(`/glossary?id=${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(await parseError(res));
 }
 
 // --- Feature 12: Data Profiler ---

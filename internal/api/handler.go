@@ -49,6 +49,7 @@ type Handler struct {
 	sessionMu         sync.RWMutex
 	pipelines         map[string]*data.TransformPipeline
 	dashEditorSvc     *DashboardEditorService
+	glossarySvc       *GlossaryService
 }
 
 // NewHandler creates a new Handler with all services initialized.
@@ -88,6 +89,7 @@ func NewHandler(cfg agent.Config) *Handler {
 		duckdb:            data.NewDuckDBEngine(plotsDir),
 		pipelines:         make(map[string]*data.TransformPipeline),
 		encryptionKey:     generateEncryptionKey(),
+		glossarySvc:       newGlossaryService(db),
 		rateLimiter:       newRateLimiter(10, time.Minute),
 		uploadDir:         uploadDir,
 		stopCh:            make(chan struct{}),
@@ -545,6 +547,34 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 			"segments", len(resp.Dashboard.Segments))
 	}
 
+	// Populate suggested questions from context (works for both deterministic and LLM paths)
+	if resp.Context != nil && len(resp.SuggestedQuestions) == 0 {
+		var metricColName, catColName, dateColName string
+		if resp.Context != nil {
+			metricColName = resp.Context.MetricCol
+			catColName = resp.Context.CategoryCol
+			dateColName = resp.Context.DateCol
+		}
+		// Build a minimal column list from the context
+		var metricCol, catCol, dateCol *data.Column
+		for _, col := range primary.Profile.Columns {
+			n := col.Name
+			if metricColName != "" && n == metricColName {
+				c := col
+				metricCol = &c
+			}
+			if catColName != "" && n == catColName {
+				c := col
+				catCol = &c
+			}
+			if dateColName != "" && n == dateColName {
+				c := col
+				dateCol = &c
+			}
+		}
+		resp.SuggestedQuestions = agent.BuildSuggestedQuestions(primary, metricCol, catCol, dateCol, resp.Context)
+	}
+
 	// Apply filters from plan (for LLM path) to the dataset before computing
 	if resp.Plan != nil && len(resp.Plan.Filters) > 0 && resp.Context != nil {
 		resp.Context.Filters = resp.Plan.Filters
@@ -629,6 +659,7 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		"used_deterministic": resp.UsedDeterministic,
 		"sqlQueries":         resp.SQLQueries,
 		"sessionId":          sessionID,
+		"suggestedQuestions": resp.SuggestedQuestions,
 	})
 }
 
