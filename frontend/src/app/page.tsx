@@ -54,6 +54,7 @@ import { DashboardEditor } from "@/components/DashboardEditor";
 import { DataProfiler } from "@/components/DataProfiler";
 import { GlossaryPanel } from "@/components/GlossaryPanel";
 import { VizWidget } from "@/components/VizWidget";
+import { PivotBuilder } from "@/components/PivotBuilder";
 import { CommandPalette } from "@/components/CommandPalette";
 import { useToast } from "@/components/ToastProvider";
 import type { AuthUser } from "@/lib/api";
@@ -120,6 +121,8 @@ export default function Workspace() {
     () => (typeof window !== "undefined" ? localStorage.getItem("insightpilot-viz-type") : null) ?? "matplotlib"
   );
   const [selectedChartType, setSelectedChartType] = useState<string | null>(null);
+  const [sidebarMode, setSidebarMode] = useState<"plots" | "pivot">("plots");
+  const [pivotLoading, setPivotLoading] = useState(false);
   const { addToast } = useToast();
 
   // --- Initialization ---
@@ -344,6 +347,13 @@ export default function Workspace() {
     setError(null);
   }
 
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      (window as any).__testHandleRunAnalysis = handleRunAnalysis;
+      (window as any).__testHandleNewAnalysis = handleNewAnalysis;
+    }
+  }, [handleRunAnalysis, handleNewAnalysis]);
+
   async function handleConnectSource() {
     try {
       setError(null);
@@ -381,6 +391,21 @@ export default function Workspace() {
   function handleVizTypeChange(newVizType: string) {
     setVizType(newVizType);
     localStorage.setItem("insightpilot-viz-type", newVizType);
+  }
+
+  async function handlePivotGenerate(config: { rows: { column: string }[]; values: { column: string; aggregation?: string }[]; filters: { column: string }[] }) {
+    if (selectedDatasetIds.length === 0) return;
+    setPivotLoading(true);
+    const rowFields = config.rows.map(r => r.column).join(", ");
+    const valFields = config.values.map(v => `${v.aggregation || "SUM"}(${v.column})`).join(", ");
+    const filterClause = config.filters.map(f => `filter by ${f.column}`).join(", ");
+    const pivotPrompt = `Show ${valFields} grouped by ${rowFields}${filterClause ? `, ${filterClause}` : ""}`;
+    setPrompt(pivotPrompt);
+    try {
+      await handleRunAnalysis(pivotPrompt);
+    } finally {
+      setPivotLoading(false);
+    }
   }
 
   async function handlePinChart(type: PinnedChart["chart_type"], label: string, data: unknown, url?: string) {
@@ -690,6 +715,12 @@ export default function Workspace() {
                             dashboardRef={dashboardRef}
                             onPinChart={handlePinChart}
                             onRunFollowUp={handleRunAnalysis}
+                            onChartTypeChange={(chartTitle, newType) => {
+                              addToast(`Chart type changed to ${newType}`, "success");
+                            }}
+                            onDrillDown={(chartTitle) => {
+                              handleRunAnalysis(`Drill down into ${chartTitle} for more detail`);
+                            }}
                           />
                         </div>
                       </div>
@@ -727,26 +758,65 @@ export default function Workspace() {
                 />
               </div>
 
-              <VizWidget
-                datasets={availableDatasets}
-                selectedDatasetIds={selectedDatasetIds}
-                onFillPrompt={handleFillPrompt}
-                onRunAnalysis={() => handleRunAnalysis()}
-                accentColor={accentColor}
-                chartScheme={chartScheme}
-                fontFamily={fontFamily}
-                fontSize={fontSize}
-                vizType={vizType}
-                onAccentChange={setAccentColor}
-                onSchemeChange={setChartScheme}
-                onFontFamilyChange={setFontFamily}
-                onFontSizeChange={setFontSize}
-                onVizTypeChange={handleVizTypeChange}
-                selectedChartType={selectedChartType}
-                onChartTypeSelect={setSelectedChartType}
-                analyzeLoading={analyzeLoading}
-                canAnalyze={!analyzeLoading && selectedDatasetIds.length > 0 && selectedChartType !== null}
-              />
+              <div className="w-full lg:w-72 shrink-0">
+                <div className="flex items-center gap-0.5 p-0.5 bg-slate-100 rounded-xl mb-3">
+                  <button
+                    onClick={() => setSidebarMode("plots")}
+                    className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
+                      sidebarMode === "plots"
+                        ? "bg-white text-indigo-600 shadow-sm"
+                        : "text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    Plots
+                  </button>
+                  <button
+                    onClick={() => setSidebarMode("pivot")}
+                    className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
+                      sidebarMode === "pivot"
+                        ? "bg-white text-indigo-600 shadow-sm"
+                        : "text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    Pivot
+                  </button>
+                </div>
+                {sidebarMode === "plots" ? (
+                  <VizWidget
+                    datasets={availableDatasets}
+                    selectedDatasetIds={selectedDatasetIds}
+                    onFillPrompt={handleFillPrompt}
+                    onRunAnalysis={() => handleRunAnalysis()}
+                    accentColor={accentColor}
+                    chartScheme={chartScheme}
+                    fontFamily={fontFamily}
+                    fontSize={fontSize}
+                    vizType={vizType}
+                    onAccentChange={setAccentColor}
+                    onSchemeChange={setChartScheme}
+                    onFontFamilyChange={setFontFamily}
+                    onFontSizeChange={setFontSize}
+                    onVizTypeChange={handleVizTypeChange}
+                    selectedChartType={selectedChartType}
+                    onChartTypeSelect={setSelectedChartType}
+                    analyzeLoading={analyzeLoading}
+                    canAnalyze={!analyzeLoading && selectedDatasetIds.length > 0 && selectedChartType !== null}
+                  />
+                ) : (
+                  <PivotBuilder
+                    columns={(() => {
+                      const cols: import("@/lib/api").Column[] = [];
+                      for (const id of selectedDatasetIds) {
+                        const ds = availableDatasets.find((d) => d.id === id);
+                        if (ds?.profile?.columns) cols.push(...ds.profile.columns);
+                      }
+                      return cols;
+                    })()}
+                    onGenerate={handlePivotGenerate}
+                    loading={pivotLoading || analyzeLoading}
+                  />
+                )}
+              </div>
             </div>
           )}
 

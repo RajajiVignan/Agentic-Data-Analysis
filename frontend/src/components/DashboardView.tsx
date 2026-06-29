@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import { ChevronDown, ChevronRight, Code, BarChart3, Sparkles } from "lucide-react";
 import { MetricTile, PythonPlot, SmartAutoViz, ExplainSection, PlotLoading, DashboardFilterBar } from "@/components/Charts";
 import { DashboardFilterProvider } from "@/components/DashboardFilterContext";
@@ -11,6 +11,8 @@ type DashboardViewProps = {
   dashboardRef: React.RefObject<HTMLDivElement | null>;
   onPinChart: (type: PinnedChart["chart_type"], label: string, data: unknown, url?: string) => void;
   onRunFollowUp?: (prompt: string) => void;
+  onChartTypeChange?: (chartTitle: string, newType: string) => void;
+  onDrillDown?: (chartTitle: string) => void;
 };
 
 function AnalysisSkeleton() {
@@ -32,7 +34,7 @@ function AnalysisSkeleton() {
   );
 }
 
-export function DashboardView({ result, dashboardRef, onPinChart, onRunFollowUp }: DashboardViewProps) {
+export function DashboardView({ result, dashboardRef, onPinChart, onRunFollowUp, onChartTypeChange, onDrillDown }: DashboardViewProps) {
   const [showSql, setShowSql] = useState(false);
   const [chartMode, setChartMode] = useState<'auto' | 'all'>('auto');
   const hasTrend = result.dashboard.trend.length > 0;
@@ -40,6 +42,22 @@ export function DashboardView({ result, dashboardRef, onPinChart, onRunFollowUp 
   const hasNarrative = !!result.dashboard.narrative;
   const hasExplanations = result.dashboard.explanations && result.dashboard.explanations.length > 0;
   const suggestedChartType = result.dashboard.chartType ?? 'bar';
+
+  const handleTrendTypeChange = useCallback((newType: string) => {
+    onChartTypeChange?.("trend", newType);
+  }, [onChartTypeChange]);
+
+  const handleSegmentTypeChange = useCallback((newType: string) => {
+    onChartTypeChange?.("segments", newType);
+  }, [onChartTypeChange]);
+
+  const handleTrendDrillDown = useCallback(() => {
+    onDrillDown?.("trend");
+  }, [onDrillDown]);
+
+  const handleSegmentDrillDown = useCallback(() => {
+    onDrillDown?.("segments");
+  }, [onDrillDown]);
 
   return (
     <DashboardFilterProvider>
@@ -118,6 +136,8 @@ export function DashboardView({ result, dashboardRef, onPinChart, onRunFollowUp 
                     const latest = result.dashboard.trend[result.dashboard.trend.length - 1];
                     onPinChart("trend", `${suggestedChartType}: ${latest?.label ?? "overview"}`, result.dashboard.trend);
                   }}
+                  onChartTypeChange={handleTrendTypeChange}
+                  onDrillDown={handleTrendDrillDown}
                 />
               </div>
             )}
@@ -127,6 +147,8 @@ export function DashboardView({ result, dashboardRef, onPinChart, onRunFollowUp 
                   data={result.dashboard.segments}
                   chartType="pie"
                   onPin={() => onPinChart("segment", "Segment Breakdown", result.dashboard.segments)}
+                  onChartTypeChange={handleSegmentTypeChange}
+                  onDrillDown={handleSegmentDrillDown}
                 />
               </div>
             )}
@@ -143,6 +165,7 @@ export function DashboardView({ result, dashboardRef, onPinChart, onRunFollowUp 
                       const latest = result.dashboard.trend[result.dashboard.trend.length - 1];
                       onPinChart("trend", `Bar: ${latest?.label ?? "overview"}`, result.dashboard.trend);
                     }}
+                    onDrillDown={handleTrendDrillDown}
                   />
                 </div>
                 <div className="animate-slide-up" style={{ animationDelay: '80ms' }}>
@@ -153,6 +176,7 @@ export function DashboardView({ result, dashboardRef, onPinChart, onRunFollowUp 
                       const latest = result.dashboard.trend[result.dashboard.trend.length - 1];
                       onPinChart("trend", `Line: ${latest?.label ?? "overview"}`, result.dashboard.trend);
                     }}
+                    onDrillDown={handleTrendDrillDown}
                   />
                 </div>
                 {!hasSegments && (
@@ -164,6 +188,7 @@ export function DashboardView({ result, dashboardRef, onPinChart, onRunFollowUp 
                         const latest = result.dashboard.trend[result.dashboard.trend.length - 1];
                         onPinChart("trend", `Area: ${latest?.label ?? "overview"}`, result.dashboard.trend);
                       }}
+                      onDrillDown={handleTrendDrillDown}
                     />
                   </div>
                 )}
@@ -175,6 +200,7 @@ export function DashboardView({ result, dashboardRef, onPinChart, onRunFollowUp 
                   data={result.dashboard.segments}
                   chartType="pie"
                   onPin={() => onPinChart("segment", "Segment Breakdown", result.dashboard.segments)}
+                  onDrillDown={handleSegmentDrillDown}
                 />
               </div>
             )}

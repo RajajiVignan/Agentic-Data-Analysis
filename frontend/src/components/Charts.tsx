@@ -1,6 +1,8 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Pin, Info, ChevronDown, ChevronRight, Download, Loader2, Clock, Brain, Coffee, BarChart3, Activity, Image, Code, BarChart as BarChartIcon, X } from 'lucide-react';
 import { useDashboardFilter } from '@/components/DashboardFilterContext';
+import { ChartContextMenu } from '@/components/ChartContextMenu';
+import type { ContextMenuAction } from '@/components/ChartContextMenu';
 import {
   BarChart,
   Bar,
@@ -178,26 +180,65 @@ function ChartBadge({ label }: { label: string }) {
   );
 }
 
-function ChartCard({ children, title, badge, onPin, className = "" }: {
+function ChartCard({ children, title, badge, onPin, className = "", chartType, onChartTypeChange, onDrillDown, cardRef: externalRef }: {
   children: React.ReactNode;
   title: string;
   badge: string;
   onPin?: () => void;
   className?: string;
+  chartType?: string;
+  onChartTypeChange?: (type: string) => void;
+  onDrillDown?: () => void;
+  cardRef?: React.RefObject<HTMLDivElement | null>;
 }) {
-  const cardRef = useRef<HTMLDivElement>(null);
+  const internalRef = useRef<HTMLDivElement>(null);
+  const cardRef = externalRef || internalRef;
+
+  const handleContextAction = useCallback((action: ContextMenuAction, payload?: string) => {
+    switch (action) {
+      case "drilldown":
+        onDrillDown?.();
+        break;
+      case "changeType":
+        if (payload && onChartTypeChange) onChartTypeChange(payload);
+        break;
+      case "filter":
+        break;
+      case "exportPng":
+        if (cardRef.current) {
+          downloadChartPng(cardRef.current, title).catch(console.error);
+        }
+        break;
+      case "exportJpeg":
+        if (cardRef.current) {
+          downloadChartJpeg(cardRef.current, title).catch(console.error);
+        }
+        break;
+    }
+  }, [cardRef, title, onDrillDown, onChartTypeChange]);
+
   return (
-    <div ref={cardRef} className={`p-5 bg-white rounded-2xl space-y-4 relative group card-hover card-modern ${className}`} data-export-plot={title}>
-      <div className="flex items-center justify-between">
-        <strong className="text-sm font-semibold text-slate-800">{title}</strong>
-        <div className="flex items-center gap-1">
-          <DownloadDropdown elementRef={cardRef} />
-          <PinButton onClick={onPin} />
-          <ChartBadge label={badge} />
+    <ChartContextMenu
+      chartTitle={title}
+      chartType={chartType}
+      onAction={handleContextAction}
+      onChangeChartType={onChartTypeChange}
+      onExportPng={() => { if (cardRef.current) downloadChartPng(cardRef.current, title).catch(console.error); }}
+      onExportJpeg={() => { if (cardRef.current) downloadChartJpeg(cardRef.current, title).catch(console.error); }}
+      onDrillDown={onDrillDown}
+    >
+      <div ref={cardRef} className={`p-5 bg-white rounded-2xl space-y-4 relative group card-hover card-modern ${className}`} data-export-plot={title}>
+        <div className="flex items-center justify-between">
+          <strong className="text-sm font-semibold text-slate-800">{title}</strong>
+          <div className="flex items-center gap-1">
+            <DownloadDropdown elementRef={cardRef} />
+            <PinButton onClick={onPin} />
+            <ChartBadge label={badge} />
+          </div>
         </div>
+        {children}
       </div>
-      {children}
-    </div>
+    </ChartContextMenu>
   );
 }
 
@@ -309,7 +350,13 @@ export function VizTypeSelector({ value, onChange }: { value: string; onChange: 
   );
 }
 
-export function TrendChart({ data, onPin, filterColumn = "label" }: { data: ChartPoint[]; onPin?: () => void; filterColumn?: string }) {
+export function TrendChart({ data, onPin, filterColumn = "label", onChartTypeChange, onDrillDown }: {
+  data: ChartPoint[];
+  onPin?: () => void;
+  filterColumn?: string;
+  onChartTypeChange?: (type: string) => void;
+  onDrillDown?: () => void;
+}) {
   const filter = useDashboardFilter();
   if (!data || data.length === 0) return null;
   const accentColor = getAccentColor();
@@ -319,7 +366,7 @@ export function TrendChart({ data, onPin, filterColumn = "label" }: { data: Char
   };
 
   return (
-    <ChartCard title="Interactive Trend" badge="Recharts Bar" onPin={onPin} data-export-plot="Trend Chart">
+    <ChartCard title="Interactive Trend" badge="Recharts Bar" onPin={onPin} chartType="bar" onChartTypeChange={onChartTypeChange} onDrillDown={onDrillDown} data-export-plot="Trend Chart">
       <ResponsiveContainer width="100%" height={280}>
         <BarChart data={data} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" strokeOpacity={0.5} />
@@ -363,7 +410,13 @@ export function TrendChart({ data, onPin, filterColumn = "label" }: { data: Char
   );
 }
 
-export function SegmentChart({ data, onPin, filterColumn = "label" }: { data: ChartPoint[]; onPin?: () => void; filterColumn?: string }) {
+export function SegmentChart({ data, onPin, filterColumn = "label", onChartTypeChange, onDrillDown }: {
+  data: ChartPoint[];
+  onPin?: () => void;
+  filterColumn?: string;
+  onChartTypeChange?: (type: string) => void;
+  onDrillDown?: () => void;
+}) {
   const filter = useDashboardFilter();
   if (!data || data.length === 0) return null;
   const colors = getChartColors();
@@ -373,7 +426,7 @@ export function SegmentChart({ data, onPin, filterColumn = "label" }: { data: Ch
   };
 
   return (
-    <ChartCard title="Interactive Segments" badge="Recharts Pie" onPin={onPin} data-export-plot="Segment Chart">
+    <ChartCard title="Interactive Segments" badge="Recharts Pie" onPin={onPin} chartType="pie" onChartTypeChange={onChartTypeChange} onDrillDown={onDrillDown} data-export-plot="Segment Chart">
       <ResponsiveContainer width="100%" height={280}>
         <PieChart>
           <Pie
@@ -419,7 +472,13 @@ export function SegmentChart({ data, onPin, filterColumn = "label" }: { data: Ch
   );
 }
 
-export function LineTrendChart({ data, onPin, filterColumn = "label" }: { data: ChartPoint[]; onPin?: () => void; filterColumn?: string }) {
+export function LineTrendChart({ data, onPin, filterColumn = "label", onChartTypeChange, onDrillDown }: {
+  data: ChartPoint[];
+  onPin?: () => void;
+  filterColumn?: string;
+  onChartTypeChange?: (type: string) => void;
+  onDrillDown?: () => void;
+}) {
   const filter = useDashboardFilter();
   if (!data || data.length === 0) return null;
   const accentColor = getAccentColor();
@@ -430,7 +489,7 @@ export function LineTrendChart({ data, onPin, filterColumn = "label" }: { data: 
   };
 
   return (
-    <ChartCard title="Time Series Trend" badge="Recharts Line" onPin={onPin} data-export-plot="Line Trend">
+    <ChartCard title="Time Series Trend" badge="Recharts Line" onPin={onPin} chartType="line" onChartTypeChange={onChartTypeChange} onDrillDown={onDrillDown} data-export-plot="Line Trend">
       <ResponsiveContainer width="100%" height={280}>
         <LineChart data={data} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" strokeOpacity={0.5} />
@@ -463,10 +522,26 @@ export function LineTrendChart({ data, onPin, filterColumn = "label" }: { data: 
   );
 }
 
-export function AreaTrendChart({ data, onPin }: { data: ChartPoint[]; onPin?: () => void }) {
+export function AreaTrendChart({ data, onPin, filterColumn = "label", onChartTypeChange, onDrillDown }: {
+  data: ChartPoint[];
+  onPin?: () => void;
+  filterColumn?: string;
+  onChartTypeChange?: (type: string) => void;
+  onDrillDown?: () => void;
+}) {
+  const filter = useDashboardFilter();
   if (!data || data.length === 0) return null;
+  const accentColor = getAccentColor();
+
+  const handleAreaClick = (entry: unknown) => {
+    const p = entry as { label?: string };
+    if (p?.label) filter.addFilter({ column: filterColumn, value: p.label, operator: "eq" });
+  };
+
+  const hasActiveFilter = filter.filters.some(f => f.column === filterColumn && f.value);
+
   return (
-    <ChartCard title="Cumulative Trend" badge="Recharts Area" onPin={onPin} data-export-plot="Area Trend">
+    <ChartCard title="Cumulative Trend" badge="Recharts Area" onPin={onPin} chartType="area" onChartTypeChange={onChartTypeChange} onDrillDown={onDrillDown} data-export-plot="Area Trend">
       <ResponsiveContainer width="100%" height={280}>
         <AreaChart data={data} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" strokeOpacity={0.5} />
@@ -481,7 +556,18 @@ export function AreaTrendChart({ data, onPin }: { data: ChartPoint[]; onPin?: ()
               boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
             }}
           />
-          <Area type="monotone" dataKey="value" stroke="var(--accent, #6366f1)" fill="var(--accent, #6366f1)" fillOpacity={0.1} strokeWidth={2.5} animationDuration={600} animationEasing="ease-out" />
+          <Area
+            type="monotone"
+            dataKey="value"
+            stroke={accentColor}
+            fill={accentColor}
+            fillOpacity={hasActiveFilter ? 0.05 : 0.1}
+            strokeWidth={2.5}
+            animationDuration={600}
+            animationEasing="ease-out"
+            cursor="pointer"
+            onClick={(entry: unknown) => handleAreaClick(entry)}
+          />
         </AreaChart>
       </ResponsiveContainer>
     </ChartCard>
@@ -495,11 +581,24 @@ type ScatterPoint = {
   z?: number;
 };
 
-export function ScatterTrendChart({ data, onPin }: { data: ScatterPoint[]; onPin?: () => void }) {
+export function ScatterTrendChart({ data, onPin, filterColumn = "label", onChartTypeChange, onDrillDown }: {
+  data: ScatterPoint[];
+  onPin?: () => void;
+  filterColumn?: string;
+  onChartTypeChange?: (type: string) => void;
+  onDrillDown?: () => void;
+}) {
+  const filter = useDashboardFilter();
   if (!data || data.length === 0) return null;
   const colors = getChartColors();
+  const accentColor = getAccentColor();
+
+  const filteredData = filter.filters.length > 0
+    ? data.filter(d => !filter.filters.some(f => f.column === filterColumn && f.value && String(d.label) !== f.value))
+    : data;
+
   return (
-    <ChartCard title="Correlation Explorer" badge="Recharts Scatter" onPin={onPin} data-export-plot="Scatter Plot">
+    <ChartCard title="Correlation Explorer" badge="Recharts Scatter" onPin={onPin} chartType="scatter" onChartTypeChange={onChartTypeChange} onDrillDown={onDrillDown} data-export-plot="Scatter Plot">
       <ResponsiveContainer width="100%" height={280}>
       <ScatterChart margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" strokeOpacity={0.5} />
@@ -516,8 +615,8 @@ export function ScatterTrendChart({ data, onPin }: { data: ScatterPoint[]; onPin
           }}
           cursor={{ strokeDasharray: '3 3' }}
         />
-        <Scatter data={data} fill="var(--accent, #6366f1)" fillOpacity={0.6} animationDuration={600} animationEasing="ease-out">
-          {data.map((point, i) => (
+        <Scatter data={filteredData} fill={accentColor} fillOpacity={0.6} animationDuration={600} animationEasing="ease-out">
+          {filteredData.map((point, i) => (
             <Cell key={i} fill={colors[i % colors.length]} />
           ))}
         </Scatter>
@@ -533,17 +632,26 @@ type ComboPoint = {
   line: number;
 };
 
-export function ComboChart({ data, onPin, barKey = "bars", lineKey = "line" }: {
+export function ComboChart({ data, onPin, barKey = "bars", lineKey = "line", filterColumn = "label", onChartTypeChange, onDrillDown }: {
   data: ComboPoint[];
   onPin?: () => void;
   barKey?: string;
   lineKey?: string;
+  filterColumn?: string;
+  onChartTypeChange?: (type: string) => void;
+  onDrillDown?: () => void;
 }) {
+  const filter = useDashboardFilter();
   if (!data || data.length === 0) return null;
+
+  const filteredData = filter.filters.length > 0
+    ? data.filter(d => !filter.filters.some(f => f.column === filterColumn && f.value && String(d.label) !== f.value))
+    : data;
+
   return (
-    <ChartCard title="Bar + Line Combo" badge="Recharts Composed" onPin={onPin} data-export-plot="Combo Chart">
+    <ChartCard title="Bar + Line Combo" badge="Recharts Composed" onPin={onPin} chartType="combo" onChartTypeChange={onChartTypeChange} onDrillDown={onDrillDown} data-export-plot="Combo Chart">
       <ResponsiveContainer width="100%" height={280}>
-        <ComposedChart data={data} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
+        <ComposedChart data={filteredData} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" strokeOpacity={0.5} />
           <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
           <YAxis tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
@@ -570,32 +678,36 @@ type HeatmapCell = {
   value: number;
 };
 
-export function SmartAutoViz({ data, chartType, onPin, title }: {
+export function SmartAutoViz({ data, chartType, onPin, title, onChartTypeChange, onDrillDown }: {
   data: ChartPoint[];
   chartType?: string;
   onPin?: () => void;
   title?: string;
+  onChartTypeChange?: (type: string) => void;
+  onDrillDown?: () => void;
 }) {
   if (!data || data.length === 0) return null;
+
+  const shared = { onPin, onChartTypeChange, onDrillDown };
 
   if (chartType === 'scatter') {
     const hasNumericLabels = data.every((d) => !isNaN(Number(d.label)));
     if (!hasNumericLabels) {
-      return <TrendChart data={data} onPin={onPin} />;
+      return <TrendChart data={data} {...shared} />;
     }
-    return <ScatterTrendChart data={data.map((d) => ({ label: d.label, x: Number(d.label), y: d.value }))} onPin={onPin} />;
+    return <ScatterTrendChart data={data.map((d) => ({ label: d.label, x: Number(d.label), y: d.value }))} {...shared} />;
   }
 
   switch (chartType) {
     case 'line':
-      return <LineTrendChart data={data} onPin={onPin} />;
+      return <LineTrendChart data={data} {...shared} />;
     case 'pie':
-      return <SegmentChart data={data} onPin={onPin} />;
+      return <SegmentChart data={data} {...shared} />;
     case 'area':
-      return <AreaTrendChart data={data} onPin={onPin} />;
+      return <AreaTrendChart data={data} {...shared} />;
     case 'bar':
     default:
-      return <TrendChart data={data} onPin={onPin} />;
+      return <TrendChart data={data} {...shared} />;
   }
 }
 
@@ -699,13 +811,25 @@ export function DashboardFilterBar() {
   );
 }
 
-export function HeatmapChart({ data, onPin }: { data: HeatmapCell[]; onPin?: () => void }) {
+export function HeatmapChart({ data, onPin, filterColumn = "x", onChartTypeChange, onDrillDown }: {
+  data: HeatmapCell[];
+  onPin?: () => void;
+  filterColumn?: string;
+  onChartTypeChange?: (type: string) => void;
+  onDrillDown?: () => void;
+}) {
+  const filter = useDashboardFilter();
   if (!data || data.length === 0) return null;
-  const maxVal = Math.max(...data.map((d) => d.value));
-  const minVal = Math.min(...data.map((d) => d.value));
+  const filteredData = filter.filters.length > 0
+    ? data.filter(d => !filter.filters.some(f => f.value && d[filterColumn as keyof HeatmapCell] !== f.value))
+    : data;
+
+  const maxVal = Math.max(...filteredData.map((d) => d.value));
+  const minVal = Math.min(...filteredData.map((d) => d.value));
   const range = maxVal - minVal || 1;
-  const xLabels = [...new Set(data.map((d) => d.x))];
-  const yLabels = [...new Set(data.map((d) => d.y))];
+
+  const xLabels = [...new Set(filteredData.map((d) => d.x))];
+  const yLabels = [...new Set(filteredData.map((d) => d.y))];
 
   const getColor = (val: number) => {
     const intensity = (val - minVal) / range;
@@ -716,7 +840,7 @@ export function HeatmapChart({ data, onPin }: { data: HeatmapCell[]; onPin?: () 
   };
 
   return (
-    <ChartCard title="Density Heatmap" badge="Grid" onPin={onPin} data-export-plot="Heatmap">
+    <ChartCard title="Density Heatmap" badge="Grid" onPin={onPin} chartType="heatmap" onChartTypeChange={onChartTypeChange} onDrillDown={onDrillDown} data-export-plot="Heatmap">
       <div className="overflow-x-auto">
         <div className="grid gap-0.5" style={{ gridTemplateColumns: `auto repeat(${xLabels.length}, 1fr)` }}>
           <div className="text-[10px] text-slate-400 p-1" />
@@ -727,7 +851,7 @@ export function HeatmapChart({ data, onPin }: { data: HeatmapCell[]; onPin?: () 
             <React.Fragment key={yl}>
               <div className="text-[10px] text-slate-500 font-medium p-1 text-right truncate">{yl}</div>
               {xLabels.map((xl) => {
-                const cell = data.find((d) => d.x === xl && d.y === yl);
+                const cell = filteredData.find((d) => d.x === xl && d.y === yl);
                 const val = cell?.value ?? 0;
                 return (
                   <div
