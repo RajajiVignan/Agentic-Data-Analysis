@@ -60,24 +60,13 @@ export async function waitForAnalysis(page: Page, timeout = 60000) {
     page.getByText('Interactive Segments'),
     page.getByText('AI Insight'),
     page.getByText('Time Series Trend'),
+    page.getByText('AI Generated Visualization'),
   ];
 
-  for (const check of checks) {
-    try {
-      await check.waitFor({ state: 'visible', timeout });
-      return;
-    } catch {
-      // continue
-    }
-  }
-
-  // Last resort: wait for any KPI value
-  const kpi = page.locator('.text-2xl.font-bold.text-slate-900');
-  try {
-    await kpi.first().waitFor({ state: 'visible', timeout: 10000 });
-  } catch {
-    // still ok, we tried
-  }
+  await Promise.race([
+    ...checks.map((check) => check.waitFor({ state: 'visible', timeout })),
+    page.locator('.text-2xl.font-bold.text-slate-900').first().waitFor({ state: 'visible', timeout }),
+  ]).catch(() => {});
 }
 
 /**
@@ -91,10 +80,16 @@ export async function getKpiValues(page: Page) {
  * Navigate to a sidebar tab.
  */
 export async function navigateToTab(page: Page, tabName: string) {
-  const sidebar = page.locator('aside');
-  const tabButton = sidebar.getByRole('button', { name: tabName, exact: true });
-  await tabButton.scrollIntoViewIfNeeded();
-  await tabButton.click({ force: true });
+  await page.evaluate((name) => {
+    const btn = document.querySelector<HTMLButtonElement>(`aside button`);
+    const buttons = document.querySelectorAll<HTMLButtonElement>('aside nav button');
+    for (const b of buttons) {
+      if (b.textContent?.trim() === name) {
+        b.click();
+        return;
+      }
+    }
+  }, tabName);
   await page.waitForTimeout(500);
 }
 

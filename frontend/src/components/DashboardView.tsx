@@ -1,9 +1,9 @@
-"use client";
 
 import React, { useState, useCallback } from "react";
 import { ChevronDown, ChevronRight, Code, BarChart3, Sparkles } from "lucide-react";
 import { MetricTile, PythonPlot, SmartAutoViz, ExplainSection, PlotLoading, DashboardFilterBar } from "@/components/Charts";
 import { DashboardFilterProvider } from "@/components/DashboardFilterContext";
+import { DrillDownPanel } from "@/components/DrillDownPanel";
 import type { AnalysisResult, PinnedChart } from "@/lib/api";
 
 type DashboardViewProps = {
@@ -79,6 +79,9 @@ export function DashboardView({ result, dashboardRef, onPinChart, onRunFollowUp,
 
       {/* Cross-filter bar */}
       <DashboardFilterBar />
+
+      {/* Drill-down panel */}
+      <DrillDownPanel result={result} />
 
       {/* KPI tiles */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 stagger-1">

@@ -110,12 +110,20 @@ func (ps *PlotService) HandlePythonPlot(w http.ResponseWriter, r *http.Request, 
 	scheme := r.URL.Query().Get("chartScheme")
 	fontFam := r.URL.Query().Get("fontFamily")
 	fontSz := r.URL.Query().Get("fontSize")
-	if accent != "" || scheme != "" || fontFam != "" || fontSz != "" {
+	chartType := r.URL.Query().Get("chartType")
+	xAxis := r.URL.Query().Get("xAxis")
+	yAxis := r.URL.Query().Get("yAxis")
+	aggregation := r.URL.Query().Get("aggregation")
+	if accent != "" || scheme != "" || fontFam != "" || fontSz != "" || chartType != "" || xAxis != "" || yAxis != "" || aggregation != "" {
 		dc := DesignConfig{
 			AccentColor: accent,
 			ChartScheme: scheme,
 			FontFamily:  fontFam,
 			FontSize:    fontSz,
+			ChartType:   chartType,
+			XAxis:       xAxis,
+			YAxis:       yAxis,
+			Aggregation: aggregation,
 		}
 		if b, err := json.Marshal(dc); err == nil {
 			designJSON = string(b)

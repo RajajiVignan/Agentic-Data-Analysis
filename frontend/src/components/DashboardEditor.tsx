@@ -1,11 +1,8 @@
-"use client";
-
-import React, { useState, useEffect, useCallback, type ComponentType } from "react";
-import dynamic from "next/dynamic";
+import React, { useState, useEffect, useCallback, type ComponentType, lazy, Suspense } from "react";
 import "react-grid-layout/css/styles.css";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const GridLayout = dynamic(() => import("react-grid-layout"), { ssr: false }) as ComponentType<any>;
+const GridLayout = lazy(() => import("react-grid-layout")) as ComponentType<any>;
 import {
   Layout as LayoutIcon,
   Plus,
@@ -252,6 +249,7 @@ export function DashboardEditor({ onRefreshCharts }: Props) {
       {activeLayout && (
         <div className="relative">
           {editing && (
+            <Suspense fallback={<div className="h-96 bg-slate-100 dark:bg-slate-800 rounded-lg animate-pulse" />}>
             <GridLayout
               className="layout"
               layout={activeLayout.tiles.map((t) => ({
@@ -326,6 +324,7 @@ export function DashboardEditor({ onRefreshCharts }: Props) {
                 </div>
               ))}
             </GridLayout>
+            </Suspense>
           )}
 
           {!editing && (

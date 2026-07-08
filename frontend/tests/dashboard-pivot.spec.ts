@@ -29,8 +29,12 @@ test.describe('Dashboards & Pivot Builder', () => {
 
       const input = page.getByPlaceholder('Dashboard name...');
       await input.fill('Test Dashboard');
-      await input.press('Enter');
-      await page.waitForTimeout(1000);
+      await page.waitForTimeout(200);
+
+      // Dispatch native input + click the confirm button
+      const checkBtn = input.locator('..').getByRole('button').first();
+      await checkBtn.click();
+      await page.waitForTimeout(1500);
 
       const created = await page.getByText('Dashboard created').isVisible().catch(() => false);
       const hasTab = await page.getByText('Test Dashboard').isVisible().catch(() => false);
@@ -122,26 +126,14 @@ test.describe('Dashboards & Pivot Builder', () => {
     test('all major navigation tabs are accessible', async ({ page }) => {
       const tabs = ['Data', 'Profiler', 'Context', 'Share'];
       for (const tab of tabs) {
-        const sidebar = page.locator('aside');
-        const btn = sidebar.getByRole('button', { name: tab, exact: true });
-        const visible = await btn.isVisible().catch(() => false);
-        if (!visible) continue;
-        await btn.scrollIntoViewIfNeeded();
-        await btn.click();
-        await page.waitForTimeout(400);
+        await navigateToTab(page, tab);
       }
     });
 
     test('advanced tabs are accessible', async ({ page }) => {
       const advancedTabs = ['Schema', 'SQL Query', 'Reports', 'Editor', 'Glossary'];
       for (const tab of advancedTabs) {
-        const sidebar = page.locator('aside');
-        const btn = sidebar.getByRole('button', { name: tab, exact: true });
-        const visible = await btn.isVisible().catch(() => false);
-        if (!visible) continue;
-        await btn.scrollIntoViewIfNeeded();
-        await btn.click();
-        await page.waitForTimeout(400);
+        await navigateToTab(page, tab);
       }
     });
 

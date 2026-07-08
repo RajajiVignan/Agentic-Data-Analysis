@@ -1,4 +1,3 @@
-"use client";
 
 import React, { useState } from "react";
 import { login, register, guestLogin, AuthUser } from "@/lib/api";

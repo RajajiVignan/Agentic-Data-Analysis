@@ -224,10 +224,14 @@ export async function runAnalysis(
   chartScheme?: string,
   fontFamily?: string,
   fontSize?: string,
+  chartType?: string,
+  xAxis?: string,
+  yAxis?: string,
+  aggregation?: string,
 ): Promise<AnalysisResult> {
   const res = await apiFetch("/analyze", {
     method: "POST",
-    body: JSON.stringify({ datasetIds, prompt, sessionId, vizType, accentColor, chartScheme, fontFamily, fontSize }),
+    body: safeJsonStringify({ datasetIds, prompt, sessionId, vizType, accentColor, chartScheme, fontFamily, fontSize, chartType, xAxis, yAxis, aggregation }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error ?? "Analysis failed");
@@ -254,13 +258,29 @@ export async function runAnalysis(
   };
 }
 
-export async function regeneratePlot(datasetId: string, prompt: string, vizType: string, accentColor?: string, chartScheme?: string, fontFamily?: string, fontSize?: string): Promise<{ plotUrl: string; vizType: string } | null> {
+export async function regeneratePlot(
+  datasetId: string,
+  prompt: string,
+  vizType: string,
+  accentColor?: string,
+  chartScheme?: string,
+  fontFamily?: string,
+  fontSize?: string,
+  chartType?: string,
+  xAxis?: string,
+  yAxis?: string,
+  aggregation?: string,
+): Promise<{ plotUrl: string; vizType: string } | null> {
   try {
     let url = `/python-plot?datasetId=${encodeURIComponent(datasetId)}&prompt=${encodeURIComponent(prompt)}&vizType=${encodeURIComponent(vizType)}`;
     if (accentColor) url += `&accentColor=${encodeURIComponent(accentColor)}`;
     if (chartScheme) url += `&chartScheme=${encodeURIComponent(chartScheme)}`;
     if (fontFamily) url += `&fontFamily=${encodeURIComponent(fontFamily)}`;
     if (fontSize) url += `&fontSize=${encodeURIComponent(fontSize)}`;
+    if (chartType) url += `&chartType=${encodeURIComponent(chartType)}`;
+    if (xAxis) url += `&xAxis=${encodeURIComponent(xAxis)}`;
+    if (yAxis) url += `&yAxis=${encodeURIComponent(yAxis)}`;
+    if (aggregation) url += `&aggregation=${encodeURIComponent(aggregation)}`;
     const res = await apiFetch(url);
     if (!res.ok) return null;
     return await res.json();

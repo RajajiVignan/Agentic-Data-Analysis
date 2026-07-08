@@ -1,4 +1,3 @@
-"use client";
 
 import React, { useState, useCallback, useEffect } from "react";
 import { GripVertical, X, Plus, Table2, Sigma, Filter, List, LayoutGrid, Play } from "lucide-react";

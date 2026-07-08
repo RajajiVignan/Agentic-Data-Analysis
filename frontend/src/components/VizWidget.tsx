@@ -1,4 +1,3 @@
-"use client";
 
 import React, { useState, useMemo } from "react";
 import {
@@ -21,8 +20,13 @@ import {
   Image,
   Code,
   Play,
+  Layers,
+  Activity,
+  Gauge,
+  Grid3X3,
 } from "lucide-react";
 import type { Dataset, Column } from "@/lib/api";
+import { ColorPaletteEditor } from "@/components/ColorPaletteEditor";
 
 type VizWidgetProps = {
   datasets: Dataset[];
@@ -43,6 +47,13 @@ type VizWidgetProps = {
   onChartTypeSelect: (v: string | null) => void;
   analyzeLoading: boolean;
   canAnalyze: boolean;
+  xAxis: string;
+  yAxis: string;
+  aggregation: string;
+  onXAxisChange: (v: string) => void;
+  onYAxisChange: (v: string) => void;
+  onAggregationChange: (v: string) => void;
+  onCustomPaletteApply?: (colors: string[]) => void;
 };
 
 type ChartTool = {
@@ -62,12 +73,13 @@ type Suggestion = {
 const CHART_TOOLS: ChartTool[] = [
   { id: "bar", label: "Bar", icon: <BarChart3 size={18} />, description: "Compare values across categories", color: "from-indigo-500 to-indigo-600" },
   { id: "line", label: "Line", icon: <LineChart size={18} />, description: "Show trends over time", color: "from-emerald-500 to-emerald-600" },
+  { id: "histogram", label: "Histogram", icon: <Activity size={18} />, description: "Distribution of values", color: "from-sky-500 to-sky-600" },
+  { id: "stacked_bar", label: "Stacked", icon: <Layers size={18} />, description: "Stacked bar chart", color: "from-teal-500 to-teal-600" },
   { id: "pie", label: "Pie", icon: <PieChart size={18} />, description: "Show proportions of a whole", color: "from-amber-500 to-amber-600" },
   { id: "area", label: "Area", icon: <AreaChart size={18} />, description: "Emphasize magnitude of change", color: "from-violet-500 to-violet-600" },
   { id: "scatter", label: "Scatter", icon: <ScatterChart size={18} />, description: "Find correlations between metrics", color: "from-rose-500 to-rose-600" },
-  { id: "combo", label: "Combo", icon: <LayoutDashboard size={18} />, description: "Bar + line combined chart", color: "from-cyan-500 to-cyan-600" },
-  { id: "table", label: "Table", icon: <Table2 size={18} />, description: "Raw data in tabular format", color: "from-slate-500 to-slate-600" },
-  { id: "kpi", label: "KPI", icon: <TrendingUp size={18} />, description: "Highlight a single key metric", color: "from-orange-500 to-orange-600" },
+  { id: "gauge", label: "Gauge", icon: <Gauge size={18} />, description: "Single metric gauge display", color: "from-pink-500 to-pink-600" },
+  { id: "matrix", label: "Matrix", icon: <Grid3X3 size={18} />, description: "Tabular data matrix", color: "from-slate-500 to-slate-600" },
 ];
 
 function generateSuggestions(columns: Column[], toolId: string): Suggestion[] {
@@ -198,6 +210,60 @@ function generateSuggestions(columns: Column[], toolId: string): Suggestion[] {
       }
       break;
 
+    case "histogram":
+      for (const metric of topMetrics) {
+        suggestions.push({
+          prompt: `Show distribution of ${metric.name} as a histogram`,
+          label: `Distribution of ${metric.name}`,
+          description: `Histogram showing frequency distribution of ${metric.name}`,
+        });
+      }
+      break;
+
+    case "stacked_bar":
+      if (topDims.length > 0 && topMetrics.length >= 2) {
+        suggestions.push({
+          prompt: `Show stacked bar chart of ${topMetrics[0].name} and ${topMetrics[1].name} by ${topDims[0].name}`,
+          label: `${topMetrics[0].name} + ${topMetrics[1].name} by ${topDims[0].name}`,
+          description: `Stacked bar comparing metrics across ${topDims[0].name}`,
+        });
+      }
+      if (topDims.length > 0 && topMetrics.length >= 1) {
+        suggestions.push({
+          prompt: `Show ${topMetrics[0].name} by ${topDims[0].name} as a stacked bar chart`,
+          label: `${topMetrics[0].name} by ${topDims[0].name}`,
+          description: `Stacked bar chart of ${topMetrics[0].name} by ${topDims[0].name}`,
+        });
+      }
+      break;
+
+    case "gauge":
+      for (const metric of topMetrics) {
+        suggestions.push({
+          prompt: `Show ${metric.name} as a gauge chart`,
+          label: `${metric.name} gauge`,
+          description: `Gauge chart showing current ${metric.name} value`,
+        });
+      }
+      break;
+
+    case "matrix":
+      if (topDims.length > 0 && topMetrics.length > 0) {
+        suggestions.push({
+          prompt: `Show a matrix table of ${topMetrics[0].name} grouped by ${topDims[0].name}`,
+          label: `Matrix: ${topMetrics[0].name} by ${topDims[0].name}`,
+          description: `Tabular matrix of ${topMetrics[0].name} by ${topDims[0].name}`,
+        });
+      }
+      if (columns.length > 0) {
+        suggestions.push({
+          prompt: `Show summary statistics table for all columns`,
+          label: `Summary statistics`,
+          description: `Table with count, mean, min, max for each numeric column`,
+        });
+      }
+      break;
+
     case "kpi":
       for (const metric of topMetrics) {
         suggestions.push({
@@ -233,6 +299,8 @@ export function VizWidget({
   accentColor, chartScheme, fontFamily, fontSize, vizType,
   onAccentChange, onSchemeChange, onFontFamilyChange, onFontSizeChange,
   onVizTypeChange, selectedChartType, onChartTypeSelect, analyzeLoading, canAnalyze,
+  xAxis, yAxis, aggregation, onXAxisChange, onYAxisChange, onAggregationChange,
+  onCustomPaletteApply,
 }: VizWidgetProps) {
   const selectedColumns = useMemo(() => {
     if (selectedDatasetIds.length === 0) return [];
@@ -368,6 +436,66 @@ export function VizWidget({
           </div>
         )}
 
+        {/* --- Axis & Aggregation Section --- */}
+        {selectedChartType && selectedColumns.length > 0 && (
+          <div className="pt-3 border-t border-slate-100 space-y-3">
+            <div className="flex items-center gap-2 px-1">
+              <div className="p-1.5 bg-indigo-100 rounded-lg">
+                <BarChart3 size={14} className="text-indigo-600" />
+              </div>
+              <span className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Axis & Aggregation</span>
+            </div>
+
+            {/* X-Axis selector */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider px-1">X-Axis</label>
+              <select
+                value={xAxis}
+                onChange={(e) => onXAxisChange(e.target.value)}
+                className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white text-slate-600"
+              >
+                <option value="">Auto detect</option>
+                {selectedColumns.filter(c => c.type === "text" || c.type === "string" || c.type === "category" || c.type === "date" || c.type === "datetime" || c.type === "varchar").map(c => (
+                  <option key={c.name} value={c.name}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Y-Axis selector */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider px-1">Y-Axis (Value)</label>
+              <select
+                value={yAxis}
+                onChange={(e) => onYAxisChange(e.target.value)}
+                className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white text-slate-600"
+              >
+                <option value="">Auto detect</option>
+                {selectedColumns.filter(c => c.type === "numeric" || c.type === "integer" || c.type === "float" || c.type === "number" || c.type === "real" || c.type === "decimal").map(c => (
+                  <option key={c.name} value={c.name}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Aggregation selector */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider px-1">Aggregation</label>
+              <select
+                value={aggregation}
+                onChange={(e) => onAggregationChange(e.target.value)}
+                className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white text-slate-600"
+              >
+                <option value="sum">Sum</option>
+                <option value="mean">Average</option>
+                <option value="median">Median</option>
+                <option value="min">Minimum</option>
+                <option value="max">Maximum</option>
+                <option value="count">Count</option>
+                <option value="none">None (raw)</option>
+              </select>
+            </div>
+          </div>
+        )}
+
         {/* --- Design Section --- */}
         <div className="pt-3 border-t border-slate-100 space-y-3">
           <div className="flex items-center gap-2 px-1">
@@ -401,20 +529,12 @@ export function VizWidget({
             </div>
           </div>
 
-          {/* Chart color scheme */}
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider px-1">Chart Scheme</label>
-            <select
-              value={chartScheme}
-              onChange={(e) => onSchemeChange(e.target.value)}
-              className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white text-slate-600"
-            >
-              <option value="default">Default</option>
-              <option value="warm">Warm</option>
-              <option value="cool">Cool</option>
-              <option value="mono">Monochrome</option>
-            </select>
-          </div>
+          {/* Color Palette Editor */}
+          <ColorPaletteEditor
+            currentScheme={chartScheme}
+            onSchemeChange={onSchemeChange}
+            onCustomPaletteApply={onCustomPaletteApply}
+          />
 
           {/* Font family */}
           <div className="space-y-1.5">

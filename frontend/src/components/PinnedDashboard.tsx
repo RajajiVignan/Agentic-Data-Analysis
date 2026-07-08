@@ -1,4 +1,3 @@
-"use client";
 
 import React, { useState } from "react";
 import { X, Plus, Edit3, Trash2, Check, X as XIcon } from "lucide-react";

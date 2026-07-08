@@ -123,6 +123,7 @@ func NewHandler(cfg agent.Config) *Handler {
 	h.reportSvc.Start(h)
 	h.startRefreshScheduler()
 	h.startGuestCleanup()
+	h.startFileCleanup()
 
 	return h
 }
@@ -166,8 +167,11 @@ func (h *Handler) sendJSON(w http.ResponseWriter, status int, data interface{}) 
 // Returns false and sends an error response if decoding fails.
 func decodeJSON(w http.ResponseWriter, r *http.Request, v interface{}) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
-		sendInvalidRequest(w, "Invalid request body")
+	bodyBytes, _ := io.ReadAll(r.Body)
+	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	if err := json.Unmarshal(bodyBytes, v); err != nil {
+		slog.Error("decodeJSON failed", "path", r.URL.Path, "body", string(bodyBytes), "error", err)
+		sendInvalidRequest(w, "Invalid request body: "+err.Error())
 		return false
 	}
 	return true
@@ -432,6 +436,10 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		ChartScheme string   `json:"chartScheme,omitempty"`
 		FontFamily  string   `json:"fontFamily,omitempty"`
 		FontSize    string   `json:"fontSize,omitempty"`
+		ChartType   string   `json:"chartType,omitempty"`
+		XAxis       string   `json:"xAxis,omitempty"`
+		YAxis       string   `json:"yAxis,omitempty"`
+		Aggregation string   `json:"aggregation,omitempty"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -602,12 +610,16 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 
 	// Build design JSON for Python plot
 	designJSON := ""
-	if body.AccentColor != "" || body.ChartScheme != "" || body.FontFamily != "" || body.FontSize != "" {
+	if body.AccentColor != "" || body.ChartScheme != "" || body.FontFamily != "" || body.FontSize != "" || body.ChartType != "" || body.XAxis != "" || body.YAxis != "" || body.Aggregation != "" {
 		dc := DesignConfig{
 			AccentColor: body.AccentColor,
 			ChartScheme: body.ChartScheme,
 			FontFamily:  body.FontFamily,
 			FontSize:    body.FontSize,
+			ChartType:   body.ChartType,
+			XAxis:       body.XAxis,
+			YAxis:       body.YAxis,
+			Aggregation: body.Aggregation,
 		}
 		if b, err := json.Marshal(dc); err == nil {
 			designJSON = string(b)
@@ -1018,6 +1030,93 @@ func (h *Handler) refreshConnectedDatasets() {
 		h.mu.Unlock()
 
 		slog.Info("Refreshed dataset", "component", "refresh", "datasetId", t.id, "filename", t.filename, "rows", len(rows))
+	}
+}
+
+// startFileCleanup launches a background goroutine that periodically removes
+// uploaded data files based on owner type: guest files after 7 days, user
+// files after 30 days, and orphaned files after 7 days.
+func (h *Handler) startFileCleanup() {
+	slog.Info("Started background file cleanup scheduler")
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				h.cleanupUploadedFiles()
+			case <-h.stopCh:
+				return
+			}
+		}
+	}()
+}
+
+func (h *Handler) cleanupUploadedFiles() {
+	h.mu.RLock()
+	knownFiles := make(map[string]string) // filePath -> ownerID
+	for _, ds := range h.datasets {
+		if ds.FilePath != "" {
+			knownFiles[ds.FilePath] = ds.OwnerID
+		}
+	}
+	h.mu.RUnlock()
+
+	now := time.Now()
+	guestRetention := 7 * 24 * time.Hour
+	userRetention := 30 * 24 * time.Hour
+	orphanRetention := 7 * 24 * time.Hour
+
+	// Clean up dataset files based on ownership
+	for filePath, ownerID := range knownFiles {
+		info, err := os.Stat(filePath)
+		if err != nil {
+			continue
+		}
+
+		var retention time.Duration
+		switch {
+		case isGuestUser(ownerID):
+			retention = guestRetention
+		case ownerID != "":
+			retention = userRetention
+		default:
+			retention = orphanRetention
+		}
+
+		if now.Sub(info.ModTime()) > retention {
+			if err := os.Remove(filePath); err != nil {
+				slog.Warn("Failed to remove expired file", "file", filePath, "error", err)
+			} else {
+				slog.Info("Removed expired uploaded file", "file", filePath, "owner", ownerID)
+			}
+		}
+	}
+
+	// Clean up orphaned files not tracked in any dataset
+	entries, err := os.ReadDir(h.uploadDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		filePath := filepath.Join(h.uploadDir, entry.Name())
+		if _, exists := knownFiles[filePath]; exists {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		if now.Sub(info.ModTime()) > orphanRetention {
+			if err := os.Remove(filePath); err != nil {
+				slog.Warn("Failed to remove orphaned file", "file", filePath, "error", err)
+			} else {
+				slog.Info("Removed orphaned uploaded file", "file", filePath)
+			}
+		}
 	}
 }
 

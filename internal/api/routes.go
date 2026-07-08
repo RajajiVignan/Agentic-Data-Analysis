@@ -14,7 +14,7 @@ import (
 )
 
 // chiRouter builds the HTTP handler with all routes.
-// It uses chi for API/plots/_next routes and falls back to a static file
+// It uses chi for API/plots/assets routes and falls back to a static file
 // handler for everything else. We avoid chi's wildcard redirect behavior by
 // dispatching at the top level based on URL prefix.
 func (h *Handler) chiRouter() http.Handler {
@@ -124,15 +124,15 @@ func (h *Handler) chiRouter() http.Handler {
 	// Generated plots
 	r.Get("/plots/{filename}", h.plotService.ServePlot)
 
-	// _next/static/ with long-term caching
+	// Vite assets/ with long-term caching
 	staticDir := h.staticDir()
 	if staticDir != "" {
-		nextStaticDir := filepath.Join(staticDir, "_next", "static")
-		if _, err := os.Stat(nextStaticDir); err == nil {
-			fs := http.FileServer(http.Dir(nextStaticDir))
-			r.Get("/_next/static/*", func(w http.ResponseWriter, r *http.Request) {
+		assetsDir := filepath.Join(staticDir, "assets")
+		if _, err := os.Stat(assetsDir); err == nil {
+			fs := http.FileServer(http.Dir(assetsDir))
+			r.Get("/assets/*", func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-				http.StripPrefix("/_next/static/", fs).ServeHTTP(w, r)
+				http.StripPrefix("/assets/", fs).ServeHTTP(w, r)
 			})
 		}
 	}
@@ -150,7 +150,7 @@ func (h *Handler) chiRouter() http.Handler {
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/api/"),
 			strings.HasPrefix(r.URL.Path, "/plots/"),
-			strings.HasPrefix(r.URL.Path, "/_next/static/"):
+			strings.HasPrefix(r.URL.Path, "/assets/"):
 			chiRoute.ServeHTTP(w, r)
 		default:
 			if frontendHandler != nil {
@@ -162,7 +162,7 @@ func (h *Handler) chiRouter() http.Handler {
 	})
 }
 
-// serveFrontend serves the Next.js static export from dirPath.
+// serveFrontend serves the Vite SPA from dirPath.
 // It looks up the exact file, tries a .html extension, or falls back to
 // index.html for SPA client-side routing. We avoid http.FileServer for
 // fallback paths to prevent Go's automatic 301 redirects.
@@ -296,6 +296,7 @@ func corsMiddleware(allowedOrigins map[string]bool) func(http.Handler) http.Hand
 					w.Header().Set("Vary", "Origin")
 				}
 			}
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 			if r.Method == "OPTIONS" {

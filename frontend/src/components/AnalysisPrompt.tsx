@@ -1,4 +1,3 @@
-"use client";
 
 import React, { useRef, useEffect } from "react";
 import { Sparkles, Loader2, Trash2, Filter, Send } from "lucide-react";

@@ -36,25 +36,13 @@ test.describe('Navigation', () => {
   });
 
   test('Share tab shows export options', async ({ page }) => {
-    const sidebar = page.locator('aside');
-    const shareBtn = sidebar.getByRole('button', { name: 'Share', exact: true });
-    await shareBtn.scrollIntoViewIfNeeded();
-    await shareBtn.click({ force: true });
-    await page.waitForTimeout(500);
+    await navigateToTab(page, 'Share');
 
-    await expect(page.getByText('Share & Export')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('Share & Export').first()).toBeVisible({ timeout: 5000 });
   });
 
   test('Glossary tab is accessible', async ({ page }) => {
-    const sidebar = page.locator('aside');
-    const glossaryBtn = sidebar.getByRole('button', { name: 'Glossary', exact: true });
-    const exists = await glossaryBtn.isVisible().catch(() => false);
-
-    if (exists) {
-      await glossaryBtn.scrollIntoViewIfNeeded();
-      await glossaryBtn.click({ force: true });
-      await page.waitForTimeout(500);
-    }
+    await navigateToTab(page, 'Glossary');
   });
 
   test('sidebar can be toggled open/closed', async ({ page }) => {

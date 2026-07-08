@@ -110,11 +110,14 @@ test.describe('Chart Interactions', () => {
   test('pin chart button exists and clickable', async ({ page }) => {
     const pinButtons = page.locator('button[title="Pin to Dashboard"]');
     const count = await pinButtons.count();
-    expect(count).toBeGreaterThan(0);
+    if (count === 0) {
+      await pinButtons.first().waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
+    }
+    const finalCount = await pinButtons.count();
+    expect(finalCount).toBeGreaterThan(0);
 
     await pinButtons.first().click();
-    await page.waitForTimeout(1500);
-    const pinned = await page.getByText('Chart pinned to dashboard').isVisible().catch(() => false);
+    const pinned = await page.getByText('Chart pinned to dashboard').waitFor({ state: 'visible', timeout: 8000 }).then(() => true).catch(() => false);
     const failed = await page.getByText('Failed to pin chart').isVisible().catch(() => false);
     expect(pinned || failed).toBe(true);
   });

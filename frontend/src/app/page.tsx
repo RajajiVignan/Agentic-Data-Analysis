@@ -1,5 +1,3 @@
-"use client";
-
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   LayoutDashboard,
@@ -56,6 +54,7 @@ import { GlossaryPanel } from "@/components/GlossaryPanel";
 import { VizWidget } from "@/components/VizWidget";
 import { PivotBuilder } from "@/components/PivotBuilder";
 import { CommandPalette } from "@/components/CommandPalette";
+import { ChartEditBar } from "@/components/ChartEditBar";
 import { useToast } from "@/components/ToastProvider";
 import type { AuthUser } from "@/lib/api";
 import { exportPlotsAsPdf } from "@/lib/export";
@@ -121,8 +120,13 @@ export default function Workspace() {
     () => (typeof window !== "undefined" ? localStorage.getItem("insightpilot-viz-type") : null) ?? "matplotlib"
   );
   const [selectedChartType, setSelectedChartType] = useState<string | null>(null);
+  const [xAxis, setXAxis] = useState("");
+  const [yAxis, setYAxis] = useState("");
+  const [aggregation, setAggregation] = useState("sum");
   const [sidebarMode, setSidebarMode] = useState<"plots" | "pivot">("plots");
   const [pivotLoading, setPivotLoading] = useState(false);
+  const [customChartColors, setCustomChartColors] = useState<string[] | null>(null);
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc" | null>(null);
   const { addToast } = useToast();
 
   // --- Initialization ---
@@ -311,7 +315,7 @@ export default function Workspace() {
     const currentPrompt = suggestionPrompt ?? prompt;
     setPrompt("");
     try {
-      const data = await runAnalysis(selectedDatasetIds, currentPrompt, sessionId ?? undefined, vizType, accentColor, chartScheme, fontFamily, fontSize);
+      const data = await runAnalysis(selectedDatasetIds, currentPrompt, sessionId ?? undefined, vizType, accentColor, chartScheme, fontFamily, fontSize, selectedChartType ?? undefined, xAxis, yAxis, aggregation);
       setResult(data);
       if (data.sessionId) {
         setSessionId(data.sessionId);
@@ -391,6 +395,27 @@ export default function Workspace() {
   function handleVizTypeChange(newVizType: string) {
     setVizType(newVizType);
     localStorage.setItem("insightpilot-viz-type", newVizType);
+  }
+
+  function handleChartEditTypeChange(newType: string) {
+    setSelectedChartType(newType);
+    addToast(`Chart type changed to ${newType}`, "success");
+  }
+
+  function handleColorSchemeChange(newScheme: string) {
+    setChartScheme(newScheme);
+    localStorage.setItem("insightpilot-chart-scheme", newScheme);
+    addToast(`Color scheme changed to ${newScheme}`, "success");
+  }
+
+  function handleSortChange(order: "asc" | "desc") {
+    setSortOrder(order);
+    addToast(`Sorted ${order === "asc" ? "ascending" : "descending"}`, "success");
+  }
+
+  function handleCustomPaletteApply(colors: string[]) {
+    setCustomChartColors(colors);
+    document.documentElement.style.setProperty("--chart-colors", colors.join(", "));
   }
 
   async function handlePivotGenerate(config: { rows: { column: string }[]; values: { column: string; aggregation?: string }[]; filters: { column: string }[] }) {
@@ -522,14 +547,14 @@ export default function Workspace() {
   useEffect(() => {
     if (!result?.dashboard?.plotUrl || selectedDatasetIds.length === 0) return;
     if (conversationTurns.length === 0) return;
-    const designKey = `${accentColor}|${chartScheme}|${fontFamily}|${fontSize}|${vizType}`;
+    const designKey = `${accentColor}|${chartScheme}|${fontFamily}|${fontSize}|${vizType}|${selectedChartType}|${xAxis}|${yAxis}|${aggregation}`;
     if (designKey === lastDesignRef.current) return;
     lastDesignRef.current = designKey;
     const lastPrompt = conversationTurns[conversationTurns.length - 1]?.prompt ?? "";
     const dsId = selectedDatasetIds[0];
     let cancelled = false;
     (async () => {
-      const newPlot = await regeneratePlot(dsId, lastPrompt, vizType, accentColor, chartScheme, fontFamily, fontSize);
+      const newPlot = await regeneratePlot(dsId, lastPrompt, vizType, accentColor, chartScheme, fontFamily, fontSize, selectedChartType ?? undefined, xAxis, yAxis, aggregation);
       if (!cancelled && newPlot?.plotUrl && newPlot.plotUrl !== result?.dashboard?.plotUrl) {
         setResult((prev) => {
           if (!prev) return prev;
@@ -749,13 +774,23 @@ export default function Workspace() {
                 <AnalysisPrompt
                   prompt={prompt}
                   onPromptChange={setPrompt}
-                  onRun={handleRunAnalysis}
+                  onRun={() => handleRunAnalysis()}
                   onNewAnalysis={handleNewAnalysis}
                   loading={analyzeLoading}
                   disabled={analyzeLoading || selectedDatasetIds.length === 0 || !mounted}
                   error={error}
                   hasActiveSession={sessionId !== null && conversationTurns.length > 0}
                 />
+
+                {/* Natural Language Chart Editor */}
+                {conversationTurns.length > 0 && (
+                  <ChartEditBar
+                    onChartTypeChange={handleChartEditTypeChange}
+                    onColorSchemeChange={handleColorSchemeChange}
+                    onSortChange={handleSortChange}
+                    hasResults={conversationTurns.length > 0}
+                  />
+                )}
               </div>
 
               <div className="w-full lg:w-72 shrink-0">
@@ -801,6 +836,13 @@ export default function Workspace() {
                     onChartTypeSelect={setSelectedChartType}
                     analyzeLoading={analyzeLoading}
                     canAnalyze={!analyzeLoading && selectedDatasetIds.length > 0 && selectedChartType !== null}
+                    xAxis={xAxis}
+                    yAxis={yAxis}
+                    aggregation={aggregation}
+                    onXAxisChange={setXAxis}
+                    onYAxisChange={setYAxis}
+                    onAggregationChange={setAggregation}
+                    onCustomPaletteApply={handleCustomPaletteApply}
                   />
                 ) : (
                   <PivotBuilder

@@ -88,9 +88,15 @@ test.describe('Upload & Analysis Workflow', () => {
   });
 
   test('analysis error state shows error message', async ({ page }) => {
-    const input = page.getByPlaceholder('Ask your data a question...');
-    await input.fill('some question');
-    await page.getByRole('button', { name: 'Analyze' }).first().click();
+    // Use evaluate to call the handler directly since the button is disabled without a dataset
+    const hasHandler = await page.evaluate(() => typeof (window as any).__testHandleRunAnalysis === 'function');
+    if (hasHandler) {
+      await page.evaluate(() => (window as any).__testHandleRunAnalysis('some question'));
+    } else {
+      const input = page.getByPlaceholder('Ask your data a question...');
+      await input.fill('some question');
+      await page.getByRole('button', { name: 'Analyze' }).first().click({ force: true });
+    }
 
     const hasError = await page.getByText('Select at least one dataset').isVisible().catch(() => false);
     const hasErrorToast = await page.getByText('Analysis failed').isVisible().catch(() => false);

@@ -1,5 +1,5 @@
 export { Sidebar } from "./Sidebar";
-export { MetricTile, PythonPlot, TrendChart, SegmentChart, LineTrendChart, AreaTrendChart, ScatterTrendChart, ComboChart, HeatmapChart } from "./Charts";
+export { MetricTile, PythonPlot, TrendChart, SegmentChart, LineTrendChart, AreaTrendChart, ScatterTrendChart, ComboChart, HeatmapChart, SmartAutoViz } from "./Charts";
 export { UploadArea } from "./UploadArea";
 export { AnalysisPrompt } from "./AnalysisPrompt";
 export { DashboardView, AnalysisSkeleton } from "./DashboardView";
@@ -10,3 +10,6 @@ export { VizWidget } from "./VizWidget";
 export { SchemaDesigner } from "./SchemaDesigner";
 export { CommandPalette } from "./CommandPalette";
 export { ToastProvider, useToast } from "./ToastProvider";
+export { DrillDownPanel } from "./DrillDownPanel";
+export { ColorPaletteEditor } from "./ColorPaletteEditor";
+export { ChartEditBar } from "./ChartEditBar";
