@@ -209,7 +209,43 @@ func (pb *PythonBridge) GeneratePlotScriptLLM(scriptID, prompt, profileJSON, viz
 		return "", fmt.Errorf("sandbox validation failed: %s", strings.Join(result.Violations, "; "))
 	}
 
-	return code, nil
+	// The LLM sometimes omits required imports (e.g. `import matplotlib.pyplot as
+	// plt`) or uses `design` instead of `_design`. Rather than reject otherwise
+	// valid code, prepend a guaranteed-safe prologue that provides the common
+	// imports and design globals. This runs after validation so the untrusted
+	// code is still the only thing the sandbox inspects.
+	return llmScriptPrologue(vizType) + "\n" + code, nil
+}
+
+// llmScriptPrologue returns a safe Python header that guarantees the standard
+// visualization imports and design config are available, so LLM-generated code
+// that forgets `import matplotlib.pyplot as plt` or uses `design`/`_design`
+// still runs. Library imports are best-effort (guarded) so a missing optional
+// dependency does not break scripts that don't need it.
+func llmScriptPrologue(vizType string) string {
+	return `import sys, json
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import pandas as pd
+import numpy as np
+try:
+    from bokeh.plotting import figure as _bk_figure, output_file as _bk_output_file, save as _bk_save
+    import bokeh
+except Exception:
+    pass
+try:
+    import plotly.graph_objects as go
+    import plotly.io as pio
+except Exception:
+    pass
+try:
+    _design = json.loads(sys.argv[3]) if len(sys.argv) > 3 else {}
+except Exception:
+    _design = {}
+design = _design
+_accent = _design.get('accentColor', '#6366f1')
+`
 }
 
 // callLLMForCode sends a request to the LLM asking for Python visualization code
