@@ -1,5 +1,5 @@
 
-import React, { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { GripVertical, X, Plus, Table2, Sigma, Filter, List, LayoutGrid, Play } from "lucide-react";
 import type { Column } from "@/lib/api";
 

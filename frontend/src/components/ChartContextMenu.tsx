@@ -1,5 +1,5 @@
 
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import {
   ArrowDown, BarChart3, LineChart, PieChart, AreaChart, ScatterChart,
   Download, Filter, Crosshair, X,

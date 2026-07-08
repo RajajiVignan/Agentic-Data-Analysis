@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, Fragment } from 'react';
 import { Pin, Info, ChevronDown, ChevronRight, Download, Loader2, Clock, Brain, Coffee, BarChart3, Activity, Image, Code, BarChart as BarChartIcon, X } from 'lucide-react';
 import { useDashboardFilter } from '@/components/DashboardFilterContext';
 import { ChartContextMenu } from '@/components/ChartContextMenu';
@@ -848,7 +848,7 @@ export function HeatmapChart({ data, onPin, filterColumn = "x", onChartTypeChang
             <div key={xl} className="text-[10px] text-slate-500 font-medium p-1 text-center truncate">{xl}</div>
           ))}
           {yLabels.map((yl) => (
-            <React.Fragment key={yl}>
+            <Fragment key={yl}>
               <div className="text-[10px] text-slate-500 font-medium p-1 text-right truncate">{yl}</div>
               {xLabels.map((xl) => {
                 const cell = filteredData.find((d) => d.x === xl && d.y === yl);
@@ -867,7 +867,7 @@ export function HeatmapChart({ data, onPin, filterColumn = "x", onChartTypeChang
                   </div>
                 );
               })}
-            </React.Fragment>
+            </Fragment>
           ))}
         </div>
       </div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, type ComponentType, lazy, Suspense } from "react";
+import { useState, useEffect, useCallback, type ComponentType, lazy, Suspense } from "react";
 import "react-grid-layout/css/styles.css";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

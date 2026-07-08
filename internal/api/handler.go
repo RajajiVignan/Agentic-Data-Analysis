@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"insightpilot/internal/agent"
+	"insightpilot/internal/cache"
 	"insightpilot/internal/data"
 	"insightpilot/internal/store"
 
@@ -40,9 +41,13 @@ type Handler struct {
 	auth              *AuthService
 	reportSvc         *ReportService
 	duckdb            *data.DuckDBEngine
+	resultCache       *cache.MemoryCache
 	encryptionKey     []byte
 	rateLimiter       *rateLimiter
 	uploadDir         string
+	asyncMgr          *asyncQueryManager
+	queryHistory      *queryHistoryStore
+	savedQuerySvc     *SavedQueryService
 	allowedOrigins    map[string]bool
 	stopCh            chan struct{}
 	mu                sync.RWMutex
@@ -50,6 +55,7 @@ type Handler struct {
 	pipelines         map[string]*data.TransformPipeline
 	dashEditorSvc     *DashboardEditorService
 	glossarySvc       *GlossaryService
+	semanticSvc       *SemanticFieldService
 }
 
 // NewHandler creates a new Handler with all services initialized.
@@ -90,9 +96,14 @@ func NewHandler(cfg agent.Config) *Handler {
 		pipelines:         make(map[string]*data.TransformPipeline),
 		encryptionKey:     generateEncryptionKey(),
 		glossarySvc:       newGlossaryService(db),
+		semanticSvc:       newSemanticFieldService(db),
 		rateLimiter:       newRateLimiter(10, time.Minute),
 		uploadDir:         uploadDir,
 		stopCh:            make(chan struct{}),
+		resultCache:       initResultCache(),
+		asyncMgr:          newAsyncQueryManager(),
+		queryHistory:      newQueryHistoryStore(100),
+		savedQuerySvc:     newSavedQueryService(db),
 	}
 
 	setDuckDBEngine(h.duckdb)
@@ -149,6 +160,16 @@ func (h *Handler) Shutdown() {
 	// Close DuckDB engine
 	if h.duckdb != nil {
 		h.duckdb.Close()
+	}
+
+	// Close result cache
+	if h.resultCache != nil {
+		h.resultCache.Close()
+	}
+
+	// Close async query manager
+	if h.asyncMgr != nil {
+		h.asyncMgr.close()
 	}
 
 	// Close database connection

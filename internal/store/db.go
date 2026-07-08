@@ -202,6 +202,12 @@ func (db *DB) initSchema() error {
 	if err := db.initGlossaryTable(); err != nil {
 		return err
 	}
+	if err := db.initDatasetFieldsTable(); err != nil {
+		return err
+	}
+	if err := db.initSavedQueriesTable(); err != nil {
+		return err
+	}
 	return db.initUsersTable()
 }
 
@@ -354,6 +360,128 @@ func (db *DB) initGlossaryTable() error {
 		)
 	`)
 	return err
+}
+
+func (db *DB) initDatasetFieldsTable() error {
+	_, err := db.conn.Exec(`
+		CREATE TABLE IF NOT EXISTS dataset_fields (
+			id TEXT PRIMARY KEY,
+			dataset_id TEXT NOT NULL DEFAULT '',
+			name TEXT NOT NULL,
+			kind TEXT NOT NULL DEFAULT 'metric',
+			config JSONB NOT NULL DEFAULT '{}'::jsonb,
+			created_at TEXT DEFAULT '',
+			updated_at TEXT DEFAULT ''
+		)
+	`)
+	return err
+}
+
+// SaveDatasetField inserts or updates a semantic field.
+func (db *DB) SaveDatasetField(f *data.SemanticField) error {
+	_, err := db.conn.Exec(
+		`INSERT INTO dataset_fields (id, dataset_id, name, kind, config, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)
+		 ON CONFLICT (id) DO UPDATE SET dataset_id=$2, name=$3, kind=$4, config=$5, updated_at=$7`,
+		f.ID, f.DatasetID, f.Name, f.Kind, f.Config, f.CreatedAt, f.UpdatedAt,
+	)
+	return err
+}
+
+// LoadDatasetFields retrieves all semantic fields (optionally filtered by dataset).
+func (db *DB) LoadDatasetFields(datasetID string) ([]data.SemanticField, error) {
+	q := `SELECT id, dataset_id, name, kind, COALESCE(config,'{}'::jsonb), COALESCE(created_at,''), COALESCE(updated_at,'') FROM dataset_fields`
+	args := []interface{}{}
+	if datasetID != "" {
+		q += ` WHERE dataset_id = $1`
+		args = append(args, datasetID)
+	}
+	q += ` ORDER BY name ASC`
+	rows, err := db.conn.Query(q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query dataset_fields: %w", err)
+	}
+	defer rows.Close()
+
+	var fields []data.SemanticField
+	for rows.Next() {
+		var f data.SemanticField
+		var configJSON []byte
+		if err := rows.Scan(&f.ID, &f.DatasetID, &f.Name, &f.Kind, &configJSON, &f.CreatedAt, &f.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan dataset_field: %w", err)
+		}
+		if len(configJSON) > 0 {
+			f.Config = configJSON
+		}
+		fields = append(fields, f)
+	}
+	return fields, rows.Err()
+}
+
+// DeleteDatasetField removes a semantic field by ID.
+func (db *DB) DeleteDatasetField(id string) error {
+	_, err := db.conn.Exec(`DELETE FROM dataset_fields WHERE id = $1`, id)
+	return err
+}
+
+// --- Saved Queries (SQL Lab) ---
+
+func (db *DB) initSavedQueriesTable() error {
+	_, err := db.conn.Exec(`
+		CREATE TABLE IF NOT EXISTS saved_queries (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			dataset_ids TEXT NOT NULL DEFAULT '[]',
+			sql TEXT NOT NULL,
+			created_at TEXT DEFAULT '',
+			updated_at TEXT DEFAULT ''
+		)
+	`)
+	return err
+}
+
+// SaveSavedQuery inserts or updates a saved query.
+func (db *DB) SaveSavedQuery(id, name, datasetIDs, sql, createdAt, updatedAt string) error {
+	_, err := db.conn.Exec(
+		`INSERT INTO saved_queries (id, name, dataset_ids, sql, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6)
+		 ON CONFLICT (id) DO UPDATE SET name=$2, dataset_ids=$3, sql=$4, updated_at=$6`,
+		id, name, datasetIDs, sql, createdAt, updatedAt,
+	)
+	return err
+}
+
+// LoadSavedQueries retrieves all saved queries ordered by most-recently-updated.
+func (db *DB) LoadSavedQueries() ([]SavedQueryRecord, error) {
+	rows, err := db.conn.Query(`SELECT id, name, COALESCE(dataset_ids,'[]'), COALESCE(sql,''), COALESCE(created_at,''), COALESCE(updated_at,'') FROM saved_queries ORDER BY updated_at DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("query saved_queries: %w", err)
+	}
+	defer rows.Close()
+
+	var records []SavedQueryRecord
+	for rows.Next() {
+		var r SavedQueryRecord
+		if err := rows.Scan(&r.ID, &r.Name, &r.DatasetIDs, &r.SQL, &r.CreatedAt, &r.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan saved_query: %w", err)
+		}
+		records = append(records, r)
+	}
+	return records, rows.Err()
+}
+
+// DeleteSavedQuery removes a saved query by ID.
+func (db *DB) DeleteSavedQuery(id string) error {
+	_, err := db.conn.Exec(`DELETE FROM saved_queries WHERE id = $1`, id)
+	return err
+}
+
+// SavedQueryRecord represents a persisted saved query.
+type SavedQueryRecord struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	DatasetIDs string `json:"dataset_ids"`
+	SQL        string `json:"sql"`
+	CreatedAt  string `json:"created_at"`
+	UpdatedAt  string `json:"updated_at"`
 }
 
 func (db *DB) initUsersTable() error {

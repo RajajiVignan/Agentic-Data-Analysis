@@ -1,5 +1,5 @@
 
-import React, { useState, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { ChevronDown, ChevronRight, Code, BarChart3, Sparkles } from "lucide-react";
 import { MetricTile, PythonPlot, SmartAutoViz, ExplainSection, PlotLoading, DashboardFilterBar } from "@/components/Charts";
 import { DashboardFilterProvider } from "@/components/DashboardFilterContext";

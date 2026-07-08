@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import {
   GitMerge,
   X,

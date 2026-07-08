@@ -857,4 +857,208 @@ export async function fetchDatasetProfile(datasetId: string): Promise<DatasetPro
   return res.json();
 }
 
+// --- P0: Semantic Layer (computed fields) + No-code Chart Builder ---
+
+export type SemanticField = {
+  id: string;
+  datasetId: string;
+  name: string;
+  kind: 'metric' | 'dimension';
+  config: unknown;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MetricRef = {
+  type: 'column' | 'field';
+  name?: string; // column name when type=column
+  agg?: 'sum' | 'avg' | 'min' | 'max' | 'count'; // when type=column
+  id?: string; // semantic field id when type=field
+};
+
+export type DimensionRef = {
+  type: 'column' | 'field';
+  name?: string;
+  id?: string;
+};
+
+export type ExploreRequest = {
+  datasetId: string;
+  vizType: 'bar' | 'line' | 'area' | 'pie' | 'scatter' | 'kpi' | 'pivottable' | 'heatmap' | 'sankey' | 'sunburst';
+  dimension?: DimensionRef;
+  metric?: MetricRef;
+  sort?: 'asc' | 'desc';
+  limit?: number;
+  dimension2?: DimensionRef;
+  xColumn?: string;
+  yColumn?: string;
+};
+
+export type ExploreResult = {
+  vizType: string;
+  points: { label: string; value: number }[];
+  kpis?: { label: string; value: number; change: string }[];
+  rowLabels?: string[];
+  colLabels?: string[];
+  cells?: number[][];
+  links?: { source: string; target: string; value: number }[];
+  nodes?: { name: string; children?: { name: string; value: number }[]; value?: number }[];
+};
+
+export async function fetchDatasetFields(datasetId: string): Promise<SemanticField[]> {
+  const res = await apiFetch(`/dataset-fields?datasetId=${encodeURIComponent(datasetId)}`);
+  if (!res.ok) throw new Error(await parseError(res));
+  const data = await res.json();
+  return (data.fields as SemanticField[]) ?? [];
+}
+
+export async function createDatasetField(field: Partial<SemanticField>): Promise<SemanticField> {
+  const res = await apiFetch("/dataset-fields", {
+    method: "POST",
+    body: JSON.stringify(field),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function updateDatasetField(field: SemanticField): Promise<SemanticField> {
+  const res = await apiFetch("/dataset-fields", {
+    method: "PUT",
+    body: JSON.stringify(field),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function deleteDatasetField(id: string): Promise<void> {
+  const res = await apiFetch(`/dataset-fields?id=${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+}
+
+export async function explore(req: ExploreRequest): Promise<ExploreResult> {
+  const res = await apiFetch("/explore", {
+    method: "POST",
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+// --- P1-2: SQL Lab depth (history, saved queries, async execution) ---
+
+export type QueryHistoryEntry = {
+  id: string;
+  datasetIds: string[];
+  sql: string;
+  executedAt: string;
+  durationMs: number;
+  rowCount: number;
+  error?: string;
+};
+
+export async function fetchQueryHistory(): Promise<QueryHistoryEntry[]> {
+  const res = await apiFetch("/query-history");
+  if (!res.ok) throw new Error(await parseError(res));
+  const data = await res.json();
+  return (data.history as QueryHistoryEntry[]) ?? [];
+}
+
+export type SavedQuery = {
+  id: string;
+  name: string;
+  dataset_ids: string; // JSON-encoded string from backend
+  sql: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function fetchSavedQueries(): Promise<SavedQuery[]> {
+  const res = await apiFetch("/saved-queries");
+  if (!res.ok) throw new Error(await parseError(res));
+  const data = await res.json();
+  return (data.queries as SavedQuery[]) ?? [];
+}
+
+export async function createSavedQuery(name: string, datasetIds: string[], sql: string): Promise<SavedQuery> {
+  const res = await apiFetch("/saved-queries", {
+    method: "POST",
+    body: JSON.stringify({ name, datasetIds, sql }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function updateSavedQuery(id: string, name: string, datasetIds: string[], sql: string): Promise<SavedQuery> {
+  const res = await apiFetch("/saved-queries", {
+    method: "PUT",
+    body: JSON.stringify({ id, name, datasetIds, sql }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function deleteSavedQuery(id: string): Promise<void> {
+  const res = await apiFetch(`/saved-queries?id=${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+}
+
+export type AsyncJobResult = {
+  id: string;
+  status: 'running' | 'done' | 'error';
+  columns: string[];
+  rows: Record<string, string>[];
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+  totalRows: number;
+  error?: string;
+};
+
+// runSQLQueryAsync kicks off a long-running query and returns a job id to poll.
+export async function runSQLQueryAsync(datasetIds: string[], sql: string, page = 1, pageSize = 100): Promise<{ jobId: string; status: string }> {
+  const res = await apiFetch("/query-async", {
+    method: "POST",
+    body: JSON.stringify({ datasetIds, sql, page, pageSize }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function pollQueryJob(jobId: string): Promise<AsyncJobResult> {
+  const res = await apiFetch(`/query-job?id=${encodeURIComponent(jobId)}`);
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+// --- Export helpers (CSV / JSON of query results) ---
+
+export function downloadText(text: string, filename: string, mime = "text/plain"): void {
+  const blob = new Blob([text], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  setTimeout(() => {
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }, 200);
+}
+
+export function queryResultToCSV(columns: string[], rows: Record<string, string>[]): string {
+  const escape = (v: string) => {
+    if (/[",\n]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
+    return v;
+  };
+  const header = columns.map(escape).join(",");
+  const body = rows.map((r) => columns.map((c) => escape(r[c] ?? "")).join(",")).join("\n");
+  return `${header}\n${body}`;
+}
+
+
 

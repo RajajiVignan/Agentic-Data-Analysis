@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from "react";
+import { useState, useMemo } from "react";
 import {
   BarChart3,
   LineChart,

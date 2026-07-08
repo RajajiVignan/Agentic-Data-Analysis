@@ -23,6 +23,7 @@ func (h *Handler) handleQuery(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &body) {
 		return
 	}
+	startTime := time.Now()
 	if body.SQL == "" {
 		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "sql is required"})
 		return
@@ -52,11 +53,13 @@ func (h *Handler) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, columns, err := h.executeSQL(datasets, body.SQL, body.Page, body.PageSize)
+	result, columns, err := h.cachedExecuteSQL(datasets, body.SQL, body.Page, body.PageSize)
 	if err != nil {
+		h.recordQueryHistory(body.DatasetIDs, body.SQL, startTime, 0, err.Error())
 		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "Query failed: " + err.Error()})
 		return
 	}
+	h.recordQueryHistory(body.DatasetIDs, body.SQL, startTime, len(result), "")
 
 	totalRows := len(result)
 	hasMore := totalRows >= body.PageSize

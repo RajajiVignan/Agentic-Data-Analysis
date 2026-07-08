@@ -282,12 +282,12 @@ func BuildKPIs(rows []map[string]string, metricCol *Column, categoryCol *Column)
 
 func formatNumber(val float64) string {
 	if math.Abs(val) >= 1000000 {
-		return fmt.Sprintf("%.1fM", val/1000000)
+		return fmt.Sprintf("%.2fM", val/1000000)
 	}
 	if math.Abs(val) >= 1000 {
-		return fmt.Sprintf("%.1fK", val/1000)
+		return fmt.Sprintf("%.2fK", val/1000)
 	}
-	return fmt.Sprintf("%.1f", val)
+	return fmt.Sprintf("%.2f", val)
 }
 
 // BuildTrend aggregates data by month.

@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Plus, Pencil, Trash2, BookOpen, X, Check } from "lucide-react";
 import { useToast } from "@/components/ToastProvider";
 import type { MetricDefinition } from "@/lib/api";

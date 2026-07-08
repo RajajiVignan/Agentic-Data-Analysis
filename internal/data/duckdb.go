@@ -50,6 +50,12 @@ func (e *DuckDBEngine) executeSQL(csvPath, sql string) ([]map[string]string, err
 	return e.executeSQLWithTimeout(context.Background(), csvPath, sql)
 }
 
+// ExecuteSingleCSV runs sql against a single CSV file. The CSV is registered
+// as a table named `data`, so queries should reference `FROM data`.
+func (e *DuckDBEngine) ExecuteSingleCSV(csvPath, sql string) ([]map[string]string, error) {
+	return e.executeSQL(csvPath, sql)
+}
+
 func (e *DuckDBEngine) executeSQLWithTimeout(ctx context.Context, csvPath, sql string) ([]map[string]string, error) {
 	id := "dq_" + duckdbID()
 	scriptPath := filepath.Join(e.scriptsDir, id+".py")

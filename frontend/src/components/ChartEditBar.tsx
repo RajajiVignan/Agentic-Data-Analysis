@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import {
   Wand2,
   Loader2,

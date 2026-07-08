@@ -288,9 +288,15 @@ func duckDBKPI(duckDB *data.DuckDBEngine, ds *data.Dataset, metricCol *data.Colu
 	if len(results) > 0 {
 		row := results[0]
 		if total, ok := row["total"]; ok && total != "" {
+			if f, err := strconv.ParseFloat(total, 64); err == nil {
+				total = fmt.Sprintf("%.2f", f)
+			}
 			kpis = append(kpis, map[string]string{"label": "Total", "value": total, "change": "Sum"})
 		}
 		if avg, ok := row["avg_val"]; ok && avg != "" {
+			if f, err := strconv.ParseFloat(avg, 64); err == nil {
+				avg = fmt.Sprintf("%.2f", f)
+			}
 			kpis = append(kpis, map[string]string{"label": "Average", "value": avg, "change": "Per row"})
 		}
 		if cnt, ok := row["row_count"]; ok && cnt != "" {
@@ -466,7 +472,7 @@ func scanKPIRows(rows *sql.Rows) []map[string]string {
 		}
 		kpis := make([]map[string]string, 0)
 		if total.Valid {
-			kpis = append(kpis, map[string]string{"label": "Total", "value": fmt.Sprintf("%.0f", total.Float64), "change": "Sum"})
+			kpis = append(kpis, map[string]string{"label": "Total", "value": fmt.Sprintf("%.2f", total.Float64), "change": "Sum"})
 		}
 		if avg.Valid {
 			kpis = append(kpis, map[string]string{"label": "Average", "value": fmt.Sprintf("%.2f", avg.Float64), "change": "Per row"})

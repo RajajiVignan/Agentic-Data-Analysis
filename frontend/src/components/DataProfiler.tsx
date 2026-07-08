@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { BarChart3, Table2, GitBranch, Copy, AlertTriangle } from "lucide-react";
 import { fetchDatasetProfile } from "@/lib/api";
 import { HistogramChart } from "@/components/Charts";

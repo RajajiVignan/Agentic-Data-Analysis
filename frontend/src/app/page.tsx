@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   LayoutDashboard,
   Download,
@@ -51,6 +51,7 @@ import { ScheduleManager } from "@/components/ScheduleManager";
 import { DashboardEditor } from "@/components/DashboardEditor";
 import { DataProfiler } from "@/components/DataProfiler";
 import { GlossaryPanel } from "@/components/GlossaryPanel";
+import { ExploreView } from "@/components/ExploreView";
 import { VizWidget } from "@/components/VizWidget";
 import { PivotBuilder } from "@/components/PivotBuilder";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -68,7 +69,7 @@ import type {
   SharedDashboardData,
 } from "@/lib/api";
 
-type NavTab = "explore" | "dashboards" | "data" | "context" | "share" | "schema" | "query" | "reports" | "editor" | "profiler" | "glossary";
+type NavTab = "explore" | "dashboards" | "data" | "context" | "share" | "schema" | "query" | "reports" | "editor" | "profiler" | "glossary" | "builder";
 
 export default function Workspace() {
   const dashboardRef = useRef<HTMLDivElement | null>(null);
@@ -601,6 +602,7 @@ export default function Workspace() {
     editor: { subtitle: "Dashboard Editor", title: "Drag-and-Drop Editor" },
     profiler: { subtitle: "Data Profiler", title: "Explore Your Data" },
     glossary: { subtitle: "Business Glossary", title: "Semantic Layer" },
+    builder: { subtitle: "Chart Builder", title: "No-Code Explore" },
   };
 
   // --- Render ---
@@ -951,6 +953,15 @@ export default function Workspace() {
           {/* --- GLOSSARY TAB --- */}
           {activeNav === "glossary" && (
             <GlossaryPanel />
+          )}
+
+          {/* --- CHART BUILDER TAB --- */}
+          {activeNav === "builder" && (
+            <ExploreView
+              datasets={availableDatasets}
+              selectedDatasetId={selectedDatasetIds[0] ?? availableDatasets[0]?.id ?? ""}
+              onToast={(msg, kind) => kind === "error" ? addToast(msg, "error") : addToast(msg, "success")}
+            />
           )}
 
           {/* --- SHARE TAB --- */}
