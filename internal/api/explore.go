@@ -37,11 +37,21 @@ func (h *Handler) handleExplore(w http.ResponseWriter, r *http.Request) {
 		req.Limit = 50
 	}
 
-	h.mu.RLock()
-	ds, ok := h.datasets[req.DatasetID]
-	h.mu.RUnlock()
+	ds, ok := h.accessibleDataset(r, req.DatasetID)
 	if !ok {
 		sendNotFound(w, "Dataset not found")
+		return
+	}
+
+	ownerID := h.currentUserID(r)
+	for _, ref := range []data.DimensionRef{req.Dimension, req.Dimension2} {
+		if ref.Type == "field" && ref.ID != "" && h.semanticSvc.Get(ref.ID, ownerID) == nil {
+			sendInvalidRequest(w, "dimension field not found: "+ref.ID)
+			return
+		}
+	}
+	if req.Metric.Type == "field" && req.Metric.ID != "" && h.semanticSvc.Get(req.Metric.ID, ownerID) == nil {
+		sendInvalidRequest(w, "metric field not found: "+req.Metric.ID)
 		return
 	}
 
@@ -398,7 +408,7 @@ func (h *Handler) runExploreSQL(ds *data.Dataset, sql string) ([]map[string]stri
 
 func (h *Handler) resolveDimension(ref data.DimensionRef, ds *data.Dataset, cols data.ColumnSet) (string, error) {
 	if ref.Type == "field" && ref.ID != "" {
-		f := h.semanticSvc.Get(ref.ID)
+		f := h.semanticSvc.Get(ref.ID, "")
 		if f == nil || f.Kind != "dimension" {
 			return "", fmt.Errorf("dimension field not found: %s", ref.ID)
 		}
@@ -412,7 +422,7 @@ func (h *Handler) resolveDimension(ref data.DimensionRef, ds *data.Dataset, cols
 
 func (h *Handler) resolveMetric(ref data.MetricRef, ds *data.Dataset, cols data.ColumnSet) (string, error) {
 	if ref.Type == "field" && ref.ID != "" {
-		f := h.semanticSvc.Get(ref.ID)
+		f := h.semanticSvc.Get(ref.ID, "")
 		if f == nil || f.Kind != "metric" {
 			return "", fmt.Errorf("metric field not found: %s", ref.ID)
 		}
@@ -448,7 +458,7 @@ func (h *Handler) resolveMetric(ref data.MetricRef, ds *data.Dataset, cols data.
 // expression which must not be wrapped again.
 func (h *Handler) resolveMetricBase(ref data.MetricRef, ds *data.Dataset, cols data.ColumnSet) (expr string, isAggField bool, err error) {
 	if ref.Type == "field" && ref.ID != "" {
-		f := h.semanticSvc.Get(ref.ID)
+		f := h.semanticSvc.Get(ref.ID, "")
 		if f == nil || f.Kind != "metric" {
 			return "", false, fmt.Errorf("metric field not found: %s", ref.ID)
 		}
@@ -496,7 +506,7 @@ func quoteIdentSafeForExplore(name string, cols data.ColumnSet) (string, error) 
 
 func (h *Handler) metricLabel(ref data.MetricRef) string {
 	if ref.Type == "field" && ref.ID != "" {
-		if f := h.semanticSvc.Get(ref.ID); f != nil {
+		if f := h.semanticSvc.Get(ref.ID, ""); f != nil {
 			return f.Name
 		}
 	}

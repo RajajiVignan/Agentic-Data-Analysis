@@ -35,9 +35,7 @@ func (h *Handler) handleTransformPreview(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	h.mu.RLock()
-	ds, ok := h.datasets[body.DatasetID]
-	h.mu.RUnlock()
+	ds, ok := h.accessibleDataset(r, body.DatasetID)
 	if !ok {
 		SendJSON(w, http.StatusNotFound, map[string]string{"error": "Dataset not found"})
 		return
@@ -64,9 +62,7 @@ func (h *Handler) handleTransformApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.mu.RLock()
-	ds, ok := h.datasets[body.DatasetID]
-	h.mu.RUnlock()
+	ds, ok := h.accessibleDataset(r, body.DatasetID)
 	if !ok {
 		SendJSON(w, http.StatusNotFound, map[string]string{"error": "Dataset not found"})
 		return
@@ -76,6 +72,7 @@ func (h *Handler) handleTransformApply(w http.ResponseWriter, r *http.Request) {
 	pipeline.AddStep(body.Step)
 
 	transformed := pipeline.ApplyAll(ds)
+	transformed.OwnerID = ds.OwnerID
 
 	h.mu.Lock()
 	h.datasets[body.DatasetID] = transformed
@@ -103,9 +100,7 @@ func (h *Handler) handleTransformUndo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.mu.RLock()
-	ds, ok := h.datasets[body.DatasetID]
-	h.mu.RUnlock()
+	ds, ok := h.accessibleDataset(r, body.DatasetID)
 	if !ok {
 		SendJSON(w, http.StatusNotFound, map[string]string{"error": "Dataset not found"})
 		return
@@ -118,6 +113,7 @@ func (h *Handler) handleTransformUndo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	transformed := pipeline.ApplyAll(ds)
+	transformed.OwnerID = ds.OwnerID
 
 	h.mu.Lock()
 	h.datasets[body.DatasetID] = transformed
@@ -145,9 +141,7 @@ func (h *Handler) handleTransformRedo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.mu.RLock()
-	ds, ok := h.datasets[body.DatasetID]
-	h.mu.RUnlock()
+	ds, ok := h.accessibleDataset(r, body.DatasetID)
 	if !ok {
 		SendJSON(w, http.StatusNotFound, map[string]string{"error": "Dataset not found"})
 		return
@@ -160,6 +154,7 @@ func (h *Handler) handleTransformRedo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	transformed := pipeline.ApplyAll(ds)
+	transformed.OwnerID = ds.OwnerID
 
 	h.mu.Lock()
 	h.datasets[body.DatasetID] = transformed
@@ -182,9 +177,7 @@ func (h *Handler) handleTransformHistory(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	h.mu.RLock()
-	ds, ok := h.datasets[datasetID]
-	h.mu.RUnlock()
+	ds, ok := h.accessibleDataset(r, datasetID)
 	if !ok {
 		SendJSON(w, http.StatusNotFound, map[string]string{"error": "Dataset not found"})
 		return
@@ -213,11 +206,13 @@ func (h *Handler) handleTransformReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ds, ok := h.accessibleDataset(r, body.DatasetID)
+	if !ok {
+		SendJSON(w, http.StatusNotFound, map[string]string{"error": "Dataset not found"})
+		return
+	}
 	h.mu.Lock()
 	delete(h.pipelines, body.DatasetID)
-
-	// Reload original dataset from store
-	ds, ok := h.datasets[body.DatasetID]
 	h.mu.Unlock()
 
 	if ok && ds.FilePath != "" {

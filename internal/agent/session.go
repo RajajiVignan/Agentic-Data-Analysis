@@ -4,6 +4,7 @@ import "time"
 
 type ConversationSession struct {
 	ID            string
+	OwnerID       string
 	DatasetIDs    []string
 	History       []ConversationTurn
 	ActiveContext *ConversationContext
@@ -44,10 +45,11 @@ const (
 	FilterIn       FilterOperation = "in"
 )
 
-func NewSession(id string, datasetIDs []string) *ConversationSession {
+func NewSession(id, ownerID string, datasetIDs []string) *ConversationSession {
 	now := time.Now()
 	return &ConversationSession{
 		ID:            id,
+		OwnerID:       ownerID,
 		DatasetIDs:    datasetIDs,
 		History:       make([]ConversationTurn, 0),
 		ActiveContext: &ConversationContext{},

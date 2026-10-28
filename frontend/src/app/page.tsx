@@ -235,6 +235,18 @@ export default function Workspace() {
     setDashboards([]);
   }
 
+  useEffect(() => {
+    const onExpired = () => {
+      setUser(null);
+      setResult(null);
+      setPinnedCharts([]);
+      setAvailableDatasets([]);
+      setDashboards([]);
+    };
+    window.addEventListener("auth:expired", onExpired);
+    return () => window.removeEventListener("auth:expired", onExpired);
+  }, []);
+
   async function loadDatasets() {
     try {
       setAvailableDatasets(await fetchDatasets());

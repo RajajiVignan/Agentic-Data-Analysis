@@ -22,15 +22,15 @@ func newSemanticFieldService(db *store.DB) *SemanticFieldService {
 		defs: make(map[string]*data.SemanticField),
 		db:   db,
 	}
-	s.loadFromDB("")
+	s.loadFromDB("", "")
 	return s
 }
 
-func (s *SemanticFieldService) loadFromDB(datasetID string) {
+func (s *SemanticFieldService) loadFromDB(datasetID, ownerID string) {
 	if s.db == nil {
 		return
 	}
-	fields, err := s.db.LoadDatasetFields(datasetID)
+	fields, err := s.db.LoadDatasetFields(datasetID, ownerID)
 	if err != nil || len(fields) == 0 {
 		return
 	}
@@ -42,11 +42,14 @@ func (s *SemanticFieldService) loadFromDB(datasetID string) {
 }
 
 // List returns fields for a dataset, or all fields when datasetID is empty.
-func (s *SemanticFieldService) List(datasetID string) []*data.SemanticField {
+func (s *SemanticFieldService) List(datasetID, ownerID string) []*data.SemanticField {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]*data.SemanticField, 0, len(s.defs))
 	for _, f := range s.defs {
+		if ownerID != "" && f.OwnerID != ownerID {
+			continue
+		}
 		if datasetID == "" || f.DatasetID == datasetID {
 			out = append(out, f)
 		}
@@ -60,10 +63,14 @@ func (s *SemanticFieldService) List(datasetID string) []*data.SemanticField {
 	return out
 }
 
-func (s *SemanticFieldService) Get(id string) *data.SemanticField {
+func (s *SemanticFieldService) Get(id, ownerID string) *data.SemanticField {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.defs[id]
+	f, ok := s.defs[id]
+	if !ok || (ownerID != "" && f.OwnerID != ownerID) {
+		return nil
+	}
+	return f
 }
 
 func (s *SemanticFieldService) Create(f *data.SemanticField) *data.SemanticField {
@@ -80,13 +87,14 @@ func (s *SemanticFieldService) Create(f *data.SemanticField) *data.SemanticField
 	return f
 }
 
-func (s *SemanticFieldService) Update(f *data.SemanticField) bool {
+func (s *SemanticFieldService) Update(f *data.SemanticField, ownerID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	existing, ok := s.defs[f.ID]
-	if !ok {
+	if !ok || (ownerID != "" && existing.OwnerID != ownerID) {
 		return false
 	}
+	f.OwnerID = existing.OwnerID
 	f.CreatedAt = existing.CreatedAt
 	f.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	s.defs[f.ID] = f
@@ -96,15 +104,16 @@ func (s *SemanticFieldService) Update(f *data.SemanticField) bool {
 	return true
 }
 
-func (s *SemanticFieldService) Delete(id string) bool {
+func (s *SemanticFieldService) Delete(id, ownerID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.defs[id]; !ok {
+	f, ok := s.defs[id]
+	if !ok || (ownerID != "" && f.OwnerID != ownerID) {
 		return false
 	}
 	delete(s.defs, id)
 	if s.db != nil {
-		_ = s.db.DeleteDatasetField(id)
+		_ = s.db.DeleteDatasetField(id, ownerID)
 	}
 	return true
 }
@@ -113,7 +122,7 @@ func (s *SemanticFieldService) Delete(id string) bool {
 
 func (h *Handler) handleSemanticList(w http.ResponseWriter, r *http.Request) {
 	datasetID := r.URL.Query().Get("datasetId")
-	fields := h.semanticSvc.List(datasetID)
+	fields := h.semanticSvc.List(datasetID, h.currentUserID(r))
 	SendJSON(w, http.StatusOK, map[string]interface{}{"fields": fields})
 }
 
@@ -134,6 +143,11 @@ func (h *Handler) handleSemanticCreate(w http.ResponseWriter, r *http.Request) {
 		sendInvalidRequest(w, "config is required")
 		return
 	}
+	if f.DatasetID != "" && !h.canAccessDataset(r, f.DatasetID) {
+		sendNotFound(w, "Dataset not found")
+		return
+	}
+	f.OwnerID = h.currentUserID(r)
 	created := h.semanticSvc.Create(&f)
 	SendJSON(w, http.StatusCreated, created)
 }
@@ -147,7 +161,7 @@ func (h *Handler) handleSemanticUpdate(w http.ResponseWriter, r *http.Request) {
 		sendInvalidRequest(w, "ID is required")
 		return
 	}
-	if !h.semanticSvc.Update(&f) {
+	if !h.semanticSvc.Update(&f, h.currentUserID(r)) {
 		sendNotFound(w, "Field not found")
 		return
 	}
@@ -160,7 +174,7 @@ func (h *Handler) handleSemanticDelete(w http.ResponseWriter, r *http.Request) {
 		sendInvalidRequest(w, "id query parameter required")
 		return
 	}
-	if !h.semanticSvc.Delete(id) {
+	if !h.semanticSvc.Delete(id, h.currentUserID(r)) {
 		sendNotFound(w, "Field not found")
 		return
 	}

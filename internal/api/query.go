@@ -39,10 +39,11 @@ func (h *Handler) handleQuery(w http.ResponseWriter, r *http.Request) {
 		body.PageSize = 100
 	}
 
+	user := getUserFromContext(r)
 	h.mu.RLock()
 	var datasets []*data.Dataset
 	for _, id := range body.DatasetIDs {
-		if d, ok := h.datasets[id]; ok {
+		if d, ok := h.datasets[id]; ok && h.canAccessOwner(user, d.OwnerID) {
 			datasets = append(datasets, d)
 		}
 	}
@@ -55,11 +56,11 @@ func (h *Handler) handleQuery(w http.ResponseWriter, r *http.Request) {
 
 	result, columns, err := h.cachedExecuteSQL(datasets, body.SQL, body.Page, body.PageSize)
 	if err != nil {
-		h.recordQueryHistory(body.DatasetIDs, body.SQL, startTime, 0, err.Error())
+		h.recordQueryHistory(h.currentUserID(r), body.DatasetIDs, body.SQL, startTime, 0, err.Error())
 		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "Query failed: " + err.Error()})
 		return
 	}
-	h.recordQueryHistory(body.DatasetIDs, body.SQL, startTime, len(result), "")
+	h.recordQueryHistory(h.currentUserID(r), body.DatasetIDs, body.SQL, startTime, len(result), "")
 
 	totalRows := len(result)
 	hasMore := totalRows >= body.PageSize
@@ -155,6 +156,7 @@ func (h *Handler) handleQuerySchema(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ids := strings.Split(rawIDs, ",")
+	user := getUserFromContext(r)
 
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -165,7 +167,7 @@ func (h *Handler) handleQuerySchema(w http.ResponseWriter, r *http.Request) {
 		if id == "" {
 			continue
 		}
-		if d, ok := h.datasets[id]; ok {
+		if d, ok := h.datasets[id]; ok && h.canAccessOwner(user, d.OwnerID) {
 			cols := make([]map[string]interface{}, len(d.Profile.Columns))
 			for i, c := range d.Profile.Columns {
 				cols[i] = map[string]interface{}{
@@ -206,9 +208,7 @@ func (h *Handler) handleQueryVisualize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.mu.RLock()
-	ds, ok := h.datasets[body.DatasetID]
-	h.mu.RUnlock()
+	ds, ok := h.accessibleDataset(r, body.DatasetID)
 	if !ok {
 		SendJSON(w, http.StatusNotFound, map[string]string{"error": "Dataset not found"})
 		return

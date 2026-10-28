@@ -133,6 +133,7 @@ export type AuthUser = {
   id: string;
   email: string;
   name: string;
+  role: "admin" | "editor" | "viewer";
   created_at: string;
 };
 
@@ -146,6 +147,9 @@ async function apiFetch(path: string, options: RequestInit = {}): Promise<Respon
     headers,
     credentials: "include",
   });
+  if (res.status === 401 && !path.startsWith("/auth/") && typeof window !== "undefined") {
+    window.dispatchEvent(new Event("auth:expired"));
+  }
   return res;
 }
 

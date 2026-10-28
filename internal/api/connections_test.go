@@ -6,13 +6,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"insightpilot/internal/agent"
 )
 
 func TestConnectionTestMySQLUnsupported(t *testing.T) {
-	handler := NewHandler(agent.DefaultConfig())
-	mux := handler.Routes()
+	mux := newTestMux(t)
 
 	body := `{"provider":"mysql","host":"localhost","database":"testdb","username":"root","password":"secret"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/connections/test", strings.NewReader(body))
@@ -42,8 +39,7 @@ func TestConnectionTestMySQLUnsupported(t *testing.T) {
 }
 
 func TestConnectionTestMySQLMissingHost(t *testing.T) {
-	handler := NewHandler(agent.DefaultConfig())
-	mux := handler.Routes()
+	mux := newTestMux(t)
 
 	body := `{"provider":"mysql","database":"testdb"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/connections/test", strings.NewReader(body))

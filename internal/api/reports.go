@@ -35,6 +35,7 @@ const (
 
 type ScheduledReport struct {
 	ID           string            `json:"id"`
+	OwnerID      string            `json:"ownerId,omitempty"`
 	Name         string            `json:"name"`
 	DatasetIDs   []string          `json:"datasetIds"`
 	ChartIDs     []string          `json:"chartIds"`
@@ -53,6 +54,7 @@ type ScheduledReport struct {
 
 type AlertRule struct {
 	ID          string         `json:"id"`
+	OwnerID     string         `json:"ownerId,omitempty"`
 	Name        string         `json:"name"`
 	DatasetID   string         `json:"datasetId"`
 	MetricCol   string         `json:"metricCol"`
@@ -205,6 +207,10 @@ func (rs *ReportService) UpdateReport(r *ScheduledReport) bool {
 	if !ok {
 		return false
 	}
+	if existing.OwnerID != "" && r.OwnerID != existing.OwnerID {
+		return false
+	}
+	r.OwnerID = existing.OwnerID
 	r.CreatedAt = existing.CreatedAt
 	r.NextRun = rs.computeNextRun(r)
 	rs.reports[r.ID] = r
@@ -216,11 +222,11 @@ func (rs *ReportService) UpdateReport(r *ScheduledReport) bool {
 	return true
 }
 
-func (rs *ReportService) DeleteReport(id string) bool {
+func (rs *ReportService) DeleteReport(id, ownerID string) bool {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
-	_, ok := rs.reports[id]
-	if ok {
+	r, ok := rs.reports[id]
+	if ok && (ownerID == "" || r.OwnerID == ownerID) {
 		delete(rs.reports, id)
 		if rs.db != nil {
 			if err := rs.db.DeleteReport(id); err != nil {
@@ -237,11 +243,14 @@ func (rs *ReportService) GetReport(id string) *ScheduledReport {
 	return rs.reports[id]
 }
 
-func (rs *ReportService) ListReports() []*ScheduledReport {
+func (rs *ReportService) ListReports(ownerID string) []*ScheduledReport {
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
 	list := make([]*ScheduledReport, 0, len(rs.reports))
 	for _, r := range rs.reports {
+		if ownerID != "" && r.OwnerID != ownerID {
+			continue
+		}
 		list = append(list, r)
 	}
 	return list
@@ -265,10 +274,14 @@ func (rs *ReportService) CreateAlert(a *AlertRule) *AlertRule {
 func (rs *ReportService) UpdateAlert(a *AlertRule) bool {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
-	_, ok := rs.alerts[a.ID]
+	existing, ok := rs.alerts[a.ID]
 	if !ok {
 		return false
 	}
+	if existing.OwnerID != "" && a.OwnerID != existing.OwnerID {
+		return false
+	}
+	a.OwnerID = existing.OwnerID
 	rs.alerts[a.ID] = a
 	if rs.db != nil {
 		if err := rs.db.SaveAlert(a); err != nil {
@@ -278,11 +291,11 @@ func (rs *ReportService) UpdateAlert(a *AlertRule) bool {
 	return true
 }
 
-func (rs *ReportService) DeleteAlert(id string) bool {
+func (rs *ReportService) DeleteAlert(id, ownerID string) bool {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
-	_, ok := rs.alerts[id]
-	if ok {
+	a, ok := rs.alerts[id]
+	if ok && (ownerID == "" || a.OwnerID == ownerID) {
 		delete(rs.alerts, id)
 		if rs.db != nil {
 			if err := rs.db.DeleteAlert(id); err != nil {
@@ -299,11 +312,14 @@ func (rs *ReportService) GetAlert(id string) *AlertRule {
 	return rs.alerts[id]
 }
 
-func (rs *ReportService) ListAlerts() []*AlertRule {
+func (rs *ReportService) ListAlerts(ownerID string) []*AlertRule {
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
 	list := make([]*AlertRule, 0, len(rs.alerts))
 	for _, a := range rs.alerts {
+		if ownerID != "" && a.OwnerID != ownerID {
+			continue
+		}
 		list = append(list, a)
 	}
 	return list
@@ -648,7 +664,14 @@ func (h *Handler) handleCreateReport(w http.ResponseWriter, r *http.Request) {
 		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "name and datasetIds are required"})
 		return
 	}
+	for _, id := range body.DatasetIDs {
+		if !h.canAccessDataset(r, id) {
+			SendJSON(w, http.StatusNotFound, map[string]string{"error": "Dataset not found"})
+			return
+		}
+	}
 	rpt := &ScheduledReport{
+		OwnerID:      h.currentUserID(r),
 		Name:         body.Name,
 		DatasetIDs:   body.DatasetIDs,
 		Frequency:    body.Frequency,
@@ -670,7 +693,7 @@ func (h *Handler) handleCreateReport(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleListReports(w http.ResponseWriter, r *http.Request) {
-	reports := h.reportSvc.ListReports()
+	reports := h.reportSvc.ListReports(h.currentUserID(r))
 	SendJSON(w, http.StatusOK, map[string]interface{}{"reports": reports})
 }
 
@@ -680,7 +703,7 @@ func (h *Handler) handleDeleteReport(w http.ResponseWriter, r *http.Request) {
 		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "id query parameter required"})
 		return
 	}
-	if !h.reportSvc.DeleteReport(id) {
+	if !h.reportSvc.DeleteReport(id, h.currentUserID(r)) {
 		SendJSON(w, http.StatusNotFound, map[string]string{"error": "Report not found"})
 		return
 	}
@@ -705,7 +728,12 @@ func (h *Handler) handleCreateAlert(w http.ResponseWriter, r *http.Request) {
 		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "name, datasetId, and metricCol are required"})
 		return
 	}
+	if !h.canAccessDataset(r, body.DatasetID) {
+		SendJSON(w, http.StatusNotFound, map[string]string{"error": "Dataset not found"})
+		return
+	}
 	alert := &AlertRule{
+		OwnerID:   h.currentUserID(r),
 		Name:      body.Name,
 		DatasetID: body.DatasetID,
 		MetricCol: body.MetricCol,
@@ -726,7 +754,7 @@ func (h *Handler) handleCreateAlert(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleListAlerts(w http.ResponseWriter, r *http.Request) {
-	alerts := h.reportSvc.ListAlerts()
+	alerts := h.reportSvc.ListAlerts(h.currentUserID(r))
 	SendJSON(w, http.StatusOK, map[string]interface{}{"alerts": alerts})
 }
 
@@ -736,7 +764,7 @@ func (h *Handler) handleDeleteAlert(w http.ResponseWriter, r *http.Request) {
 		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "id query parameter required"})
 		return
 	}
-	if !h.reportSvc.DeleteAlert(id) {
+	if !h.reportSvc.DeleteAlert(id, h.currentUserID(r)) {
 		SendJSON(w, http.StatusNotFound, map[string]string{"error": "Alert not found"})
 		return
 	}
@@ -756,11 +784,11 @@ func newDBStore(db *store.DB) *dbStore {
 func (s *dbStore) SaveReport(r *ScheduledReport) error {
 	datasetIDs, _ := json.Marshal(r.DatasetIDs)
 	emails, _ := json.Marshal(r.Emails)
-	return s.db.SaveReport(r.ID, r.Name, string(datasetIDs), string(r.Frequency), r.DayOfWeek, r.DayOfMonth, r.Hour, string(emails), r.SlackWebhook, r.TeamsWebhook, r.LastSent, r.NextRun, r.Enabled, r.CreatedAt)
+	return s.db.SaveReport(r.ID, r.OwnerID, r.Name, string(datasetIDs), string(r.Frequency), r.DayOfWeek, r.DayOfMonth, r.Hour, string(emails), r.SlackWebhook, r.TeamsWebhook, r.LastSent, r.NextRun, r.Enabled, r.CreatedAt)
 }
 
 func (s *dbStore) LoadReports() ([]*ScheduledReport, error) {
-	records, err := s.db.LoadReports()
+	records, err := s.db.LoadReports("")
 	if err != nil {
 		return nil, err
 	}
@@ -778,6 +806,7 @@ func (s *dbStore) LoadReports() ([]*ScheduledReport, error) {
 		}
 		reports = append(reports, &ScheduledReport{
 			ID:           rec.ID,
+			OwnerID:      rec.OwnerID,
 			Name:         rec.Name,
 			DatasetIDs:   datasetIDs,
 			Frequency:    ScheduleFrequency(rec.Frequency),
@@ -797,16 +826,16 @@ func (s *dbStore) LoadReports() ([]*ScheduledReport, error) {
 }
 
 func (s *dbStore) DeleteReport(id string) error {
-	return s.db.DeleteReport(id)
+	return s.db.DeleteReport(id, "")
 }
 
 func (s *dbStore) SaveAlert(a *AlertRule) error {
 	emails, _ := json.Marshal(a.Emails)
-	return s.db.SaveAlert(a.ID, a.Name, a.DatasetID, a.MetricCol, string(a.Condition), a.Threshold, a.Period, string(emails), a.SlackHook, a.Enabled, a.LastChecked, a.CreatedAt)
+	return s.db.SaveAlert(a.ID, a.OwnerID, a.Name, a.DatasetID, a.MetricCol, string(a.Condition), a.Threshold, a.Period, string(emails), a.SlackHook, a.Enabled, a.LastChecked, a.CreatedAt)
 }
 
 func (s *dbStore) LoadAlerts() ([]*AlertRule, error) {
-	records, err := s.db.LoadAlerts()
+	records, err := s.db.LoadAlerts("")
 	if err != nil {
 		return nil, err
 	}
@@ -819,6 +848,7 @@ func (s *dbStore) LoadAlerts() ([]*AlertRule, error) {
 		}
 		alerts = append(alerts, &AlertRule{
 			ID:          rec.ID,
+			OwnerID:     rec.OwnerID,
 			Name:        rec.Name,
 			DatasetID:   rec.DatasetID,
 			MetricCol:   rec.MetricCol,
@@ -836,16 +866,16 @@ func (s *dbStore) LoadAlerts() ([]*AlertRule, error) {
 }
 
 func (s *dbStore) DeleteAlert(id string) error {
-	return s.db.DeleteAlert(id)
+	return s.db.DeleteAlert(id, "")
 }
 
 func (s *dbStore) SaveLayout(id string, layout *DashboardLayout) error {
 	tilesJSON, _ := json.Marshal(layout.Tiles)
-	return s.db.SaveLayout(id, layout.Name, layout.IsDefault, tilesJSON, layout.CreatedAt, layout.UpdatedAt)
+	return s.db.SaveLayout(id, layout.OwnerID, layout.Name, layout.IsDefault, tilesJSON, layout.CreatedAt, layout.UpdatedAt)
 }
 
 func (s *dbStore) LoadLayouts() ([]*DashboardLayout, error) {
-	records, err := s.db.LoadLayouts()
+	records, err := s.db.LoadLayouts("")
 	if err != nil {
 		return nil, err
 	}
@@ -858,6 +888,7 @@ func (s *dbStore) LoadLayouts() ([]*DashboardLayout, error) {
 		}
 		layouts = append(layouts, &DashboardLayout{
 			ID:        rec.ID,
+			OwnerID:   rec.OwnerID,
 			Name:      rec.Name,
 			IsDefault: rec.IsDefault,
 			Tiles:     tiles,
@@ -869,5 +900,5 @@ func (s *dbStore) LoadLayouts() ([]*DashboardLayout, error) {
 }
 
 func (s *dbStore) DeleteLayout(id string) error {
-	return s.db.DeleteLayout(id)
+	return s.db.DeleteLayout(id, "")
 }

@@ -164,6 +164,7 @@ func ComputeMetadata(ds *Dataset, maxUniqueValues int) DatasetMetadata {
 // in the business glossary (semantic layer).
 type MetricDefinition struct {
 	ID          string `json:"id"`
+	OwnerID     string `json:"ownerId,omitempty"`
 	Name        string `json:"name"`
 	Expression  string `json:"expression"`
 	Description string `json:"description"`

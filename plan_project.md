@@ -175,3 +175,91 @@ real DuckDB queries; SQL-injection / unknown-column attempts rejected.
 
 Verified: `go build ./...`, `go vet`, `go test ./internal/...` pass; `npx tsc --noEmit`
 on the frontend passes.
+
+---
+
+## 7. Current State Review — October 2026
+
+The feature surface is now broad (uploads, transforms, joins, SQL Lab, scheduler,
+semantic layer, no-code builder, caching, async jobs). The remaining risk is
+**productization**: isolation, security, persistence, and operability.
+
+### 7.1 Prioritized improvements
+
+| # | Area | Severity | Issue | Where |
+|---|------|----------|-------|-------|
+| I-1 | Auth / multi-tenancy | Critical | Auth middleware attaches a user but never rejects; most routes are unauthenticated | `internal/api/auth.go:238` |
+| I-2 | Auth / multi-tenancy | Critical | Only datasets are owner-scoped; dashboards, connections, pinned charts, saved queries, reports, glossary have no owner filter | `internal/api/{dashboards,connections,pinned,sql_lab,reports,glossary}.go` |
+| I-3 | Persistence | High | Datasets, connections, sessions, transform pipelines, share tokens are in-memory and lost on restart | `internal/api/handler.go:31-55`, `share.go:19` |
+| I-4 | Sandbox | High | LLM-generated Python is executed directly via `python3`; regex blacklist is bypassable | `internal/api/pythonbridge.go:158`, `sandbox_validator.go` |
+| I-5 | Ops | High | No CI, Dockerfile/Compose, or Makefile | repo root |
+| I-6 | Ops | High | No versioned migrations; schema is ad hoc `CREATE TABLE IF NOT EXISTS` | `internal/store/db.go` |
+| I-7 | Observability | Medium | No metrics, tracing, request IDs, or LLM token/cost counters; only logs + `/api/health` | `internal/api/routes.go`, `cmd/server/main.go` |
+| I-8 | Maintainability | Medium | Monolithic UI shell and API client (1000+ lines each), tab-boolean state instead of a router/query layer | `frontend/src/app/page.tsx`, `frontend/src/lib/api.ts` |
+| I-9 | Reliability | Medium | No backpressure/queue for analysis; uploads buffer fully in memory | `internal/api/handler.go`, `analysis.go` |
+| I-10 | Quality | Medium | Playwright specs exist but are not wired to CI; no load/bench tests | `frontend/tests/`, `internal/*/*_test.go` |
+| I-11 | Docs | Low | `AGENTS.md` / `README.md` still describe Next.js; app is Vite + React 19 | `AGENTS.md`, `README.md` |
+
+#### I-1 / I-2 — Multi-user isolation (do first)
+- Make `authMiddleware` reject unauthenticated requests on mutating and
+  tenant-scoped endpoints; keep only upload/share/health/guest-login public.
+- Add `owner_id` to dashboards, dashboard layouts, connection configs, pinned
+  charts, saved queries, reports, alerts, glossary, and dataset fields.
+- Every list/get/update/delete handler filters by `currentUserID(r)`.
+- Add RBAC (`viewer` / `editor` / `admin`) and dataset-level sharing.
+
+#### I-3 — Persistence
+- Persist share tokens (currently `ShareService` map) and transform pipelines.
+- Promote dataset rows from RAM to per-dataset DuckDB files (metadata already
+  persists in the `datasets` table).
+- Move conversation sessions to DB or make them explicitly ephemeral.
+
+#### I-4 — Real sandbox
+- Run generated Python inside a locked-down container or sandbox
+  (gVisor/firejail), non-root, no network, read-only FS, only `/plots` writable.
+- Or restrict the LLM to selecting/parameterizing pre-approved templates.
+- Keep the regex validator as defense-in-depth, not the primary control.
+
+#### I-5 / I-6 / I-7 — Operability
+- Add GitHub Actions: `go build`, `go vet`, `go test ./...`, `npm run lint`,
+  `tsc --noEmit`, Playwright smoke.
+- Add `Dockerfile` + `docker-compose.yml` (Go + frontend build + optional Postgres
+  + Python runtime).
+- Introduce numbered SQL migrations with a `schema_migrations` table.
+- Add Prometheus `/metrics`, structured request IDs, and LLM usage counters.
+
+#### I-8 / I-9 / I-10 / I-11 — Maintainability
+- Split `page.tsx` into routed views; introduce TanStack Query for server state.
+- Split `lib/api.ts` into domain modules; generate types from an OpenAPI spec.
+- Add analysis queue/backpressure and stream large uploads to disk.
+- Add load tests and wire E2E into CI.
+- Fix the Next.js → Vite/React documentation drift.
+
+### 7.2 Feature additions (next tier)
+
+| Area | Features |
+|------|----------|
+| Teams | RBAC, workspaces, dataset-level permissions, row-level security |
+| Alerting | Slack/Teams/webhook sinks, anomaly rules (z-score/IQR) with LLM explanations |
+| Dashboards | Native filter widgets, tabs, markdown tiles, scheduled PDF snapshots, signed iframe embeds |
+| Visualization | Geo/map, calendar heatmap, sankey, sunburst, Excel/PPT export |
+| AI | Multi-provider + local Ollama/BYO key, NL data cleaning, what-if analysis, narrative summaries |
+| Platform | OpenAPI spec + API keys, webhook ingestion, dataset versioning/materialized views, incremental refresh |
+| UX | Dark-mode persistence, mobile layout, collaborative chart comments |
+
+### 7.3 Recommended execution order
+
+1. **I-1 + I-2** — enforce auth and owner-scope every resource (security blocker). **DONE** — routes split into public/read/editor groups; `owner_id` + role added across datasets, dashboards, layouts, connections, pinned charts, saved queries, reports, alerts, glossary, semantic fields; admin/editor/viewer roles enforced.
+2. **I-3** — persist share tokens and pipelines; DuckDB-backed datasets.
+3. **I-5 + I-6** — CI and migrations (prevents regressions while scaling).
+4. **I-4** — containerized Python sandbox.
+5. **I-7** — metrics/tracing and LLM cost tracking.
+6. **I-8 + I-9 + I-10** — frontend decomposition, queueing, load/E2E coverage.
+7. Feature tier in §7.2, starting with webhook/alert channels and embeddable dashboards.
+
+### 7.4 Do not re-plan (already implemented)
+
+Transforms (filter/rename/derive/join), cross-dataset joins, SQL Lab (history,
+saved queries, async), scheduled reports/alerts (SMTP), profiler, semantic
+fields, no-code chart builder, result caching, and expanded viz types are already
+shipped per §6. Build on them rather than duplicating.

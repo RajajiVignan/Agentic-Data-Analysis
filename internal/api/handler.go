@@ -223,18 +223,12 @@ func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleGetDatasets(w http.ResponseWriter, r *http.Request) {
-	userID := h.currentUserID(r)
-	isGuest := userID != "" && isGuestUser(userID)
+	user := getUserFromContext(r)
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	list := make([]map[string]interface{}, 0, len(h.datasets))
 	for _, d := range h.datasets {
-		// Unclaimed datasets (empty OwnerID) are only visible to non-guest authenticated users
-		if d.OwnerID == "" {
-			if isGuest || userID == "" {
-				continue
-			}
-		} else if d.OwnerID != userID {
+		if !h.canAccessOwner(user, d.OwnerID) {
 			continue
 		}
 		list = append(list, map[string]interface{}{
@@ -475,10 +469,11 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		h.sendJSON(w, http.StatusBadRequest, map[string]string{"error": "No dataset IDs provided"})
 		return
 	}
+	user := getUserFromContext(r)
 	h.mu.RLock()
 	var activeDatasets []*data.Dataset
 	for _, id := range targetIds {
-		if d, ok := h.datasets[id]; ok {
+		if d, ok := h.datasets[id]; ok && h.canAccessOwner(user, d.OwnerID) {
 			activeDatasets = append(activeDatasets, d)
 		}
 	}
@@ -508,7 +503,7 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		h.sessionMu.RLock()
 		sess, ok := h.sessions[body.SessionId]
 		h.sessionMu.RUnlock()
-		if ok {
+		if ok && h.canAccessOwner(getUserFromContext(r), sess.OwnerID) {
 			sessionID = sess.ID
 			history = sess.History
 			activeContext = sess.ActiveContext
@@ -521,7 +516,7 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	if sessionID == "" {
 		sessionID = newID()
 		h.sessionMu.Lock()
-		h.sessions[sessionID] = agent.NewSession(sessionID, targetIds)
+		h.sessions[sessionID] = agent.NewSession(sessionID, h.currentUserID(r), targetIds)
 		h.sessionMu.Unlock()
 		slog.Info("Created new session", "component", "analyze", "sessionId", sessionID)
 	}
@@ -707,6 +702,7 @@ func (h *Handler) handleExportCsv(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ids := strings.Split(rawIDs, ",")
+	user := getUserFromContext(r)
 	h.mu.RLock()
 	selected := make([]*data.Dataset, 0, len(ids))
 	for _, id := range ids {
@@ -714,7 +710,7 @@ func (h *Handler) handleExportCsv(w http.ResponseWriter, r *http.Request) {
 		if id == "" {
 			continue
 		}
-		if d, ok := h.datasets[id]; ok {
+		if d, ok := h.datasets[id]; ok && h.canAccessOwner(user, d.OwnerID) {
 			selected = append(selected, d)
 		}
 	}
@@ -788,14 +784,21 @@ func (h *Handler) handleClearSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.sessionMu.Lock()
-	delete(h.sessions, body.SessionId)
+	if sess, ok := h.sessions[body.SessionId]; ok {
+		if !h.canAccessOwner(getUserFromContext(r), sess.OwnerID) {
+			h.sessionMu.Unlock()
+			h.sendJSON(w, http.StatusNotFound, map[string]string{"error": "Session not found"})
+			return
+		}
+		delete(h.sessions, body.SessionId)
+	}
 	h.sessionMu.Unlock()
 	slog.Info("Cleared session", "component", "session", "sessionId", body.SessionId)
 	h.sendJSON(w, http.StatusOK, map[string]interface{}{"ok": true})
 }
 
 func (h *Handler) handleGetPinnedCharts(w http.ResponseWriter, r *http.Request) {
-	charts := h.pinnedSvc.GetAll()
+	charts := h.pinnedSvc.GetAll(h.currentUserID(r))
 	h.sendJSON(w, http.StatusOK, map[string]interface{}{"pinnedCharts": charts})
 }
 
@@ -805,7 +808,7 @@ func (h *Handler) handlePinChart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	saved, err := h.pinnedSvc.Add(pc.ChartType, pc.Label, pc.Data, pc.URL)
+	saved, err := h.pinnedSvc.Add(h.currentUserID(r), pc.ChartType, pc.Label, pc.Data, pc.URL)
 	if err != nil {
 		h.sendJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to pin chart: " + err.Error()})
 		return
@@ -821,7 +824,7 @@ func (h *Handler) handleUnpinChart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.pinnedSvc.Remove(id); err != nil {
+	if err := h.pinnedSvc.Remove(id, h.currentUserID(r)); err != nil {
 		h.sendJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to unpin chart: " + err.Error()})
 		return
 	}
@@ -838,7 +841,7 @@ func (h *Handler) handleRefreshDataset(w http.ResponseWriter, r *http.Request) {
 
 	h.mu.Lock()
 	ds, ok := h.datasets[id]
-	if !ok {
+	if !ok || !h.canAccessOwner(getUserFromContext(r), ds.OwnerID) {
 		h.mu.Unlock()
 		SendJSON(w, http.StatusNotFound, map[string]string{"error": "Dataset not found"})
 		return
@@ -883,6 +886,7 @@ func (h *Handler) handleRefreshDataset(w http.ResponseWriter, r *http.Request) {
 
 	newDS := &data.Dataset{
 		ID:               ds.ID,
+		OwnerID:          ds.OwnerID,
 		Filename:         ds.Filename,
 		FilePath:         ds.FilePath,
 		Profile:          data.Profile{RowCount: len(rows), Columns: cols},
@@ -908,8 +912,14 @@ func (h *Handler) handleRefreshDataset(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handlePythonPlot(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r)
 	h.mu.RLock()
-	datasets := h.datasets
+	datasets := make(map[string]*data.Dataset, len(h.datasets))
+	for id, ds := range h.datasets {
+		if h.canAccessOwner(user, ds.OwnerID) {
+			datasets[id] = ds
+		}
+	}
 	h.mu.RUnlock()
 	h.plotService.HandlePythonPlot(w, r, datasets)
 }
@@ -921,9 +931,7 @@ func (h *Handler) handleDatasetProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.mu.RLock()
-	ds, ok := h.datasets[id]
-	h.mu.RUnlock()
+	ds, ok := h.accessibleDataset(r, id)
 	if !ok {
 		SendJSON(w, http.StatusNotFound, map[string]string{"error": "Dataset not found"})
 		return
@@ -931,6 +939,18 @@ func (h *Handler) handleDatasetProfile(w http.ResponseWriter, r *http.Request) {
 
 	profile := data.ComputeDetailedProfile(ds)
 	SendJSON(w, http.StatusOK, profile)
+}
+
+// accessibleDataset returns the dataset if the current user may read it.
+func (h *Handler) accessibleDataset(r *http.Request, id string) (*data.Dataset, bool) {
+	user := getUserFromContext(r)
+	h.mu.RLock()
+	ds, ok := h.datasets[id]
+	h.mu.RUnlock()
+	if !ok || !h.canAccessOwner(user, ds.OwnerID) {
+		return nil, false
+	}
+	return ds, true
 }
 
 // persistDataset saves a dataset to the database for recovery on restart.

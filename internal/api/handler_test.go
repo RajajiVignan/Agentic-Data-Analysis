@@ -49,11 +49,11 @@ func TestHealthReturnsOK(t *testing.T) {
 }
 
 func TestDatasetsReturnsEmptyArray(t *testing.T) {
-	handler := NewHandler(agent.DefaultConfig())
+	mux := newTestMux(t)
 	req := httptest.NewRequest(http.MethodGet, "/api/datasets", nil)
 	rec := httptest.NewRecorder()
 
-	handler.Routes().ServeHTTP(rec, req)
+	mux.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
@@ -131,8 +131,7 @@ func TestPythonBridgeCleanupOlderThan(t *testing.T) {
 }
 
 func TestUploadAnalyzeAndExportRevenueCSV(t *testing.T) {
-	handler := NewHandler(agent.DefaultConfig())
-	mux := handler.Routes()
+	mux := newTestMux(t)
 
 	uploadBody, contentType := multipartBody(t, "file", "revenue.csv", strings.NewReader(`month,segment,revenue,customers,churn_risk
 2026-01,Enterprise,124000,42,3.2
@@ -209,8 +208,7 @@ func TestUploadAnalyzeAndExportRevenueCSV(t *testing.T) {
 }
 
 func TestConnectSourceCanBeExported(t *testing.T) {
-	handler := NewHandler(agent.DefaultConfig())
-	mux := handler.Routes()
+	mux := newTestMux(t)
 
 	connectReq := httptest.NewRequest(http.MethodPost, "/api/connect-source", strings.NewReader(`{"source":"Export Test"}`))
 	connectReq.Header.Set("Content-Type", "application/json")
@@ -254,8 +252,7 @@ func multipartBody(t *testing.T, fieldName, filename string, content io.Reader) 
 }
 
 func TestUploadRejectsFilenameWithSingleQuote(t *testing.T) {
-	handler := NewHandler(agent.DefaultConfig())
-	mux := handler.Routes()
+	mux := newTestMux(t)
 
 	// Attempt to upload with a filename that tries Python string escape
 	maliciousFilename := "test'; os.system('rm -rf / #.csv"
@@ -285,8 +282,7 @@ func TestUploadRejectsFilenameWithSingleQuote(t *testing.T) {
 }
 
 func TestUploadRejectsPathTraversalInFilename(t *testing.T) {
-	handler := NewHandler(agent.DefaultConfig())
-	mux := handler.Routes()
+	mux := newTestMux(t)
 
 	maliciousFilename := "../../../etc/passwd.csv"
 	csvContent := "month,segment,revenue\n2026-01,Enterprise,100\n"
@@ -575,8 +571,7 @@ func TestAuthLogout(t *testing.T) {
 }
 
 func TestUploadRejectsFilenameWithPythonInjection(t *testing.T) {
-	handler := NewHandler(agent.DefaultConfig())
-	mux := handler.Routes()
+	mux := newTestMux(t)
 
 	// Filename crafted to break out of pd.read_csv('%s') string
 	maliciousFilename := "data', 'x'); import os; os.system('echo pwned #.csv"
@@ -607,4 +602,33 @@ func TestUploadRejectsFilenameWithPythonInjection(t *testing.T) {
 			t.Fatalf("sanitized filename contains dangerous character %q: %q", ch, uploadResp.Filename)
 		}
 	}
+}
+
+// newTestMux returns the router wrapped with a valid admin session so data
+// endpoints can be exercised without repeating login boilerplate.
+func newTestMux(t *testing.T) http.Handler {
+	t.Helper()
+	h := NewHandler(agent.DefaultConfig())
+	if _, _, err := h.auth.Register("test-admin@example.com", "secret123", "Test Admin"); err != nil {
+		t.Fatalf("register test user: %v", err)
+	}
+	token := h.auth.createToken(firstRealUserID(t, h))
+	base := h.Routes()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Header.Set("Authorization", "Bearer "+token)
+		base.ServeHTTP(w, r)
+	})
+}
+
+func firstRealUserID(t *testing.T, h *Handler) string {
+	t.Helper()
+	h.auth.mu.RLock()
+	defer h.auth.mu.RUnlock()
+	for _, rec := range h.auth.users {
+		if !isGuestUser(rec.ID) {
+			return rec.ID
+		}
+	}
+	t.Fatal("no registered user found")
+	return ""
 }

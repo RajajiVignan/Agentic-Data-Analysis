@@ -12,6 +12,7 @@ import (
 // queryHistoryEntry is one recorded execution in the SQL Lab history.
 type queryHistoryEntry struct {
 	ID         string   `json:"id"`
+	OwnerID    string   `json:"-"`
 	DatasetIDs []string `json:"datasetIds"`
 	SQL        string   `json:"sql"`
 	ExecutedAt string   `json:"executedAt"`
@@ -43,18 +44,24 @@ func (s *queryHistoryStore) record(e queryHistoryEntry) {
 	}
 }
 
-func (s *queryHistoryStore) list() []queryHistoryEntry {
+func (s *queryHistoryStore) list(ownerID string) []queryHistoryEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := make([]queryHistoryEntry, len(s.entries))
-	copy(out, s.entries)
+	out := make([]queryHistoryEntry, 0, len(s.entries))
+	for _, e := range s.entries {
+		if ownerID != "" && e.OwnerID != ownerID {
+			continue
+		}
+		out = append(out, e)
+	}
 	return out
 }
 
 // recordQueryHistory records a SQL execution against the history store.
-func (h *Handler) recordQueryHistory(datasetIDs []string, sql string, startedAt time.Time, rowCount int, errMsg string) {
+func (h *Handler) recordQueryHistory(ownerID string, datasetIDs []string, sql string, startedAt time.Time, rowCount int, errMsg string) {
 	h.queryHistory.record(queryHistoryEntry{
 		ID:         newID(),
+		OwnerID:    ownerID,
 		DatasetIDs: datasetIDs,
 		SQL:        sql,
 		ExecutedAt: startedAt.UTC().Format(time.RFC3339),
@@ -77,7 +84,7 @@ func newSavedQueryService(db *store.DB) *SavedQueryService {
 		db:   db,
 	}
 	if db != nil {
-		if records, err := db.LoadSavedQueries(); err == nil {
+		if records, err := db.LoadSavedQueries(""); err == nil {
 			for i := range records {
 				s.defs[records[i].ID] = &records[i]
 			}
@@ -86,11 +93,14 @@ func newSavedQueryService(db *store.DB) *SavedQueryService {
 	return s
 }
 
-func (s *SavedQueryService) List() []*store.SavedQueryRecord {
+func (s *SavedQueryService) List(ownerID string) []*store.SavedQueryRecord {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]*store.SavedQueryRecord, 0, len(s.defs))
 	for _, q := range s.defs {
+		if ownerID != "" && q.OwnerID != ownerID {
+			continue
+		}
 		out = append(out, q)
 	}
 	return out
@@ -105,16 +115,16 @@ func (s *SavedQueryService) Create(q *store.SavedQueryRecord) *store.SavedQueryR
 	q.UpdatedAt = now
 	s.defs[q.ID] = q
 	if s.db != nil {
-		_ = s.db.SaveSavedQuery(q.ID, q.Name, q.DatasetIDs, q.SQL, q.CreatedAt, q.UpdatedAt)
+		_ = s.db.SaveSavedQuery(q.ID, q.OwnerID, q.Name, q.DatasetIDs, q.SQL, q.CreatedAt, q.UpdatedAt)
 	}
 	return q
 }
 
-func (s *SavedQueryService) Update(q *store.SavedQueryRecord) bool {
+func (s *SavedQueryService) Update(q *store.SavedQueryRecord, ownerID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	existing, ok := s.defs[q.ID]
-	if !ok {
+	if !ok || (ownerID != "" && existing.OwnerID != ownerID) {
 		return false
 	}
 	existing.Name = q.Name
@@ -122,20 +132,21 @@ func (s *SavedQueryService) Update(q *store.SavedQueryRecord) bool {
 	existing.SQL = q.SQL
 	existing.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	if s.db != nil {
-		_ = s.db.SaveSavedQuery(existing.ID, existing.Name, existing.DatasetIDs, existing.SQL, existing.CreatedAt, existing.UpdatedAt)
+		_ = s.db.SaveSavedQuery(existing.ID, existing.OwnerID, existing.Name, existing.DatasetIDs, existing.SQL, existing.CreatedAt, existing.UpdatedAt)
 	}
 	return true
 }
 
-func (s *SavedQueryService) Delete(id string) bool {
+func (s *SavedQueryService) Delete(id, ownerID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.defs[id]; !ok {
+	q, ok := s.defs[id]
+	if !ok || (ownerID != "" && q.OwnerID != ownerID) {
 		return false
 	}
 	delete(s.defs, id)
 	if s.db != nil {
-		_ = s.db.DeleteSavedQuery(id)
+		_ = s.db.DeleteSavedQuery(id, ownerID)
 	}
 	return true
 }
@@ -143,11 +154,11 @@ func (s *SavedQueryService) Delete(id string) bool {
 // --- HTTP Handlers ---
 
 func (h *Handler) handleQueryHistory(w http.ResponseWriter, r *http.Request) {
-	SendJSON(w, http.StatusOK, map[string]interface{}{"history": h.queryHistory.list()})
+	SendJSON(w, http.StatusOK, map[string]interface{}{"history": h.queryHistory.list(h.currentUserID(r))})
 }
 
 func (h *Handler) handleSavedQueryList(w http.ResponseWriter, r *http.Request) {
-	queries := h.savedQuerySvc.List()
+	queries := h.savedQuerySvc.List(h.currentUserID(r))
 	SendJSON(w, http.StatusOK, map[string]interface{}{"queries": queries})
 }
 
@@ -172,8 +183,15 @@ func (h *Handler) handleSavedQueryCreate(w http.ResponseWriter, r *http.Request)
 		sendInvalidRequest(w, "datasetIds is required")
 		return
 	}
+	for _, id := range req.DatasetIDs {
+		if !h.canAccessDataset(r, id) {
+			sendNotFound(w, "Dataset not found")
+			return
+		}
+	}
 	idsJSON, _ := json.Marshal(req.DatasetIDs)
 	q := &store.SavedQueryRecord{
+		OwnerID:    h.currentUserID(r),
 		Name:       req.Name,
 		DatasetIDs: string(idsJSON),
 		SQL:        req.SQL,
@@ -203,7 +221,7 @@ func (h *Handler) handleSavedQueryUpdate(w http.ResponseWriter, r *http.Request)
 		DatasetIDs: string(idsJSON),
 		SQL:        req.SQL,
 	}
-	if !h.savedQuerySvc.Update(q) {
+	if !h.savedQuerySvc.Update(q, h.currentUserID(r)) {
 		sendNotFound(w, "Saved query not found")
 		return
 	}
@@ -216,7 +234,7 @@ func (h *Handler) handleSavedQueryDelete(w http.ResponseWriter, r *http.Request)
 		sendInvalidRequest(w, "id query parameter required")
 		return
 	}
-	if !h.savedQuerySvc.Delete(id) {
+	if !h.savedQuerySvc.Delete(id, h.currentUserID(r)) {
 		sendNotFound(w, "Saved query not found")
 		return
 	}

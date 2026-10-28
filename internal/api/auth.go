@@ -21,7 +21,35 @@ type User struct {
 	ID        string    `json:"id"`
 	Email     string    `json:"email"`
 	Name      string    `json:"name"`
+	Role      string    `json:"role"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+const (
+	RoleAdmin  = "admin"
+	RoleEditor = "editor"
+	RoleViewer = "viewer"
+)
+
+func roleRank(role string) int {
+	switch role {
+	case RoleAdmin:
+		return 3
+	case RoleEditor:
+		return 2
+	case RoleViewer:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// HasRole reports whether the user has at least the given role.
+func (u *User) HasRole(min string) bool {
+	if u == nil {
+		return false
+	}
+	return roleRank(u.Role) >= roleRank(min) && roleRank(min) > 0
 }
 
 type userRecord struct {
@@ -75,11 +103,16 @@ func NewAuthService(db *store.DB) *AuthService {
 	if db != nil {
 		if records, err := db.LoadUsers(); err == nil {
 			for _, rec := range records {
+				role := rec.Role
+				if role == "" {
+					role = RoleEditor
+				}
 				svc.users[rec.Email] = &userRecord{
 					User: User{
 						ID:        rec.ID,
 						Email:     rec.Email,
 						Name:      rec.Name,
+						Role:      role,
 						CreatedAt: rec.CreatedAt,
 					},
 					PasswordHash: rec.PasswordHash,
@@ -179,11 +212,25 @@ func (a *AuthService) Register(email, password, name string) (*User, string, err
 
 	id := newID()
 	now := time.Now()
+
+	// Bootstrap: the first real (non-guest) account becomes the admin.
+	role := RoleEditor
+	realUsers := 0
+	for _, existing := range a.users {
+		if !isGuestUser(existing.ID) {
+			realUsers++
+		}
+	}
+	if realUsers == 0 {
+		role = RoleAdmin
+	}
+
 	rec := &userRecord{
 		User: User{
 			ID:        id,
 			Email:     email,
 			Name:      name,
+			Role:      role,
 			CreatedAt: now,
 		},
 		PasswordHash: hash,
@@ -192,7 +239,7 @@ func (a *AuthService) Register(email, password, name string) (*User, string, err
 
 	// Persist to database
 	if a.db != nil {
-		if err := a.db.SaveUser(id, email, name, hash, now); err != nil {
+		if err := a.db.SaveUser(id, email, name, hash, role, now); err != nil {
 			log.Printf("[auth] Failed to persist user %s: %v", email, err)
 		}
 	}
@@ -251,6 +298,35 @@ func (h *Handler) authMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// requireAuth rejects requests that do not carry a valid session.
+func (h *Handler) requireAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if getUserFromContext(r) == nil {
+			SendJSON(w, http.StatusUnauthorized, map[string]string{"error": "Authentication required"})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// requireRole rejects authenticated users below the given role.
+func (h *Handler) requireRole(min string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			user := getUserFromContext(r)
+			if user == nil {
+				SendJSON(w, http.StatusUnauthorized, map[string]string{"error": "Authentication required"})
+				return
+			}
+			if !user.HasRole(min) {
+				SendJSON(w, http.StatusForbidden, map[string]string{"error": "Insufficient permissions"})
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 func getUserFromContext(r *http.Request) *User {
 	user, _ := r.Context().Value(userContextKey).(*User)
 	return user
@@ -261,6 +337,37 @@ func (h *Handler) currentUserID(r *http.Request) string {
 		return user.ID
 	}
 	return ""
+}
+
+// canAccessOwner applies the ownership policy: admins see everything, unowned
+// resources are visible to authenticated non-guest users, and everything else
+// is scoped to its owner.
+func (h *Handler) canAccessOwner(user *User, ownerID string) bool {
+	if user == nil {
+		return false
+	}
+	if user.Role == RoleAdmin {
+		return true
+	}
+	if ownerID == "" {
+		return !isGuestUser(user.ID)
+	}
+	return ownerID == user.ID
+}
+
+// canAccessDataset reports whether the current user may read the dataset.
+func (h *Handler) canAccessDataset(r *http.Request, datasetID string) bool {
+	user := getUserFromContext(r)
+	if user == nil {
+		return false
+	}
+	h.mu.RLock()
+	ds, ok := h.datasets[datasetID]
+	h.mu.RUnlock()
+	if !ok {
+		return false
+	}
+	return h.canAccessOwner(user, ds.OwnerID)
 }
 
 // setAuthCookie sets an HttpOnly cookie with the JWT token (72h expiry).
@@ -389,6 +496,7 @@ func (h *Handler) handleGuestLogin(w http.ResponseWriter, r *http.Request) {
 		ID:        id,
 		Email:     id + "@guest.local",
 		Name:      "Guest User",
+		Role:      RoleViewer,
 		CreatedAt: now,
 	}
 	h.auth.mu.Lock()

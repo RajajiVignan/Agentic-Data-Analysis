@@ -30,7 +30,7 @@ func (s *GlossaryService) loadFromDB() {
 	if s.db == nil {
 		return
 	}
-	defs, err := s.db.LoadGlossaryDefs()
+	defs, err := s.db.LoadGlossaryDefs("")
 	if err != nil || len(defs) == 0 {
 		return
 	}
@@ -41,11 +41,14 @@ func (s *GlossaryService) loadFromDB() {
 	}
 }
 
-func (s *GlossaryService) List() []*data.MetricDefinition {
+func (s *GlossaryService) List(ownerID string) []*data.MetricDefinition {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]*data.MetricDefinition, 0, len(s.defs))
 	for _, def := range s.defs {
+		if ownerID != "" && def.OwnerID != ownerID {
+			continue
+		}
 		out = append(out, def)
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -54,10 +57,14 @@ func (s *GlossaryService) List() []*data.MetricDefinition {
 	return out
 }
 
-func (s *GlossaryService) Get(id string) *data.MetricDefinition {
+func (s *GlossaryService) Get(id, ownerID string) *data.MetricDefinition {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.defs[id]
+	def, ok := s.defs[id]
+	if !ok || (ownerID != "" && def.OwnerID != ownerID) {
+		return nil
+	}
+	return def
 }
 
 func (s *GlossaryService) Create(def *data.MetricDefinition) *data.MetricDefinition {
@@ -74,13 +81,14 @@ func (s *GlossaryService) Create(def *data.MetricDefinition) *data.MetricDefinit
 	return def
 }
 
-func (s *GlossaryService) Update(def *data.MetricDefinition) bool {
+func (s *GlossaryService) Update(def *data.MetricDefinition, ownerID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	existing, ok := s.defs[def.ID]
-	if !ok {
+	if !ok || (ownerID != "" && existing.OwnerID != ownerID) {
 		return false
 	}
+	def.OwnerID = existing.OwnerID
 	def.CreatedAt = existing.CreatedAt
 	def.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	s.defs[def.ID] = def
@@ -90,16 +98,16 @@ func (s *GlossaryService) Update(def *data.MetricDefinition) bool {
 	return true
 }
 
-func (s *GlossaryService) Delete(id string) bool {
+func (s *GlossaryService) Delete(id, ownerID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, ok := s.defs[id]
-	if !ok {
+	def, ok := s.defs[id]
+	if !ok || (ownerID != "" && def.OwnerID != ownerID) {
 		return false
 	}
 	delete(s.defs, id)
 	if s.db != nil {
-		_ = s.db.DeleteGlossaryDef(id)
+		_ = s.db.DeleteGlossaryDef(id, ownerID)
 	}
 	return true
 }
@@ -107,7 +115,7 @@ func (s *GlossaryService) Delete(id string) bool {
 // --- HTTP Handlers ---
 
 func (h *Handler) handleGlossaryList(w http.ResponseWriter, r *http.Request) {
-	defs := h.glossarySvc.List()
+	defs := h.glossarySvc.List(h.currentUserID(r))
 	SendJSON(w, http.StatusOK, map[string]interface{}{"definitions": defs})
 }
 
@@ -120,6 +128,7 @@ func (h *Handler) handleGlossaryCreate(w http.ResponseWriter, r *http.Request) {
 		sendInvalidRequest(w, "Name is required")
 		return
 	}
+	def.OwnerID = h.currentUserID(r)
 	created := h.glossarySvc.Create(&def)
 	SendJSON(w, http.StatusCreated, created)
 }
@@ -133,7 +142,7 @@ func (h *Handler) handleGlossaryUpdate(w http.ResponseWriter, r *http.Request) {
 		sendInvalidRequest(w, "ID is required")
 		return
 	}
-	if !h.glossarySvc.Update(&def) {
+	if !h.glossarySvc.Update(&def, h.currentUserID(r)) {
 		sendNotFound(w, "Definition not found")
 		return
 	}
@@ -146,7 +155,7 @@ func (h *Handler) handleGlossaryDelete(w http.ResponseWriter, r *http.Request) {
 		sendInvalidRequest(w, "id query parameter required")
 		return
 	}
-	if !h.glossarySvc.Delete(id) {
+	if !h.glossarySvc.Delete(id, h.currentUserID(r)) {
 		sendNotFound(w, "Definition not found")
 		return
 	}

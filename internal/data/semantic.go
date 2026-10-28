@@ -12,6 +12,7 @@ import (
 // description, never raw SQL, so we can whitelist every token when generating SQL.
 type SemanticField struct {
 	ID        string          `json:"id"`
+	OwnerID   string          `json:"ownerId,omitempty"`
 	DatasetID string          `json:"datasetId"`
 	Name      string          `json:"name"`
 	Kind      string          `json:"kind"` // "metric" | "dimension"

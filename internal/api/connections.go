@@ -25,6 +25,7 @@ func copyConnectionConfig(cfg *ConnectionConfig) ConnectionConfig {
 // ConnectionConfig holds user-provided connection parameters.
 type ConnectionConfig struct {
 	ID          string `json:"id"`
+	OwnerID     string `json:"ownerId,omitempty"`
 	Provider    string `json:"provider"`
 	Host        string `json:"host"`
 	Port        string `json:"port"`
@@ -48,8 +49,12 @@ func (h *Handler) handleConnectionList(w http.ResponseWriter, r *http.Request) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
+	user := getUserFromContext(r)
 	list := make([]ConnectionConfig, 0, len(h.connectionConfigs))
 	for _, cfg := range h.connectionConfigs {
+		if !h.canAccessOwner(user, cfg.OwnerID) {
+			continue
+		}
 		list = append(list, copyConnectionConfig(cfg))
 	}
 	SendJSON(w, http.StatusOK, map[string]interface{}{"connections": list})
@@ -143,6 +148,7 @@ func (h *Handler) handleConnectionCreate(w http.ResponseWriter, r *http.Request)
 	ds := &data.Dataset{
 		ID:                 dsID,
 		Filename:           filename,
+		OwnerID:            h.currentUserID(r),
 		Profile:            data.Profile{RowCount: len(rows), Columns: cols},
 		Rows:               rows,
 		ConnectionConfigID: connID,
@@ -150,6 +156,7 @@ func (h *Handler) handleConnectionCreate(w http.ResponseWriter, r *http.Request)
 	}
 	cfg.DatasetID = dsID
 	cfg.Filename = filename
+	cfg.OwnerID = h.currentUserID(r)
 	cfg.ID = connID
 	cfg.Connected = true
 	cfg.ConnectedAt = time.Now().Format(time.RFC3339)
@@ -192,7 +199,7 @@ func (h *Handler) handleConnectionDelete(w http.ResponseWriter, r *http.Request)
 	defer h.mu.Unlock()
 
 	cfg, ok := h.connectionConfigs[id]
-	if !ok {
+	if !ok || !h.canAccessOwner(getUserFromContext(r), cfg.OwnerID) {
 		SendJSON(w, http.StatusNotFound, map[string]string{"error": "connection not found"})
 		return
 	}

@@ -38,6 +38,7 @@ type DashboardTile struct {
 
 type DashboardLayout struct {
 	ID        string          `json:"id"`
+	OwnerID   string          `json:"ownerId,omitempty"`
 	Name      string          `json:"name"`
 	IsDefault bool            `json:"isDefault,omitempty"`
 	Tiles     []DashboardTile `json:"tiles"`
@@ -68,44 +69,38 @@ func NewDashboardEditorService(database *store.DB) *DashboardEditorService {
 			log.Printf("[dashboard] Loaded %d layouts from DB", len(layouts))
 		}
 	}
-	if len(d.layouts) == 0 {
-		d.seedDefault()
-	}
 	return d
 }
 
-func (d *DashboardEditorService) seedDefault() {
-	d.layouts["default"] = &DashboardLayout{
-		ID:        "default",
-		Name:      "Default Layout",
-		IsDefault: true,
-		Tiles:     []DashboardTile{},
-		CreatedAt: time.Now().Format(time.RFC3339),
-		UpdatedAt: time.Now().Format(time.RFC3339),
-	}
-}
-
-func (d *DashboardEditorService) ListLayouts() []*DashboardLayout {
+func (d *DashboardEditorService) ListLayouts(ownerID string) []*DashboardLayout {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	list := make([]*DashboardLayout, 0, len(d.layouts))
 	for _, l := range d.layouts {
+		if ownerID != "" && l.OwnerID != ownerID {
+			continue
+		}
 		list = append(list, l)
 	}
 	return list
 }
 
-func (d *DashboardEditorService) GetLayout(id string) *DashboardLayout {
+func (d *DashboardEditorService) GetLayout(id, ownerID string) *DashboardLayout {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	return d.layouts[id]
+	l, ok := d.layouts[id]
+	if !ok || (ownerID != "" && l.OwnerID != ownerID) {
+		return nil
+	}
+	return l
 }
 
-func (d *DashboardEditorService) CreateLayout(name string) *DashboardLayout {
+func (d *DashboardEditorService) CreateLayout(name, ownerID string) *DashboardLayout {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	layout := &DashboardLayout{
 		ID:        "layout_" + newID(),
+		OwnerID:   ownerID,
 		Name:      name,
 		Tiles:     []DashboardTile{},
 		CreatedAt: time.Now().Format(time.RFC3339),
@@ -120,14 +115,15 @@ func (d *DashboardEditorService) CreateLayout(name string) *DashboardLayout {
 	return layout
 }
 
-func (d *DashboardEditorService) SaveLayout(id string, layout *DashboardLayout) bool {
+func (d *DashboardEditorService) SaveLayout(id string, layout *DashboardLayout, ownerID string) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	existing, ok := d.layouts[id]
-	if !ok {
+	if !ok || (ownerID != "" && existing.OwnerID != ownerID) {
 		return false
 	}
 	layout.ID = id
+	layout.OwnerID = existing.OwnerID
 	layout.CreatedAt = existing.CreatedAt
 	layout.UpdatedAt = time.Now().Format(time.RFC3339)
 	d.layouts[id] = layout
@@ -139,11 +135,11 @@ func (d *DashboardEditorService) SaveLayout(id string, layout *DashboardLayout) 
 	return true
 }
 
-func (d *DashboardEditorService) DeleteLayout(id string) bool {
+func (d *DashboardEditorService) DeleteLayout(id, ownerID string) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	_, ok := d.layouts[id]
-	if ok {
+	l, ok := d.layouts[id]
+	if ok && (ownerID == "" || l.OwnerID == ownerID) {
 		delete(d.layouts, id)
 		if d.db != nil {
 			if err := d.db.DeleteLayout(id); err != nil {
@@ -154,11 +150,11 @@ func (d *DashboardEditorService) DeleteLayout(id string) bool {
 	return ok
 }
 
-func (d *DashboardEditorService) AddTile(layoutID string, tile DashboardTile) bool {
+func (d *DashboardEditorService) AddTile(layoutID string, tile DashboardTile, ownerID string) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	layout, ok := d.layouts[layoutID]
-	if !ok {
+	if !ok || (ownerID != "" && layout.OwnerID != ownerID) {
 		return false
 	}
 	tile.ID = "tile_" + newID()
@@ -167,11 +163,11 @@ func (d *DashboardEditorService) AddTile(layoutID string, tile DashboardTile) bo
 	return true
 }
 
-func (d *DashboardEditorService) UpdateTile(layoutID, tileID string, tile DashboardTile) bool {
+func (d *DashboardEditorService) UpdateTile(layoutID, tileID string, tile DashboardTile, ownerID string) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	layout, ok := d.layouts[layoutID]
-	if !ok {
+	if !ok || (ownerID != "" && layout.OwnerID != ownerID) {
 		return false
 	}
 	for i, t := range layout.Tiles {
@@ -185,11 +181,11 @@ func (d *DashboardEditorService) UpdateTile(layoutID, tileID string, tile Dashbo
 	return false
 }
 
-func (d *DashboardEditorService) RemoveTile(layoutID, tileID string) bool {
+func (d *DashboardEditorService) RemoveTile(layoutID, tileID, ownerID string) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	layout, ok := d.layouts[layoutID]
-	if !ok {
+	if !ok || (ownerID != "" && layout.OwnerID != ownerID) {
 		return false
 	}
 	for i, t := range layout.Tiles {
@@ -205,7 +201,7 @@ func (d *DashboardEditorService) RemoveTile(layoutID, tileID string) bool {
 // --- HTTP Handlers ---
 
 func (h *Handler) handleListLayouts(w http.ResponseWriter, r *http.Request) {
-	layouts := h.dashEditorSvc.ListLayouts()
+	layouts := h.dashEditorSvc.ListLayouts(h.currentUserID(r))
 	SendJSON(w, http.StatusOK, map[string]interface{}{"layouts": layouts})
 }
 
@@ -215,7 +211,7 @@ func (h *Handler) handleGetLayout(w http.ResponseWriter, r *http.Request) {
 		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "id path parameter required"})
 		return
 	}
-	layout := h.dashEditorSvc.GetLayout(id)
+	layout := h.dashEditorSvc.GetLayout(id, h.currentUserID(r))
 	if layout == nil {
 		SendJSON(w, http.StatusNotFound, map[string]string{"error": "Layout not found"})
 		return
@@ -234,7 +230,7 @@ func (h *Handler) handleCreateLayout(w http.ResponseWriter, r *http.Request) {
 		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "name is required"})
 		return
 	}
-	layout := h.dashEditorSvc.CreateLayout(body.Name)
+	layout := h.dashEditorSvc.CreateLayout(body.Name, h.currentUserID(r))
 	SendJSON(w, http.StatusCreated, layout)
 }
 
@@ -248,7 +244,7 @@ func (h *Handler) handleSaveLayout(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &layout) {
 		return
 	}
-	if !h.dashEditorSvc.SaveLayout(id, &layout) {
+	if !h.dashEditorSvc.SaveLayout(id, &layout, h.currentUserID(r)) {
 		SendJSON(w, http.StatusNotFound, map[string]string{"error": "Layout not found"})
 		return
 	}
@@ -261,7 +257,7 @@ func (h *Handler) handleDeleteLayout(w http.ResponseWriter, r *http.Request) {
 		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "id path parameter required"})
 		return
 	}
-	if !h.dashEditorSvc.DeleteLayout(id) {
+	if !h.dashEditorSvc.DeleteLayout(id, h.currentUserID(r)) {
 		SendJSON(w, http.StatusNotFound, map[string]string{"error": "Layout not found"})
 		return
 	}
@@ -282,11 +278,11 @@ func (h *Handler) handleAddTile(w http.ResponseWriter, r *http.Request) {
 		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "type is required (chart, text, divider, image, metric)"})
 		return
 	}
-	if !h.dashEditorSvc.AddTile(layoutID, tile) {
+	if !h.dashEditorSvc.AddTile(layoutID, tile, h.currentUserID(r)) {
 		SendJSON(w, http.StatusNotFound, map[string]string{"error": "Layout not found"})
 		return
 	}
-	layout := h.dashEditorSvc.GetLayout(layoutID)
+	layout := h.dashEditorSvc.GetLayout(layoutID, h.currentUserID(r))
 	SendJSON(w, http.StatusCreated, layout)
 }
 
@@ -301,7 +297,7 @@ func (h *Handler) handleUpdateTile(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &tile) {
 		return
 	}
-	if !h.dashEditorSvc.UpdateTile(layoutID, tileID, tile) {
+	if !h.dashEditorSvc.UpdateTile(layoutID, tileID, tile, h.currentUserID(r)) {
 		SendJSON(w, http.StatusNotFound, map[string]string{"error": "Layout or tile not found"})
 		return
 	}
@@ -315,7 +311,7 @@ func (h *Handler) handleRemoveTile(w http.ResponseWriter, r *http.Request) {
 		SendJSON(w, http.StatusBadRequest, map[string]string{"error": "id and tileId path parameters required"})
 		return
 	}
-	if !h.dashEditorSvc.RemoveTile(layoutID, tileID) {
+	if !h.dashEditorSvc.RemoveTile(layoutID, tileID, h.currentUserID(r)) {
 		SendJSON(w, http.StatusNotFound, map[string]string{"error": "Layout or tile not found"})
 		return
 	}

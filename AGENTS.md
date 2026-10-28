@@ -96,6 +96,8 @@ Prompt-driven BI application. Go backend + Next.js frontend. User uploads CSV/JS
 - **DB persistence**: `internal/store/db.go` — graceful fallback to in-memory if Supabase unavailable
 - **ID generation**: Uses `time.Now().UnixNano()` (not `os.Getpid()` which collides)
 - **Concurrency**: Handler uses `sync.RWMutex` for thread-safe map access
+- **Auth/RBAC**: JWT in HttpOnly cookie or `Authorization: Bearer`. Roles: `admin` > `editor` > `viewer`. First real registrant becomes admin; guests are viewers. Public routes are limited to health/auth/shares; reads require auth; mutations require editor.
+- **Owner isolation**: Every persisted tenant resource carries `owner_id`. Handlers pass `currentUserID(r)` into owner-scoped service/store methods; `owner_id=""` means "no filter" for internal/system use only. Admin bypasses dataset visibility checks (`canAccessOwner`).
 
 ## Build & Test
 

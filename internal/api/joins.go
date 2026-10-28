@@ -31,16 +31,17 @@ func (h *Handler) handleJoin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	user := getUserFromContext(r)
 	h.mu.RLock()
 	leftDS, leftOk := h.datasets[body.LeftDatasetID]
 	rightDS, rightOk := h.datasets[body.RightDatasetID]
 	h.mu.RUnlock()
 
-	if !leftOk {
+	if !leftOk || !h.canAccessOwner(user, leftDS.OwnerID) {
 		SendJSON(w, http.StatusNotFound, map[string]string{"error": "Left dataset not found"})
 		return
 	}
-	if !rightOk {
+	if !rightOk || !h.canAccessOwner(user, rightDS.OwnerID) {
 		SendJSON(w, http.StatusNotFound, map[string]string{"error": "Right dataset not found"})
 		return
 	}

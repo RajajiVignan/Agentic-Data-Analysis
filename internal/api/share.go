@@ -72,7 +72,12 @@ func (h *Handler) handleCreateShareLink(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	charts := h.pinnedSvc.GetByIDs(body.ChartIDs)
+	ownerID := h.currentUserID(r)
+	charts := h.pinnedSvc.GetByIDs(body.ChartIDs, ownerID)
+	if len(charts) == 0 {
+		h.sendJSON(w, http.StatusBadRequest, map[string]string{"error": "No owned charts provided"})
+		return
+	}
 
 	scheme := "http"
 	if r.TLS != nil {

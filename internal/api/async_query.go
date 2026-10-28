@@ -138,10 +138,11 @@ func (h *Handler) handleQueryAsync(w http.ResponseWriter, r *http.Request) {
 		body.PageSize = 100
 	}
 
+	user := getUserFromContext(r)
 	h.mu.RLock()
 	var datasets []*data.Dataset
 	for _, id := range body.DatasetIDs {
-		if d, ok := h.datasets[id]; ok {
+		if d, ok := h.datasets[id]; ok && h.canAccessOwner(user, d.OwnerID) {
 			datasets = append(datasets, d)
 		}
 	}
