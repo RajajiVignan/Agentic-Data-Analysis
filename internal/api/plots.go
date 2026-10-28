@@ -2,8 +2,8 @@ package api
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -49,16 +49,16 @@ func (ps *PlotService) GeneratePlot(ds *data.Dataset, prompt, vizType, designJSO
 		if execErr == nil {
 			return plotURL
 		}
-		fmt.Printf("LLM-driven plot execution failed for dataset %s: %v, falling back to template\n", ds.ID, execErr)
+		slog.Info("LLM-driven plot execution failed for dataset %s: %v, falling back to template\n", ds.ID, execErr)
 	} else if err != nil {
-		fmt.Printf("LLM-driven plot generation failed for dataset %s: %v, falling back to template\n", ds.ID, err)
+		slog.Info("LLM-driven plot generation failed for dataset %s: %v, falling back to template\n", ds.ID, err)
 	}
 
 	// Fallback to deterministic template
 	scriptContent := ps.bridge.GeneratePlotScript(scriptID, "", vizType, designJSON)
 	plotURL, err := ps.bridge.ExecuteScript(scriptID, scriptContent, ds.FilePath, vizType, designJSON)
 	if err != nil {
-		fmt.Printf("Deterministic plot generation failed for dataset %s: %v\n", ds.ID, err)
+		slog.Info("Deterministic plot generation failed for dataset %s: %v\n", ds.ID, err)
 		return ""
 	}
 	return plotURL

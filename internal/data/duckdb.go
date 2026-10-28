@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"insightpilot/internal/utils"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,11 +25,6 @@ func init() {
 		}
 	}
 	queryTimeout = time.Duration(timeoutSec) * time.Second
-}
-
-// quoteIdent safely quotes a DuckDB identifier, escaping embedded double quotes.
-func quoteIdent(name string) string {
-	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
 
 type DuckDBEngine struct {
@@ -59,19 +55,25 @@ func (e *DuckDBEngine) ExecuteSingleCSV(csvPath, sql string) ([]map[string]strin
 func (e *DuckDBEngine) executeSQLWithTimeout(ctx context.Context, csvPath, sql string) ([]map[string]string, error) {
 	id := "dq_" + duckdbID()
 	scriptPath := filepath.Join(e.scriptsDir, id+".py")
+	sqlPath := filepath.Join(e.scriptsDir, id+".sql")
 	resultPath := filepath.Join(e.scriptsDir, id+"_result.json")
 
-	escapedSQL := strings.ReplaceAll(sql, `"""`, `\"\"\"`)
+	if err := os.WriteFile(sqlPath, []byte(sql), 0644); err != nil {
+		return nil, fmt.Errorf("write sql file: %w", err)
+	}
+	defer os.Remove(sqlPath)
 
-	script := fmt.Sprintf(`import duckdb, json, sys, os
+	script := `import duckdb, json, sys, os
 
 csv_path = sys.argv[1]
-result_path = sys.argv[2]
+sql_path = sys.argv[2]
+result_path = sys.argv[3]
 
 con = duckdb.connect(":memory:")
 try:
     con.execute("CREATE TABLE data AS SELECT * FROM read_csv_auto(?)", [csv_path])
-    sql_query = """%s"""
+    with open(sql_path, "r") as f:
+        sql_query = f.read()
     result = con.execute(sql_query).fetchall()
     desc = con.description
     con.close()
@@ -93,7 +95,7 @@ except Exception as e:
     with open(result_path, "w") as f:
         json.dump({"error": str(e)}, f)
     sys.exit(1)
-`, escapedSQL)
+`
 
 	if err := os.WriteFile(scriptPath, []byte(script), 0644); err != nil {
 		return nil, fmt.Errorf("write script: %w", err)
@@ -101,7 +103,7 @@ except Exception as e:
 	defer os.Remove(scriptPath)
 	defer os.Remove(resultPath)
 
-	args := []string{scriptPath, csvPath, resultPath}
+	args := []string{scriptPath, csvPath, sqlPath, resultPath}
 
 	cmd := exec.CommandContext(ctx, "python3", args...)
 	output, err := cmd.CombinedOutput()
@@ -176,7 +178,7 @@ func (e *DuckDBEngine) ProfileCSV(csvPath string) (Profile, error) {
 		if colType == "" {
 			colType = "text"
 		}
-		qCol := quoteIdent(colName)
+		qCol := utils.QuoteIdent(colName)
 
 		countSQL := fmt.Sprintf(`SELECT COUNT(*) as non_empty FROM data WHERE %s IS NOT NULL AND CAST(%s AS VARCHAR) != ''`, qCol, qCol)
 		countRows, err := e.executeSQL(csvPath, countSQL)
@@ -215,7 +217,7 @@ func (e *DuckDBEngine) ProfileCSV(csvPath string) (Profile, error) {
 }
 
 func (e *DuckDBEngine) QueryKPIs(csvPath, metricCol string) ([]map[string]string, error) {
-	q := quoteIdent(metricCol)
+	q := utils.QuoteIdent(metricCol)
 	sql := fmt.Sprintf(`SELECT 
 		SUM(CAST(%s AS DOUBLE)) as total,
 		AVG(CAST(%s AS DOUBLE)) as avg_val,
@@ -227,8 +229,8 @@ func (e *DuckDBEngine) QueryKPIs(csvPath, metricCol string) ([]map[string]string
 }
 
 func (e *DuckDBEngine) QueryTrend(csvPath, dateCol, metricCol string) ([]map[string]string, error) {
-	qDate := quoteIdent(dateCol)
-	qMetric := quoteIdent(metricCol)
+	qDate := utils.QuoteIdent(dateCol)
+	qMetric := utils.QuoteIdent(metricCol)
 	dateExpr := qDate
 	sql := fmt.Sprintf(`SELECT 
 		CAST(%s AS VARCHAR) as label,
@@ -242,8 +244,8 @@ func (e *DuckDBEngine) QueryTrend(csvPath, dateCol, metricCol string) ([]map[str
 }
 
 func (e *DuckDBEngine) QuerySegments(csvPath, catCol, metricCol string) ([]map[string]string, error) {
-	qCat := quoteIdent(catCol)
-	qMetric := quoteIdent(metricCol)
+	qCat := utils.QuoteIdent(catCol)
+	qMetric := utils.QuoteIdent(metricCol)
 	sql := fmt.Sprintf(`SELECT 
 		CAST(%s AS VARCHAR) as label,
 		SUM(CAST(%s AS DOUBLE)) as value
@@ -267,6 +269,7 @@ func (e *DuckDBEngine) ExecuteQuery(csvPaths []string, sql string, page, pageSiz
 func (e *DuckDBEngine) ExecuteQueryWithContext(ctx context.Context, csvPaths []string, sql string, page, pageSize int) ([]map[string]string, []string, error) {
 	id := "eq_" + duckdbID()
 	scriptPath := filepath.Join(e.scriptsDir, id+".py")
+	sqlPath := filepath.Join(e.scriptsDir, id+".sql")
 	resultPath := filepath.Join(e.scriptsDir, id+"_result.json")
 
 	tableDefs := ""
@@ -283,16 +286,23 @@ func (e *DuckDBEngine) ExecuteQueryWithContext(ctx context.Context, csvPaths []s
 		return nil, nil, fmt.Errorf("no CSV paths provided")
 	}
 
-	escapedSQL := strings.ReplaceAll(sql, `"""`, `\"\"\"`)
+	// Write SQL to a separate file to avoid string interpolation injection
+	if err := os.WriteFile(sqlPath, []byte(sql), 0644); err != nil {
+		return nil, nil, fmt.Errorf("write sql file: %w", err)
+	}
+	defer os.Remove(sqlPath)
 
 	script := fmt.Sprintf(`import duckdb, json, sys, os
 
-csv_paths = sys.argv[1:]
+csv_paths = sys.argv[1:-2]
+sql_path = sys.argv[-2]
+result_path = sys.argv[-1]
 
 con = duckdb.connect(":memory:")
 try:
 %s
-    sql_query = """%s"""
+    with open(sql_path, "r") as f:
+        sql_query = f.read()
     result = con.execute(sql_query).fetchall()
     desc = con.description
     con.close()
@@ -307,14 +317,14 @@ try:
             else:
                 r[col] = str(val)
         rows.append(r)
-    with open(r"%s", "w") as f:
+    with open(result_path, "w") as f:
         json.dump({"columns": columns, "rows": rows}, f)
 except Exception as e:
     con.close()
-    with open(r"%s", "w") as f:
+    with open(result_path, "w") as f:
         json.dump({"error": str(e)}, f)
     sys.exit(1)
-`, tableDefs, escapedSQL, resultPath, resultPath)
+`, tableDefs)
 
 	if err := os.WriteFile(scriptPath, []byte(script), 0644); err != nil {
 		return nil, nil, fmt.Errorf("write script: %w", err)
@@ -323,6 +333,7 @@ except Exception as e:
 	defer os.Remove(resultPath)
 
 	args := append([]string{scriptPath}, csvPaths...)
+	args = append(args, sqlPath, resultPath)
 	cmd := exec.CommandContext(ctx, "python3", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {

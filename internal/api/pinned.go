@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -41,7 +42,7 @@ func NewPinnedChartService(db *store.DB) *PinnedChartService {
 func (ps *PinnedChartService) loadFromDB() {
 	records, err := ps.db.GetPinnedCharts()
 	if err != nil {
-		fmt.Printf("Warning: failed to load pinned charts from DB: %v\n", err)
+		slog.Warn("Warning: failed to load pinned charts from DB:", "error", err)
 		return
 	}
 	ps.mu.Lock()
@@ -56,7 +57,7 @@ func (ps *PinnedChartService) loadFromDB() {
 			URL:       c.URL,
 		}
 	}
-	fmt.Printf("Loaded %d pinned charts from database\n", len(records))
+	slog.Info("Loaded %d pinned charts from database", "length of records", len(records))
 }
 
 // GetByIDs returns pinned charts matching the given IDs.

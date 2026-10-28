@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"insightpilot/internal/data"
+	"insightpilot/internal/utils"
 )
 
 // DeterministicAnalyzer implements Analyzer using the existing
@@ -261,30 +262,22 @@ func generateSQLQueries(tableName string, metricCol, catCol, dateCol *data.Colum
 	if metricCol != nil {
 		queries = append(queries,
 			fmt.Sprintf("-- Total metric\nSELECT SUM(%s) AS total, AVG(%s) AS average, MIN(%s) AS min, MAX(%s) AS max\nFROM %s;",
-				quoteCol(metricCol.Name), quoteCol(metricCol.Name), quoteCol(metricCol.Name), quoteCol(metricCol.Name), quoteIdent(tableName)))
+				utils.QuoteIdent(metricCol.Name), utils.QuoteIdent(metricCol.Name), utils.QuoteIdent(metricCol.Name), utils.QuoteIdent(metricCol.Name), utils.QuoteIdent(tableName)))
 	}
 
 	if catCol != nil && metricCol != nil {
 		queries = append(queries,
 			fmt.Sprintf("-- Breakdown by %s\nSELECT %s, SUM(%s) AS total\nFROM %s\nGROUP BY %s\nORDER BY total DESC;",
-				catCol.Name, quoteCol(catCol.Name), quoteCol(metricCol.Name), quoteIdent(tableName), quoteCol(catCol.Name)))
+				catCol.Name, utils.QuoteIdent(catCol.Name), utils.QuoteIdent(metricCol.Name), utils.QuoteIdent(tableName), utils.QuoteIdent(catCol.Name)))
 	}
 
 	if dateCol != nil && metricCol != nil {
 		queries = append(queries,
 			fmt.Sprintf("-- Trend over %s\nSELECT %s, SUM(%s) AS total\nFROM %s\nGROUP BY %s\nORDER BY %s;",
-				dateCol.Name, quoteCol(dateCol.Name), quoteCol(metricCol.Name), quoteIdent(tableName), quoteCol(dateCol.Name), quoteCol(dateCol.Name)))
+				dateCol.Name, utils.QuoteIdent(dateCol.Name), utils.QuoteIdent(metricCol.Name), utils.QuoteIdent(tableName), utils.QuoteIdent(dateCol.Name), utils.QuoteIdent(dateCol.Name)))
 	}
 
 	return queries
-}
-
-func quoteIdent(name string) string {
-	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
-}
-
-func quoteCol(name string) string {
-	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
 
 func buildNarrative(prompt string, ds *data.Dataset, metricCol, catCol, dateCol *data.Column) string {

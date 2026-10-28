@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 )
@@ -82,23 +82,23 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no code fences, no extra text.
 
 	resp, err := v.chatCompletion(ctx, messages)
 	if err != nil {
-		log.Printf("[Validator] LLM call failed, assuming valid: %v", err)
+		slog.Error("[Validator] LLM call failed, assuming valid:", "error", err)
 		return &ValidationResult{Valid: true}, nil
 	}
 
 	content := stripMarkdownCodeFences(resp)
-	log.Printf("[Validator] Response: %s", truncateStr(content, 500))
+	slog.Info("[Validator] Response:", "truncated response", truncateStr(content, 500))
 
 	var result ValidationResult
 	if err := json.Unmarshal([]byte(content), &result); err != nil {
-		log.Printf("[Validator] Parse error: %v, assuming valid", err)
+		slog.Error("[Validator] Parse error:", "error", err)
 		return &ValidationResult{Valid: true}, nil
 	}
 
 	if result.Valid {
-		log.Printf("[Validator] Plan validated successfully")
+		slog.Info("[Validator] Plan validated successfully")
 	} else {
-		log.Printf("[Validator] Plan rejected: issues=%v suggestions=%v", result.Issues, result.Suggestions)
+		slog.Info("[Validator] Plan rejected:", "issues", result.Issues, "suggestions", result.Suggestions)
 	}
 
 	return &result, nil

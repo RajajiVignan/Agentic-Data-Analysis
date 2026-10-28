@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -92,7 +92,7 @@ Rules:
 	}
 
 	content := stripMarkdownCodeFences(resp)
-	log.Printf("[Planner] LLM response: %s", truncateStr(content, 500))
+	slog.Info("[Planner] LLM response:", "truncate", truncateStr(content, 500))
 
 	var plan LLMPlan
 	if err := json.Unmarshal([]byte(content), &plan); err != nil {
@@ -109,7 +109,7 @@ Rules:
 		notebook = append(notebook, NotebookStep{Title: "Planner Reasoning", Body: plan.Reasoning})
 	}
 
-	log.Printf("[Planner] Plan produced: metric=%q category=%q date=%q agg=%q", plan.MetricColumn, plan.CategoryColumn, plan.DateColumn, plan.Aggregation)
+	slog.Info("[Planner] Plan produced", "metric", plan.MetricColumn, "category", plan.CategoryColumn, "date", plan.DateColumn, "agg", plan.Aggregation)
 	return &plan, notebook, nil
 }
 

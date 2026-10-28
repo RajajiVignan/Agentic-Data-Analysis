@@ -11,6 +11,7 @@ import (
 
 	"insightpilot/internal/agent"
 	"insightpilot/internal/data"
+	"insightpilot/internal/utils"
 )
 
 // --- Plan execution ---
@@ -274,7 +275,7 @@ func duckDBKPI(duckDB *data.DuckDBEngine, ds *data.Dataset, metricCol *data.Colu
 	results, err := duckDB.QueryKPIs(ds.FilePath, metricCol.Name)
 	if err != nil {
 		log.Printf("[duckdb] KPI query failed: %v, falling back to in-memory", err)
-		q := quoteIdent(metricCol.Name)
+		q := utils.QuoteIdent(metricCol.Name)
 		sql := fmt.Sprintf(`SELECT 
 			SUM(CAST(%s AS DOUBLE)) as total,
 			AVG(CAST(%s AS DOUBLE)) as avg_val,
@@ -310,8 +311,8 @@ func duckDBTrend(duckDB *data.DuckDBEngine, ds *data.Dataset, dateCol, metricCol
 	if metricCol == nil || dateCol == nil {
 		return []map[string]interface{}{}, ""
 	}
-	qDate := quoteIdent(dateCol.Name)
-	qMetric := quoteIdent(metricCol.Name)
+	qDate := utils.QuoteIdent(dateCol.Name)
+	qMetric := utils.QuoteIdent(metricCol.Name)
 	sql := fmt.Sprintf(`SELECT 
 		CAST(%s AS VARCHAR) as label,
 		SUM(CAST(%s AS DOUBLE)) as value
@@ -339,8 +340,8 @@ func duckDBSegments(duckDB *data.DuckDBEngine, ds *data.Dataset, catCol, metricC
 	if metricCol == nil || catCol == nil {
 		return []map[string]interface{}{}, ""
 	}
-	qCat := quoteIdent(catCol.Name)
-	qMetric := quoteIdent(metricCol.Name)
+	qCat := utils.QuoteIdent(catCol.Name)
+	qMetric := utils.QuoteIdent(metricCol.Name)
 	sql := fmt.Sprintf(`SELECT 
 		CAST(%s AS VARCHAR) as label,
 		SUM(CAST(%s AS DOUBLE)) as value
@@ -379,11 +380,11 @@ func (h *Handler) execLiveSQL(ds *data.Dataset, metricCol, catCol, dateCol *data
 	db.SetConnMaxLifetime(10 * time.Second)
 
 	var sqlQueries []string
-	table := quoteIdent(ds.TableName)
+	table := utils.QuoteIdent(ds.TableName)
 
 	var kpis []map[string]string
 	if metricCol != nil {
-		qMetric := quoteIdent(metricCol.Name)
+		qMetric := utils.QuoteIdent(metricCol.Name)
 		kpiSQL := fmt.Sprintf(`SELECT 
 			SUM(CAST(%s AS DOUBLE PRECISION)) as total,
 			AVG(CAST(%s AS DOUBLE PRECISION)) as average,
@@ -404,8 +405,8 @@ func (h *Handler) execLiveSQL(ds *data.Dataset, metricCol, catCol, dateCol *data
 
 	var trend []map[string]interface{}
 	if dateCol != nil && metricCol != nil {
-		qDate := quoteIdent(dateCol.Name)
-		qMetric := quoteIdent(metricCol.Name)
+		qDate := utils.QuoteIdent(dateCol.Name)
+		qMetric := utils.QuoteIdent(metricCol.Name)
 		trendSQL := fmt.Sprintf(`SELECT 
 			CAST(%s AS VARCHAR) as label,
 			SUM(CAST(%s AS DOUBLE PRECISION)) as value
@@ -427,8 +428,8 @@ func (h *Handler) execLiveSQL(ds *data.Dataset, metricCol, catCol, dateCol *data
 
 	var segments []map[string]interface{}
 	if catCol != nil && metricCol != nil {
-		qCat := quoteIdent(catCol.Name)
-		qMetric := quoteIdent(metricCol.Name)
+		qCat := utils.QuoteIdent(catCol.Name)
+		qMetric := utils.QuoteIdent(metricCol.Name)
 		segSQL := fmt.Sprintf(`SELECT 
 			CAST(%s AS VARCHAR) as label,
 			SUM(CAST(%s AS DOUBLE PRECISION)) as value

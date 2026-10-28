@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	"insightpilot/internal/data"
+	"insightpilot/internal/utils"
 
 	_ "github.com/lib/pq"
 )
@@ -326,7 +326,7 @@ func fetchTables(db *sql.DB) ([]string, error) {
 
 // fetchTableData fetches up to maxRows rows from a table and returns them as []map[string]string.
 func fetchTableData(db *sql.DB, tableName string, maxRows int) ([]map[string]string, []string, error) {
-	query := fmt.Sprintf(`SELECT * FROM %s LIMIT %d`, quoteIdent(tableName), maxRows)
+	query := fmt.Sprintf(`SELECT * FROM %s LIMIT %d`, utils.QuoteIdent(tableName), maxRows)
 	rows, err := db.Query(query)
 	if err != nil {
 		return nil, nil, fmt.Errorf("query table %q: %w", tableName, err)
@@ -366,10 +366,6 @@ func fetchTableData(db *sql.DB, tableName string, maxRows int) ([]map[string]str
 		results = append(results, row)
 	}
 	return results, columns, rows.Err()
-}
-
-func quoteIdent(name string) string {
-	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
 
 func generateSampleRows(provider string, database string) []map[string]string {

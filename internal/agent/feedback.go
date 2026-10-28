@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 
 	"insightpilot/internal/data"
 )
@@ -46,29 +46,29 @@ func (fl *FeedbackLoop) Execute(ctx context.Context, req AnalysisRequest, metas 
 		// Execute tools against the current plan
 		toolResults := fl.executeTools(ctx, plan, primary)
 		if len(toolResults) > 0 {
-			log.Printf("[Feedback] Iteration %d: collected %d tool result(s)", iteration+1, len(toolResults))
+			slog.Info("[Feedback] Iteration", "iteration", iteration+1, "collected and", len(toolResults))
 		}
 
 		// Validate the plan + results
 		result, valErr := fl.validator.Validate(ctx, plan, toolResults, req.Prompt)
 		if valErr != nil {
-			log.Printf("[Feedback] Validator error on iteration %d: %v", iteration+1, valErr)
+			slog.Error("[Feedback] Validator error on iteration", "iterations", iteration+1)
 			// Validator error is non-fatal — assume valid
 			result = &ValidationResult{Valid: true}
 		}
 
 		if result.Valid {
-			log.Printf("[Feedback] Plan validated after %d iteration(s)", iteration+1)
+			slog.Info("[Feedback] Plan validated after", "iterations", iteration+1)
 			return fl.buildResponse(req, plan, notebook, toolResults), nil
 		}
 
-		log.Printf("[Feedback] Plan rejected on iteration %d: issues=%v", iteration+1, result.Issues)
+		slog.Info("[Feedback] Plan rejected on iteration", "iteration", iteration+1, "issues", result.Issues)
 
 		// Refine: give planner another shot with feedback context
 		refinedPlan, refinedNotebook, refErr := fl.planner.Plan(ctx, fl.buildRefinePrompt(req.Prompt, result), metas, req.History)
 		if refErr != nil {
 			lastErr = refErr
-			log.Printf("[Feedback] Refine failed on iteration %d: %v", iteration+1, refErr)
+			slog.Info("[Feedback] Refine failed on iteration", "iteration", iteration+1, "Error", refErr)
 			// Use the last plan (even if unvalidated) rather than failing entirely
 			break
 		}
@@ -81,7 +81,7 @@ func (fl *FeedbackLoop) Execute(ctx context.Context, req AnalysisRequest, metas 
 	}
 
 	// Exhausted iterations — return best-effort plan
-	log.Printf("[Feedback] Max iterations reached, returning best-effort plan (last error: %v)", lastErr)
+	slog.Info("[Feedback] Max iterations reached, returning best-effort plan last error:", "error -", lastErr)
 	return fl.buildResponse(req, plan, notebook, nil), nil
 }
 
@@ -94,7 +94,7 @@ func (fl *FeedbackLoop) executeTools(ctx context.Context, plan *LLMPlan, ds *dat
 		if res, err := tool.Execute(ctx, map[string]interface{}{"dataset": ds}); err == nil {
 			results["profile"] = res
 		} else {
-			log.Printf("[Feedback] profile tool failed: %v", err)
+			slog.Info("[Feedback] profile tool failed:", "error", err)
 		}
 	}
 
@@ -107,7 +107,7 @@ func (fl *FeedbackLoop) executeTools(ctx context.Context, plan *LLMPlan, ds *dat
 			}); err == nil {
 				results["aggregate"] = res
 			} else {
-				log.Printf("[Feedback] aggregate tool failed: %v", err)
+				slog.Error("[Feedback] aggregate tool failed:", "error", err)
 			}
 		}
 	}
@@ -122,7 +122,7 @@ func (fl *FeedbackLoop) executeTools(ctx context.Context, plan *LLMPlan, ds *dat
 			}); err == nil {
 				results["group_by"] = res
 			} else {
-				log.Printf("[Feedback] group_by tool failed: %v", err)
+				slog.Error("[Feedback] group_by tool failed:", "error", err)
 			}
 		}
 	}
@@ -137,7 +137,7 @@ func (fl *FeedbackLoop) executeTools(ctx context.Context, plan *LLMPlan, ds *dat
 			}); err == nil {
 				results["trend"] = res
 			} else {
-				log.Printf("[Feedback] trend tool failed: %v", err)
+				slog.Error("[Feedback] trend tool failed:", "error", err)
 			}
 		}
 	}
