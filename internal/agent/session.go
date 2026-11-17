@@ -3,13 +3,13 @@ package agent
 import "time"
 
 type ConversationSession struct {
-	ID            string
-	OwnerID       string
-	DatasetIDs    []string
-	History       []ConversationTurn
-	ActiveContext *ConversationContext
-	CreatedAt     time.Time
-	LastActiveAt  time.Time
+	ID            string               `json:"id"`
+	OwnerID       string               `json:"ownerId,omitempty"`
+	DatasetIDs    []string             `json:"datasetIds"`
+	History       []ConversationTurn   `json:"history"`
+	ActiveContext *ConversationContext `json:"activeContext,omitempty"`
+	CreatedAt     time.Time            `json:"createdAt"`
+	LastActiveAt  time.Time            `json:"lastActiveAt"`
 }
 
 type ConversationTurn struct {
@@ -31,19 +31,6 @@ type FilterClause struct {
 	Operator string `json:"operator"`
 	Value    string `json:"value"`
 }
-
-type FilterOperation string
-
-const (
-	FilterEQ       FilterOperation = "eq"
-	FilterNEQ      FilterOperation = "neq"
-	FilterGT       FilterOperation = "gt"
-	FilterGTE      FilterOperation = "gte"
-	FilterLT       FilterOperation = "lt"
-	FilterLTE      FilterOperation = "lte"
-	FilterContains FilterOperation = "contains"
-	FilterIn       FilterOperation = "in"
-)
 
 func NewSession(id, ownerID string, datasetIDs []string) *ConversationSession {
 	now := time.Now()

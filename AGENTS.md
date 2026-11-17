@@ -1,7 +1,7 @@
 # InsightPilot — Project Quick Reference
 
 ## What It Is
-Prompt-driven BI application. Go backend + Next.js frontend. User uploads CSV/JSON data, asks questions in natural language, gets back KPIs, charts, and AI-generated visualizations.
+Prompt-driven BI application. Go backend + React (Vite) frontend. User uploads CSV/JSON data, asks questions in natural language, gets back KPIs, charts, and AI-generated visualizations.
 
 ## Architecture at a Glance
 
@@ -49,18 +49,17 @@ Prompt-driven BI application. Go backend + Next.js frontend. User uploads CSV/JS
 │   │       └── db.go               # Supabase PostgreSQL persistence
 ├── frontend/
 │   ├── src/app/page.tsx            # Main workspace (upload, analyze, sidebar, 10+ tabs)
-│   ├── src/components/             # 19 components (Charts, Sidebar, DashboardView,
+│   ├── src/components/             # React components (Charts, Sidebar, DashboardView,
 │   │                               #   DataConnections, SchemaDesigner, SQLQueryEditor,
 │   │                               #   DashboardEditor, ScheduleManager, VizWidget, ...)
 │   └── src/lib/
-│       ├── api.ts                  # All API functions + types (793 lines)
+│       ├── api.ts                  # All API functions + types
 │       └── export.ts               # PNG/JPEG/PDF export utilities
 ├── uploads/                        # Uploaded files
 ├── uploads/plots/                  # Generated Python plot images (.py + .png)
 ├── .env                            # Supabase + OpenRouter + SMTP config
 ├── server_bin                      # Pre-built Go binary
-├── go.mod                          # Module: insightpilot
-└── pinned_charts_schema.sql        # Supabase pinned_charts table schema
+└── go.mod                          # Module: insightpilot
 ```
 
 ## Key API Endpoints
@@ -93,7 +92,7 @@ Prompt-driven BI application. Go backend + Next.js frontend. User uploads CSV/JS
 - **Analyzer interface**: `internal/agent/analyzer.go` — `Analyze(ctx, req) (resp, err)`
 - **Deterministic fallback**: Always works without LLM key; selects columns by type + prompt keywords
 - **Python bridge**: Generates self-contained .py script -> exec `python3` -> serves /plots/*.png
-- **DB persistence**: `internal/store/db.go` — graceful fallback to in-memory if Supabase unavailable
+- **DB persistence**: `internal/store/db.go` — graceful fallback to in-memory if Supabase unavailable. Pinned charts, dashboards, layouts, reports, alerts, glossary, semantic fields, saved queries, share links, transform pipelines, and conversation sessions persist when Supabase is configured.
 - **ID generation**: Uses `time.Now().UnixNano()` (not `os.Getpid()` which collides)
 - **Concurrency**: Handler uses `sync.RWMutex` for thread-safe map access
 - **Auth/RBAC**: JWT in HttpOnly cookie or `Authorization: Bearer`. Roles: `admin` > `editor` > `viewer`. First real registrant becomes admin; guests are viewers. Public routes are limited to health/auth/shares; reads require auth; mutations require editor.

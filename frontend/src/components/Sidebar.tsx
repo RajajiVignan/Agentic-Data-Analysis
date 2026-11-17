@@ -6,7 +6,6 @@ import {
   Share2,
   Plus,
   Check,
-  GitMerge,
   Split,
   Terminal,
   CalendarClock,

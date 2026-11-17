@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"insightpilot/internal/store"
+	"insightpilot/internal/utils"
 )
 
 type ScheduleFrequency string
@@ -127,10 +128,10 @@ func NewReportService(database *store.DB) *ReportService {
 	if h := os.Getenv("SMTP_HOST"); h != "" {
 		rs.smtpConfig = &SMTPConfig{
 			Host:     h,
-			Port:     getEnvDefault("SMTP_PORT", "587"),
+			Port:     utils.GetEnv("SMTP_PORT", "587"),
 			User:     os.Getenv("SMTP_USER"),
 			Password: os.Getenv("SMTP_PASSWORD"),
-			From:     getEnvDefault("SMTP_FROM", os.Getenv("SMTP_USER")),
+			From:     utils.GetEnv("SMTP_FROM", os.Getenv("SMTP_USER")),
 		}
 	}
 
@@ -154,13 +155,6 @@ func NewReportService(database *store.DB) *ReportService {
 		log.Println("[reports] SMTP not configured — email sending disabled")
 	}
 	return rs
-}
-
-func getEnvDefault(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
 }
 
 func (rs *ReportService) Start(h *Handler) {
@@ -200,28 +194,6 @@ func (rs *ReportService) CreateReport(r *ScheduledReport) *ScheduledReport {
 	return r
 }
 
-func (rs *ReportService) UpdateReport(r *ScheduledReport) bool {
-	rs.mu.Lock()
-	defer rs.mu.Unlock()
-	existing, ok := rs.reports[r.ID]
-	if !ok {
-		return false
-	}
-	if existing.OwnerID != "" && r.OwnerID != existing.OwnerID {
-		return false
-	}
-	r.OwnerID = existing.OwnerID
-	r.CreatedAt = existing.CreatedAt
-	r.NextRun = rs.computeNextRun(r)
-	rs.reports[r.ID] = r
-	if rs.db != nil {
-		if err := rs.db.SaveReport(r); err != nil {
-			log.Printf("[reports] Failed to persist report update %s: %v", r.ID, err)
-		}
-	}
-	return true
-}
-
 func (rs *ReportService) DeleteReport(id, ownerID string) bool {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
@@ -235,12 +207,6 @@ func (rs *ReportService) DeleteReport(id, ownerID string) bool {
 		}
 	}
 	return ok
-}
-
-func (rs *ReportService) GetReport(id string) *ScheduledReport {
-	rs.mu.RLock()
-	defer rs.mu.RUnlock()
-	return rs.reports[id]
 }
 
 func (rs *ReportService) ListReports(ownerID string) []*ScheduledReport {
@@ -271,26 +237,6 @@ func (rs *ReportService) CreateAlert(a *AlertRule) *AlertRule {
 	return a
 }
 
-func (rs *ReportService) UpdateAlert(a *AlertRule) bool {
-	rs.mu.Lock()
-	defer rs.mu.Unlock()
-	existing, ok := rs.alerts[a.ID]
-	if !ok {
-		return false
-	}
-	if existing.OwnerID != "" && a.OwnerID != existing.OwnerID {
-		return false
-	}
-	a.OwnerID = existing.OwnerID
-	rs.alerts[a.ID] = a
-	if rs.db != nil {
-		if err := rs.db.SaveAlert(a); err != nil {
-			log.Printf("[reports] Failed to persist alert update %s: %v", a.ID, err)
-		}
-	}
-	return true
-}
-
 func (rs *ReportService) DeleteAlert(id, ownerID string) bool {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
@@ -304,12 +250,6 @@ func (rs *ReportService) DeleteAlert(id, ownerID string) bool {
 		}
 	}
 	return ok
-}
-
-func (rs *ReportService) GetAlert(id string) *AlertRule {
-	rs.mu.RLock()
-	defer rs.mu.RUnlock()
-	return rs.alerts[id]
 }
 
 func (rs *ReportService) ListAlerts(ownerID string) []*AlertRule {

@@ -150,7 +150,7 @@ export function ExploreView({
       if (xCol && yCol) run();
     } else if (metricCol || metricType === "field") {
       run();
-      // eslint-disable-next-line react-hooks/exhaustive-deps
+       
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [datasetId, vizType, dimCol, dimField, dimType, dim2Col, dim2Field, dim2Type, metricCol, metricAgg, metricField, metricType, xCol, yCol, sort, limit]);

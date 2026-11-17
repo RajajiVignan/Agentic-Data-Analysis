@@ -5,7 +5,6 @@ import {
   X,
   Trash2,
   Link,
-  Save,
   RefreshCw,
   Info,
   ArrowRight,
@@ -62,7 +61,6 @@ export function SchemaDesigner({ datasets, onSchemaApplied }: Props) {
     offsetX: number;
     offsetY: number;
   } | null>(null);
-  const [canvasOffset, setCanvasOffset] = useState({ x: 0, y: 0 });
   const canvasRef = useRef<HTMLDivElement>(null);
   const columnRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const svgRef = useRef<SVGSVGElement>(null);
@@ -80,7 +78,7 @@ export function SchemaDesigner({ datasets, onSchemaApplied }: Props) {
       let col = 0;
       let row = 0;
       const maxCol = Math.min(datasets.length, 3);
-      return datasets.map((ds, i) => {
+      return datasets.map((ds) => {
         const existingNode = existing.get(ds.id);
         if (existingNode) {
           return existingNode;

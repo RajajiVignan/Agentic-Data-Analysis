@@ -1,10 +1,8 @@
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   ArrowRight,
   GitMerge,
-  Plus,
-  X,
 } from "lucide-react";
 import { joinDatasets } from "@/lib/api";
 import type { Dataset } from "@/lib/api";

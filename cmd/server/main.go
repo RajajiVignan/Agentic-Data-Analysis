@@ -13,6 +13,7 @@ import (
 
 	"insightpilot/internal/agent"
 	"insightpilot/internal/api"
+	"insightpilot/internal/utils"
 
 	"github.com/joho/godotenv"
 )
@@ -27,8 +28,8 @@ func main() {
 
 	validateEnv()
 
-	port := getEnv("PORT", "3000")
-	host := getEnv("HOST", "127.0.0.1")
+	port := utils.GetEnv("PORT", "3000")
+	host := utils.GetEnv("HOST", "127.0.0.1")
 
 	// Configure the agent layer
 	agentCfg := agent.DefaultConfig()
@@ -113,7 +114,7 @@ func initLogger() {
 	}
 
 	var handler slog.Handler
-	if os.Getenv("LOG_FORMAT") == "json" || isProductionEnv() {
+	if os.Getenv("LOG_FORMAT") == "json" || utils.IsProduction() {
 		handler = slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: level})
 	} else {
 		handler = slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})
@@ -140,20 +141,4 @@ func validateEnv() {
 	}
 
 	_ = missing // informational only; app will run with degraded functionality
-}
-
-func getEnv(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
-}
-
-func isProductionEnv() bool {
-	for _, name := range []string{"APP_ENV", "GO_ENV", "NODE_ENV"} {
-		if strings.EqualFold(os.Getenv(name), "production") {
-			return true
-		}
-	}
-	return false
 }

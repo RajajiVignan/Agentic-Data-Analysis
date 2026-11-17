@@ -21,6 +21,7 @@ import (
 	"insightpilot/internal/cache"
 	"insightpilot/internal/data"
 	"insightpilot/internal/store"
+	"insightpilot/internal/utils"
 
 	_ "github.com/lib/pq"
 )
@@ -29,7 +30,6 @@ import (
 // for pinned charts and plot generation.
 type Handler struct {
 	datasets          map[string]*data.Dataset
-	connections       map[string]data.Connection
 	connectionConfigs map[string]*ConnectionConfig
 	sessions          map[string]*agent.ConversationSession
 	analyzer          agent.Analyzer
@@ -80,7 +80,6 @@ func NewHandler(cfg agent.Config) *Handler {
 
 	h := &Handler{
 		datasets:          make(map[string]*data.Dataset),
-		connections:       make(map[string]data.Connection),
 		connectionConfigs: make(map[string]*ConnectionConfig),
 		sessions:          make(map[string]*agent.ConversationSession),
 		analyzer:          agent.NewLLMAnalyzer(cfg),
@@ -88,7 +87,7 @@ func NewHandler(cfg agent.Config) *Handler {
 		pinnedSvc:         NewPinnedChartService(db),
 		dashboardSvc:      NewDashboardService(db),
 		plotService:       NewPlotService(plotsDir, uploadDir, pb),
-		shareSvc:          NewShareService(),
+		shareSvc:          NewShareService(db),
 		auth:              NewAuthService(db),
 		reportSvc:         NewReportService(db),
 		dashEditorSvc:     NewDashboardEditorService(db),
@@ -127,6 +126,13 @@ func NewHandler(cfg agent.Config) *Handler {
 				}
 			}
 			slog.Info("Restored datasets from database", "component", "persist", "count", len(records))
+		}
+	}
+
+	h.restoreTransformPipelines()
+	if h.db != nil {
+		if n, err := h.db.DeleteStaleConversationSessions(time.Now().Add(-30 * 24 * time.Hour)); err == nil && n > 0 {
+			slog.Info("Pruned stale conversation sessions", "component", "session", "count", n)
 		}
 	}
 
@@ -217,7 +223,7 @@ func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"ok":          true,
 		"service":     "InsightPilot API (Go)",
 		"datasets":    len(h.datasets),
-		"connections": len(h.connections),
+		"connections": len(h.connectionConfigs),
 		"db":          dbStatus,
 	})
 }
@@ -291,7 +297,6 @@ func (h *Handler) handleConnectSource(w http.ResponseWriter, r *http.Request) {
 	}
 	h.mu.Lock()
 	h.datasets[id] = dataset
-	h.connections[id] = data.Connection{Source: source, ConnectedAt: time.Now()}
 	h.mu.Unlock()
 	h.persistDataset(dataset)
 	h.sendJSON(w, http.StatusCreated, map[string]interface{}{
@@ -407,17 +412,7 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	profile := data.ProfileRows(rows)
 
-	rowObjects := make([]map[string]string, 0, len(rows)-1)
-	headers := rows[0]
-	for _, row := range rows[1:] {
-		obj := make(map[string]string)
-		for i, header := range headers {
-			if i < len(row) {
-				obj[header] = row[i]
-			}
-		}
-		rowObjects = append(rowObjects, obj)
-	}
+	rowObjects := rowsToObjects(rows)
 
 	dataset := &data.Dataset{
 		ID:       id,
@@ -500,10 +495,7 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	var activeContext *agent.ConversationContext
 
 	if body.SessionId != "" {
-		h.sessionMu.RLock()
-		sess, ok := h.sessions[body.SessionId]
-		h.sessionMu.RUnlock()
-		if ok && h.canAccessOwner(getUserFromContext(r), sess.OwnerID) {
+		if sess, ok := h.getSession(body.SessionId, getUserFromContext(r)); ok {
 			sessionID = sess.ID
 			history = sess.History
 			activeContext = sess.ActiveContext
@@ -515,9 +507,11 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 
 	if sessionID == "" {
 		sessionID = newID()
+		sess := agent.NewSession(sessionID, h.currentUserID(r), targetIds)
 		h.sessionMu.Lock()
-		h.sessions[sessionID] = agent.NewSession(sessionID, h.currentUserID(r), targetIds)
+		h.sessions[sessionID] = sess
 		h.sessionMu.Unlock()
+		h.persistSession(sess)
 		slog.Info("Created new session", "component", "analyze", "sessionId", sessionID)
 	}
 
@@ -661,6 +655,7 @@ func (h *Handler) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		if resp.Context != nil {
 			sess.UpdateContext(resp.Context)
 		}
+		h.persistSession(sess)
 	}
 	h.sessionMu.Unlock()
 
@@ -783,9 +778,10 @@ func (h *Handler) handleClearSession(w http.ResponseWriter, r *http.Request) {
 		h.sendJSON(w, http.StatusBadRequest, map[string]string{"error": "sessionId is required"})
 		return
 	}
+	user := getUserFromContext(r)
 	h.sessionMu.Lock()
 	if sess, ok := h.sessions[body.SessionId]; ok {
-		if !h.canAccessOwner(getUserFromContext(r), sess.OwnerID) {
+		if !h.canAccessOwner(user, sess.OwnerID) {
 			h.sessionMu.Unlock()
 			h.sendJSON(w, http.StatusNotFound, map[string]string{"error": "Session not found"})
 			return
@@ -793,6 +789,11 @@ func (h *Handler) handleClearSession(w http.ResponseWriter, r *http.Request) {
 		delete(h.sessions, body.SessionId)
 	}
 	h.sessionMu.Unlock()
+	if h.db != nil {
+		if err := h.db.DeleteConversationSession(body.SessionId, h.currentUserID(r)); err != nil {
+			slog.Warn("Failed to delete conversation session", "component", "session", "sessionId", body.SessionId, "error", err)
+		}
+	}
 	slog.Info("Cleared session", "component", "session", "sessionId", body.SessionId)
 	h.sendJSON(w, http.StatusOK, map[string]interface{}{"ok": true})
 }
@@ -884,24 +885,45 @@ func (h *Handler) handleRefreshDataset(w http.ResponseWriter, r *http.Request) {
 
 	cols := detectColumns(rows)
 
-	newDS := &data.Dataset{
-		ID:               ds.ID,
-		OwnerID:          ds.OwnerID,
-		Filename:         ds.Filename,
-		FilePath:         ds.FilePath,
-		Profile:          data.Profile{RowCount: len(rows), Columns: cols},
-		Rows:             rows,
-		ConnectionString: connStr,
-		TableName:        tableName,
+	baseDS := &data.Dataset{
+		ID:                 ds.ID,
+		OwnerID:            ds.OwnerID,
+		Filename:           ds.Filename,
+		FilePath:           ds.FilePath,
+		Profile:            data.Profile{RowCount: len(rows), Columns: cols},
+		Rows:               rows,
+		ConnectionString:   connStr,
+		ConnectionConfigID: configID,
+		TableName:          tableName,
 	}
 	if ds.FilePath != "" {
-		newDS.FilePath = ds.FilePath
+		baseDS.FilePath = ds.FilePath
 	}
 
 	h.mu.Lock()
-	h.datasets[id] = newDS
+	pipeline := h.pipelines[id]
 	h.mu.Unlock()
-	h.persistDataset(newDS)
+
+	finalDS := baseDS
+	if pipeline != nil {
+		replayed := data.NewTransformPipeline()
+		replayed.Steps = pipeline.Steps
+		replayed.Undone = pipeline.Undone
+		replayed.SetBase(baseDS)
+		finalDS = replayed.ApplyAll(baseDS)
+		finalDS.OwnerID = baseDS.OwnerID
+		h.mu.Lock()
+		h.pipelines[id] = replayed
+		h.mu.Unlock()
+		h.persistPipeline(id, finalDS, replayed)
+	}
+
+	// Store the refreshed source rows (pre-ETL) so replay stays deterministic.
+	h.persistDataset(baseDS)
+
+	h.mu.Lock()
+	h.datasets[id] = finalDS
+	h.mu.Unlock()
 
 	slog.Info("Refreshed dataset", "component", "refresh", "datasetId", id, "filename", ds.Filename, "rows", len(rows))
 
@@ -939,6 +961,88 @@ func (h *Handler) handleDatasetProfile(w http.ResponseWriter, r *http.Request) {
 
 	profile := data.ComputeDetailedProfile(ds)
 	SendJSON(w, http.StatusOK, profile)
+}
+
+// getSession resolves a conversation session from memory or the database and
+// enforces ownership. Loaded sessions are cached in memory.
+func (h *Handler) getSession(id string, user *User) (*agent.ConversationSession, bool) {
+	h.sessionMu.RLock()
+	sess, ok := h.sessions[id]
+	h.sessionMu.RUnlock()
+	if ok {
+		if !h.canAccessOwner(user, sess.OwnerID) {
+			return nil, false
+		}
+		return sess, true
+	}
+	if h.db == nil || id == "" {
+		return nil, false
+	}
+	rec, err := h.db.LoadConversationSession(id)
+	if err != nil {
+		slog.Warn("Failed to load conversation session", "component", "session", "sessionId", id, "error", err)
+		return nil, false
+	}
+	if rec == nil || !h.canAccessOwner(user, rec.OwnerID) {
+		return nil, false
+	}
+	sess = &agent.ConversationSession{
+		ID:           rec.ID,
+		OwnerID:      rec.OwnerID,
+		CreatedAt:    rec.CreatedAt,
+		LastActiveAt: rec.LastActiveAt,
+	}
+	if len(rec.DatasetIDs) > 0 {
+		_ = json.Unmarshal(rec.DatasetIDs, &sess.DatasetIDs)
+	}
+	if len(rec.History) > 0 {
+		_ = json.Unmarshal(rec.History, &sess.History)
+	}
+	if len(rec.ActiveContext) > 0 {
+		var ctx agent.ConversationContext
+		if err := json.Unmarshal(rec.ActiveContext, &ctx); err == nil {
+			sess.ActiveContext = &ctx
+		}
+	}
+	if sess.ActiveContext == nil {
+		sess.ActiveContext = &agent.ConversationContext{}
+	}
+	if sess.History == nil {
+		sess.History = make([]agent.ConversationTurn, 0)
+	}
+	h.sessionMu.Lock()
+	h.sessions[id] = sess
+	h.sessionMu.Unlock()
+	return sess, true
+}
+
+// persistSession stores a session so multi-turn context survives a restart.
+// Guest sessions stay in memory only.
+func (h *Handler) persistSession(sess *agent.ConversationSession) {
+	if h.db == nil || sess == nil || isGuestUser(sess.OwnerID) {
+		return
+	}
+	datasetIDs, err := json.Marshal(sess.DatasetIDs)
+	if err != nil {
+		slog.Warn("Failed to marshal session datasets", "component", "session", "sessionId", sess.ID, "error", err)
+		return
+	}
+	history, err := json.Marshal(sess.History)
+	if err != nil {
+		slog.Warn("Failed to marshal session history", "component", "session", "sessionId", sess.ID, "error", err)
+		return
+	}
+	contextJSON := []byte("null")
+	if sess.ActiveContext != nil {
+		contextJSON, err = json.Marshal(sess.ActiveContext)
+		if err != nil {
+			slog.Warn("Failed to marshal session context", "component", "session", "sessionId", sess.ID, "error", err)
+			return
+		}
+	}
+	if err := h.db.SaveConversationSession(sess.ID, sess.OwnerID, datasetIDs, history, contextJSON, sess.CreatedAt, sess.LastActiveAt); err != nil {
+		slog.Warn("Failed to persist conversation session", "component", "session", "sessionId", sess.ID, "error", err)
+	}
 }
 
 // accessibleDataset returns the dataset if the current user may read it.
@@ -1200,7 +1304,7 @@ func configuredAllowedOrigins() map[string]bool {
 	if raw == "" {
 		raw = strings.TrimSpace(os.Getenv("FRONTEND_ORIGIN"))
 	}
-	if raw == "" && !isProduction() {
+	if raw == "" && !utils.IsProduction() {
 		raw = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001"
 	}
 
@@ -1212,13 +1316,4 @@ func configuredAllowedOrigins() map[string]bool {
 		}
 	}
 	return origins
-}
-
-func isProduction() bool {
-	for _, name := range []string{"APP_ENV", "GO_ENV", "NODE_ENV"} {
-		if strings.EqualFold(os.Getenv(name), "production") {
-			return true
-		}
-	}
-	return false
 }

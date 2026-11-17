@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -105,27 +104,6 @@ func (a *LLMAnalyzer) fallback(ctx context.Context, req AnalysisRequest, reason 
 }
 
 // --- Helpers ---
-
-func normalizeBearer(key string) string {
-	key = strings.TrimSpace(key)
-	key = strings.Trim(key, "\"")
-	key = strings.Trim(key, "'")
-	key = strings.TrimPrefix(key, "Bearer ")
-	key = strings.TrimPrefix(key, "bearer ")
-	return key
-}
-
-func stripMarkdownCodeFences(s string) string {
-	s = strings.TrimSpace(s)
-	if strings.HasPrefix(s, "```") {
-		if idx := strings.Index(s[3:], "\n"); idx >= 0 {
-			s = s[3+idx+1:]
-		}
-		s = strings.TrimSuffix(s, "```")
-		s = strings.TrimSpace(s)
-	}
-	return s
-}
 
 func truncateStr(s string, maxLen int) string {
 	if len(s) <= maxLen {

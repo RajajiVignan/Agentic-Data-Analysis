@@ -1,6 +1,6 @@
 # InsightPilot Frontend
 
-Next.js frontend for the InsightPilot BI workspace.
+React (Vite) frontend for the InsightPilot BI workspace.
 
 ## Getting Started
 

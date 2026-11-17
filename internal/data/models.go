@@ -35,12 +35,6 @@ type Column struct {
 	Sample   []string `json:"sample,omitempty"`
 }
 
-// Connection represents a connection to a data source.
-type Connection struct {
-	Source      string
-	ConnectedAt time.Time
-}
-
 // ColumnStat holds computed statistics for a single column.
 type ColumnStat struct {
 	Name     string `json:"name"`

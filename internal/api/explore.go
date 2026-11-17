@@ -5,18 +5,17 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"insightpilot/internal/data"
 )
 
 type exploreRequest struct {
-	DatasetID string             `json:"datasetId"`
-	VizType   string             `json:"vizType"` // bar | line | area | pie | scatter | kpi | pivottable | heatmap | sankey | sunburst
-	Dimension data.DimensionRef  `json:"dimension"`
-	Metric    data.MetricRef     `json:"metric"`
-	Sort      string             `json:"sort"`  // asc | desc
-	Limit     int                `json:"limit"`
+	DatasetID string            `json:"datasetId"`
+	VizType   string            `json:"vizType"` // bar | line | area | pie | scatter | kpi | pivottable | heatmap | sankey | sunburst
+	Dimension data.DimensionRef `json:"dimension"`
+	Metric    data.MetricRef    `json:"metric"`
+	Sort      string            `json:"sort"` // asc | desc
+	Limit     int               `json:"limit"`
 	// Secondary dimension (column / target / level-2) for pivottable, sankey, sunburst.
 	Dimension2 data.DimensionRef `json:"dimension2"`
 	// Scatter-only numeric columns
@@ -515,5 +514,3 @@ func (h *Handler) metricLabel(ref data.MetricRef) string {
 	}
 	return "metric"
 }
-
-var _ = time.Now

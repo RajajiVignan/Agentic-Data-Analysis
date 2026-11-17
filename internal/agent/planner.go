@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"insightpilot/internal/data"
+	"insightpilot/internal/utils"
 )
 
 // PlannerAgent creates focused analysis plans from dataset metadata.
@@ -91,7 +92,7 @@ Rules:
 		return nil, nil, fmt.Errorf("planner LLM call failed: %w", err)
 	}
 
-	content := stripMarkdownCodeFences(resp)
+	content := utils.StripCodeFences(resp)
 	slog.Info("[Planner] LLM response:", "truncate", truncateStr(content, 500))
 
 	var plan LLMPlan
@@ -146,7 +147,7 @@ func (p *PlannerAgent) chatCompletion(ctx context.Context, messages []map[string
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+normalizeBearer(p.config.APIKey))
+	httpReq.Header.Set("Authorization", "Bearer "+utils.NormalizeBearer(p.config.APIKey))
 
 	resp, err := p.client.Do(httpReq)
 	if err != nil {

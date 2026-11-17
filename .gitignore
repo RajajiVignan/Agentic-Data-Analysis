@@ -9,6 +9,9 @@ frontend/.env*
 frontend/next-env.d.ts
 frontend/test-results/
 frontend/playwright-report/
+frontend/src/**/*.js
+frontend/tsconfig.tsbuildinfo
+plots/
 
 Reviews
 

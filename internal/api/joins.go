@@ -47,11 +47,11 @@ func (h *Handler) handleJoin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !columnExists(leftDS, body.LeftKey) {
-		SendJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("Left key column %q not found in dataset %q. Available columns: %v", body.LeftKey, leftDS.Filename, columnNames(leftDS))})
+		SendJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("Left key column %q not found in dataset %q. Available columns: %v", body.LeftKey, leftDS.Filename, data.ColumnNames(leftDS))})
 		return
 	}
 	if !columnExists(rightDS, body.RightKey) {
-		SendJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("Right key column %q not found in dataset %q. Available columns: %v", body.RightKey, rightDS.Filename, columnNames(rightDS))})
+		SendJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("Right key column %q not found in dataset %q. Available columns: %v", body.RightKey, rightDS.Filename, data.ColumnNames(rightDS))})
 		return
 	}
 
@@ -84,12 +84,4 @@ func columnExists(ds *data.Dataset, colName string) bool {
 		}
 	}
 	return false
-}
-
-func columnNames(ds *data.Dataset) []string {
-	names := make([]string, len(ds.Profile.Columns))
-	for i, c := range ds.Profile.Columns {
-		names[i] = c.Name
-	}
-	return names
 }

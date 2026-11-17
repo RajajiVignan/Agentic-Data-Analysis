@@ -1,10 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { guestLogin, uploadSampleCsv, runAnalysis, waitForAnalysis, getKpiValues } from './helpers';
+import { editorLogin, uploadSampleCsv, runAnalysis, waitForAnalysis, getKpiValues } from './helpers';
 import * as path from 'path';
 
 test.describe('Upload & Analysis Workflow', () => {
   test.beforeEach(async ({ page }) => {
-    await guestLogin(page);
+    await editorLogin(page);
   });
 
   test('upload CSV file and confirm dataset appears', async ({ page }) => {

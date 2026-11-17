@@ -3,11 +3,15 @@ package api
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+
+	"insightpilot/internal/store"
 )
 
 type SharedDashboard struct {
@@ -20,12 +24,14 @@ type SharedDashboard struct {
 
 type ShareService struct {
 	shares map[string]*SharedDashboard
+	db     *store.DB
 	mu     sync.RWMutex
 }
 
-func NewShareService() *ShareService {
+func NewShareService(db *store.DB) *ShareService {
 	return &ShareService{
 		shares: make(map[string]*SharedDashboard),
+		db:     db,
 	}
 }
 
@@ -35,32 +41,75 @@ func generateShareToken() string {
 	return hex.EncodeToString(b)
 }
 
-func (s *ShareService) Create(charts []*PinnedChart, baseURL string) *SharedDashboard {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
+func (s *ShareService) Create(ownerID string, charts []*PinnedChart, baseURL string) *SharedDashboard {
+	now := time.Now()
 	token := generateShareToken()
 	sd := &SharedDashboard{
 		Token:     token,
-		CreatedAt: time.Now(),
-		ExpiresAt: time.Now().Add(7 * 24 * time.Hour),
+		CreatedAt: now,
+		ExpiresAt: now.Add(7 * 24 * time.Hour),
 		Charts:    charts,
 		URL:       baseURL + "/shared/" + token,
 	}
+
+	if s.db != nil && !isGuestUser(ownerID) {
+		if chartsJSON, err := json.Marshal(charts); err == nil {
+			if err := s.db.SaveShare(token, ownerID, sd.CreatedAt, sd.ExpiresAt, chartsJSON, sd.URL); err != nil {
+				slog.Warn("Failed to persist share link", "component", "share", "error", err)
+			}
+		} else {
+			slog.Warn("Failed to marshal share charts", "component", "share", "error", err)
+		}
+		_, _ = s.db.DeleteExpiredShares(now)
+	}
+
+	s.mu.Lock()
 	s.shares[token] = sd
+	s.mu.Unlock()
 	return sd
 }
 
 func (s *ShareService) Get(token string) *SharedDashboard {
+	now := time.Now()
 	s.mu.RLock()
-	defer s.mu.RUnlock()
 	sd, ok := s.shares[token]
-	if !ok {
+	s.mu.RUnlock()
+	if ok {
+		if now.After(sd.ExpiresAt) {
+			s.mu.Lock()
+			delete(s.shares, token)
+			s.mu.Unlock()
+			return nil
+		}
+		return sd
+	}
+
+	if s.db == nil {
 		return nil
 	}
-	if time.Now().After(sd.ExpiresAt) {
+	rec, err := s.db.GetShare(token)
+	if err != nil {
+		slog.Warn("Failed to load share link", "component", "share", "error", err)
 		return nil
 	}
+	if rec == nil || now.After(rec.ExpiresAt) {
+		return nil
+	}
+	var charts []*PinnedChart
+	if err := json.Unmarshal(rec.Charts, &charts); err != nil {
+		slog.Warn("Failed to decode share charts", "component", "share", "error", err)
+		return nil
+	}
+	sd = &SharedDashboard{
+		Token:     rec.Token,
+		CreatedAt: rec.CreatedAt,
+		ExpiresAt: rec.ExpiresAt,
+		Charts:    charts,
+		URL:       rec.URL,
+	}
+	s.mu.Lock()
+	s.shares[token] = sd
+	s.mu.Unlock()
 	return sd
 }
 
@@ -85,7 +134,7 @@ func (h *Handler) handleCreateShareLink(w http.ResponseWriter, r *http.Request) 
 	}
 	baseURL := scheme + "://" + r.Host
 
-	sd := h.shareSvc.Create(charts, baseURL)
+	sd := h.shareSvc.Create(ownerID, charts, baseURL)
 	h.sendJSON(w, http.StatusCreated, sd)
 }
 

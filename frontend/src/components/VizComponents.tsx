@@ -160,13 +160,12 @@ export function SankeyDiagram({ links }: { links: { source: string; target: stri
   const rightByName = new Map(right.map((n) => [n.name, n]));
 
   const maxLink = Math.max(1, ...links.map((l) => l.value));
-  const linkPath = (s: SankeyNode, t: SankeyNode, value: number) => {
+  const linkPath = (s: SankeyNode, t: SankeyNode, _value: number) => {
     const x0 = s.x + nodeWidth;
     const x1 = t.x;
     const sy = (s.y0 + s.y1) / 2;
     const ty = (t.y0 + t.y1) / 2;
     const cx = (x0 + x1) / 2;
-    const w = Math.max(1, (value / maxLink) * 24);
     return `M ${x0} ${sy} C ${cx} ${sy}, ${cx} ${ty}, ${x1} ${ty}`;
   };
 

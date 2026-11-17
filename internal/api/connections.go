@@ -36,7 +36,6 @@ type ConnectionConfig struct {
 	AccountID   string `json:"accountId,omitempty"`
 	Warehouse   string `json:"warehouse,omitempty"`
 	Role        string `json:"role,omitempty"`
-	Region      string `json:"region,omitempty"`
 	UseSSL      bool   `json:"useSsl"`
 	Connected   bool   `json:"connected"`
 	DatasetID   string `json:"datasetId,omitempty"`
@@ -168,10 +167,6 @@ func (h *Handler) handleConnectionCreate(w http.ResponseWriter, r *http.Request)
 
 	h.mu.Lock()
 	h.datasets[dsID] = ds
-	h.connections[connID] = data.Connection{
-		Source:      fmt.Sprintf("%s/%s", cfg.Provider, cfg.Database),
-		ConnectedAt: time.Now(),
-	}
 	h.connectionConfigs[connID] = &cfg
 	h.mu.Unlock()
 
@@ -208,7 +203,6 @@ func (h *Handler) handleConnectionDelete(w http.ResponseWriter, r *http.Request)
 	if cfg.DatasetID != "" {
 		delete(h.datasets, cfg.DatasetID)
 	}
-	delete(h.connections, id)
 	delete(h.connectionConfigs, id)
 
 	log.Printf("[connections] Deleted connection %s", id)

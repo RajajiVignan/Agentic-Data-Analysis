@@ -13,7 +13,7 @@
 ┌──────────────────────────────────────────────────────────┐
 │                     InsightPilot                         │
 ├──────────────────────┬───────────────────────────────────┤
-│   Go Backend         │   Next.js Frontend                │
+│   Go Backend         │   React (Vite) Frontend           │
 │   (port 3000)        │   (React UI)                      │
 ├──────────────────────┼───────────────────────────────────┤
 │  REST API            │  Upload CSV/JSON                  │
@@ -79,7 +79,7 @@ cd frontend
 npm run dev
 ```
 
-Open the URL printed by Next.js (usually **`http://localhost:3001`**).
+Open the URL printed by Vite (usually **`http://localhost:3001`**).
 
 ---
 

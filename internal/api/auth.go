@@ -15,6 +15,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"insightpilot/internal/store"
+	"insightpilot/internal/utils"
 )
 
 type User struct {
@@ -370,12 +371,13 @@ func (h *Handler) canAccessDataset(r *http.Request, datasetID string) bool {
 	return h.canAccessOwner(user, ds.OwnerID)
 }
 
-// setAuthCookie sets an HttpOnly cookie with the JWT token (72h expiry).
-func setAuthCookie(w http.ResponseWriter, token string) {
+// setAuthCookie sets an HttpOnly cookie with the JWT token. A maxAge of 0
+// makes it session-scoped (deleted on browser close).
+func setAuthCookie(w http.ResponseWriter, token string, maxAge int) {
 	if token == "" {
 		return
 	}
-	secure := isProduction()
+	secure := utils.IsProduction()
 	http.SetCookie(w, &http.Cookie{
 		Name:     "auth_token",
 		Value:    token,
@@ -383,24 +385,7 @@ func setAuthCookie(w http.ResponseWriter, token string) {
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
 		Secure:   secure,
-		MaxAge:   72 * 60 * 60,
-	})
-}
-
-// setSessionCookie sets a session-scoped HttpOnly cookie (deleted on browser close).
-func setSessionCookie(w http.ResponseWriter, token string) {
-	if token == "" {
-		return
-	}
-	secure := isProduction()
-	http.SetCookie(w, &http.Cookie{
-		Name:     "auth_token",
-		Value:    token,
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
-		Secure:   secure,
-		MaxAge:   0,
+		MaxAge:   maxAge,
 	})
 }
 
@@ -457,7 +442,7 @@ func (h *Handler) handleRegister(w http.ResponseWriter, r *http.Request) {
 		h.sendJSON(w, status, map[string]string{"error": msg})
 		return
 	}
-	setAuthCookie(w, token)
+	setAuthCookie(w, token, 72*60*60)
 	h.sendJSON(w, http.StatusCreated, map[string]interface{}{
 		"user":  user,
 		"token": token,
@@ -482,7 +467,7 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		h.sendJSON(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})
 		return
 	}
-	setAuthCookie(w, token)
+	setAuthCookie(w, token, 72*60*60)
 	h.sendJSON(w, http.StatusOK, map[string]interface{}{
 		"user":  user,
 		"token": token,
@@ -506,7 +491,7 @@ func (h *Handler) handleGuestLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	h.auth.mu.Unlock()
 	token := h.auth.createToken(user.ID)
-	setSessionCookie(w, token)
+	setAuthCookie(w, token, 0)
 	h.sendJSON(w, http.StatusCreated, map[string]interface{}{
 		"user":  user,
 		"token": token,
@@ -548,12 +533,6 @@ func (a *AuthService) LoginWithToken(token string) (*User, error) {
 	return a.ValidateToken(token)
 }
 
-func (a *AuthService) HasUsers() bool {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	return len(a.users) > 0
-}
-
 func isGuestUser(userID string) bool {
 	return strings.HasPrefix(userID, "guest_")
 }
@@ -590,9 +569,17 @@ func (h *Handler) cleanupExpiredGuests() {
 			for id, ds := range h.datasets {
 				if ds.OwnerID == rec.ID {
 					delete(h.datasets, id)
+					delete(h.pipelines, id)
 				}
 			}
 			h.mu.Unlock()
+			h.sessionMu.Lock()
+			for id, sess := range h.sessions {
+				if sess.OwnerID == rec.ID {
+					delete(h.sessions, id)
+				}
+			}
+			h.sessionMu.Unlock()
 		}
 	}
 }

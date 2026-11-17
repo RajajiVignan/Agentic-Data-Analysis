@@ -2,15 +2,10 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import {
   Wand2,
-  Loader2,
   ArrowRight,
   Sparkles,
   X,
   BarChart3,
-  LineChart,
-  PieChart,
-  AreaChart,
-  ScatterChart,
   Palette,
   TrendingUp,
 } from "lucide-react";

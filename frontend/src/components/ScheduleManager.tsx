@@ -240,8 +240,8 @@ function ReportForm({
 }) {
   const [name, setName] = useState("");
   const [frequency, setFrequency] = useState<"daily" | "weekly" | "monthly">("daily");
-  const [dayOfWeek, setDayOfWeek] = useState(1);
-  const [dayOfMonth, setDayOfMonth] = useState(1);
+  const [dayOfWeek] = useState(1);
+  const [dayOfMonth] = useState(1);
   const [hour, setHour] = useState(9);
   const [emails, setEmails] = useState("");
   const [slackWebhook, setSlackWebhook] = useState("");

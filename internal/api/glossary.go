@@ -12,9 +12,9 @@ import (
 
 // GlossaryService manages business metric definitions (semantic layer).
 type GlossaryService struct {
-	mu    sync.RWMutex
-	defs  map[string]*data.MetricDefinition
-	db    *store.DB
+	mu   sync.RWMutex
+	defs map[string]*data.MetricDefinition
+	db   *store.DB
 }
 
 func newGlossaryService(db *store.DB) *GlossaryService {
@@ -55,16 +55,6 @@ func (s *GlossaryService) List(ownerID string) []*data.MetricDefinition {
 		return out[i].Name < out[j].Name
 	})
 	return out
-}
-
-func (s *GlossaryService) Get(id, ownerID string) *data.MetricDefinition {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	def, ok := s.defs[id]
-	if !ok || (ownerID != "" && def.OwnerID != ownerID) {
-		return nil
-	}
-	return def
 }
 
 func (s *GlossaryService) Create(def *data.MetricDefinition) *data.MetricDefinition {

@@ -68,7 +68,7 @@ export function TransformationPanel({ datasetId, columns, onTransformed, onExpor
   const [aggGroupBy, setAggGroupBy] = useState(columns[0]?.name ?? "");
   const [aggCol, setAggCol] = useState("");
   const [aggFn, setAggFn] = useState("sum");
-  const [aggNewName, setAggNewName] = useState("");
+  const [aggNewName] = useState("");
 
   // Sort params
   const [sortCol, setSortCol] = useState(columns[0]?.name ?? "");

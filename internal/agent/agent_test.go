@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"insightpilot/internal/data"
+	"insightpilot/internal/utils"
 )
 
 func TestDeterministicAnalyzerReturnsValidResponse(t *testing.T) {
@@ -235,9 +236,9 @@ func TestStripMarkdownCodeFences(t *testing.T) {
 		{"  ```json\n{\"a\":1}\n```  ", "{\"a\":1}"},
 	}
 	for _, tt := range tests {
-		got := stripMarkdownCodeFences(tt.input)
+		got := utils.StripCodeFences(tt.input)
 		if got != tt.want {
-			t.Errorf("stripMarkdownCodeFences(%q) = %q, want %q", tt.input, got, tt.want)
+			t.Errorf("StripCodeFences(%q) = %q, want %q", tt.input, got, tt.want)
 		}
 	}
 }

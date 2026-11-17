@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
   ArrowDown, BarChart3, LineChart, PieChart, AreaChart, ScatterChart,
-  Download, Filter, Crosshair, X,
+  Download, Filter, Crosshair,
 } from "lucide-react";
 
 export type ContextMenuAction = "drilldown" | "changeType" | "filter" | "exportPng" | "exportJpeg" | "pin";
@@ -38,7 +38,6 @@ type ChartContextMenuProps = {
 };
 
 export function ChartContextMenu({
-  chartTitle,
   chartType,
   onAction,
   onChangeChartType,

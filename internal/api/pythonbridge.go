@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"insightpilot/internal/utils"
 )
 
 // LLMConfig holds the minimal config needed for LLM-driven code generation.
@@ -360,7 +362,7 @@ Write a Python visualization script that best answers the user's question about 
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+normalizeBearer(pb.llmConfig.APIKey))
+	req.Header.Set("Authorization", "Bearer "+utils.NormalizeBearer(pb.llmConfig.APIKey))
 
 	client := &http.Client{
 		Timeout:   time.Duration(timeout) * time.Second,
@@ -398,7 +400,7 @@ Write a Python visualization script that best answers the user's question about 
 	}
 
 	code := llmResp.Choices[0].Message.Content
-	code = stripCodeFences(code)
+	code = utils.StripCodeFences(code)
 	return code, nil
 }
 
@@ -1041,28 +1043,4 @@ if fig is None:
 pio.write_html(fig, plot_path, auto_open=False, include_plotlyjs='cdn')
 print(f"Plot saved to {plot_path}")
 `, accent)
-}
-
-// stripCodeFences removes ```python ... ``` or ``` ... ``` wrappers from LLM output.
-func stripCodeFences(s string) string {
-	s = strings.TrimSpace(s)
-	if strings.HasPrefix(s, "```") {
-		// Find the newline after the opening ```
-		if idx := strings.Index(s[3:], "\n"); idx >= 0 {
-			s = s[3+idx+1:]
-		}
-		s = strings.TrimSuffix(s, "```")
-		s = strings.TrimSpace(s)
-	}
-	return s
-}
-
-// normalizeBearer strips any "Bearer " prefix and surrounding quotes from the token.
-func normalizeBearer(key string) string {
-	key = strings.TrimSpace(key)
-	key = strings.Trim(key, "\"")
-	key = strings.Trim(key, "'")
-	key = strings.TrimPrefix(key, "Bearer ")
-	key = strings.TrimPrefix(key, "bearer ")
-	return key
 }

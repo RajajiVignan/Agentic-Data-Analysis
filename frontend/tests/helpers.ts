@@ -1,7 +1,9 @@
 import { Page, expect } from '@playwright/test';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 
 const BASE = process.env.BASE_URL || 'http://localhost:3000';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * Log in as a guest user via the auth overlay.
@@ -10,6 +12,22 @@ export async function guestLogin(page: Page) {
   await page.goto('/');
   await page.waitForSelector('text=InsightPilot', { timeout: 15000 });
   await page.getByRole('button', { name: 'Continue as Guest' }).click();
+  await page.waitForSelector('text=AI Data Analyst', { timeout: 15000 });
+}
+
+/**
+ * Register a fresh editor account and land on the workspace. Uploads and other
+ * mutations require the editor role, so data tests use this instead of guest.
+ */
+export async function editorLogin(page: Page) {
+  const email = `e2e-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.com`;
+  await page.goto('/');
+  await page.waitForSelector('text=InsightPilot', { timeout: 15000 });
+  await page.getByRole('button', { name: 'Sign up' }).click();
+  await page.getByPlaceholder('Your name').fill('E2E User');
+  await page.getByPlaceholder('you@example.com').fill(email);
+  await page.getByPlaceholder('At least 4 characters').fill('secret123');
+  await page.getByRole('button', { name: 'Create Account' }).click();
   await page.waitForSelector('text=AI Data Analyst', { timeout: 15000 });
 }
 
@@ -34,12 +52,12 @@ export async function uploadSampleCsv(page: Page, filePath?: string) {
 export async function runAnalysis(page: Page, question: string) {
   // Use the window-level test handler exposed by page.tsx
   const hasHandler = await page.evaluate(() => {
-    return typeof (window as any).__testHandleRunAnalysis === 'function';
+    return typeof (window as Window & { __testHandleRunAnalysis?: unknown }).__testHandleRunAnalysis === 'function';
   });
 
   if (hasHandler) {
     await page.evaluate((prompt) => {
-      return (window as any).__testHandleRunAnalysis(prompt);
+      return (window as Window & { __testHandleRunAnalysis?: (p: string) => unknown }).__testHandleRunAnalysis?.(prompt);
     }, question);
   } else {
     // Fallback: fill input and click button
@@ -81,7 +99,6 @@ export async function getKpiValues(page: Page) {
  */
 export async function navigateToTab(page: Page, tabName: string) {
   await page.evaluate((name) => {
-    const btn = document.querySelector<HTMLButtonElement>(`aside button`);
     const buttons = document.querySelectorAll<HTMLButtonElement>('aside nav button');
     for (const b of buttons) {
       if (b.textContent?.trim() === name) {

@@ -17,9 +17,12 @@ type TransformStep struct {
 }
 
 // TransformPipeline holds an ordered sequence of steps with undo/redo stacks.
+// Base is the untouched dataset snapshot the steps are replayed against. It is
+// never serialized: callers rehydrate it from the original rows on load.
 type TransformPipeline struct {
 	Steps  []TransformStep `json:"steps"`
 	Undone []TransformStep `json:"undone"`
+	Base   *Dataset        `json:"-"`
 }
 
 func NewTransformPipeline() *TransformPipeline {
@@ -57,8 +60,31 @@ func (p *TransformPipeline) Redo() bool {
 func (p *TransformPipeline) CanUndo() bool { return len(p.Steps) > 0 }
 func (p *TransformPipeline) CanRedo() bool { return len(p.Undone) > 0 }
 
+// SetBase records the untouched dataset to replay steps against. It only
+// stores the first snapshot so subsequent calls do not overwrite it with an
+// already-transformed dataset.
+func (p *TransformPipeline) SetBase(ds *Dataset) {
+	if ds == nil || p.Base != nil {
+		return
+	}
+	p.Base = copyDataset(ds)
+}
+
+// BaseDataset returns a copy of the untouched snapshot, if one was captured.
+func (p *TransformPipeline) BaseDataset() *Dataset {
+	if p == nil || p.Base == nil {
+		return nil
+	}
+	return copyDataset(p.Base)
+}
+
 func (p *TransformPipeline) ApplyAll(ds *Dataset) *Dataset {
-	result := copyDataset(ds)
+	p.SetBase(ds)
+	base := ds
+	if p.Base != nil {
+		base = p.Base
+	}
+	result := copyDataset(base)
 	for _, step := range p.Steps {
 		result = applyStep(result, step)
 	}
@@ -81,16 +107,13 @@ func copyDataset(ds *Dataset) *Dataset {
 	}
 	cols := make([]Column, len(ds.Profile.Columns))
 	copy(cols, ds.Profile.Columns)
-	return &Dataset{
-		ID:       ds.ID,
-		Filename: ds.Filename,
-		FilePath: ds.FilePath,
-		Profile: Profile{
-			RowCount: ds.Profile.RowCount,
-			Columns:  cols,
-		},
-		Rows: rows,
+	out := *ds
+	out.Rows = rows
+	out.Profile = Profile{
+		RowCount: ds.Profile.RowCount,
+		Columns:  cols,
 	}
+	return &out
 }
 
 func applyStep(ds *Dataset, step TransformStep) *Dataset {
@@ -131,7 +154,7 @@ func applyFilter(ds *Dataset, params map[string]interface{}) *Dataset {
 	}
 	result := copyDataset(ds)
 	result.Rows = out
-	result.Profile = ProfileRows(objectsToRows(result.Rows, columnNames(ds)))
+	result.Profile = ProfileRows(objectsToRows(result.Rows, ColumnNames(ds)))
 	return result
 }
 
@@ -194,7 +217,7 @@ func applyRename(ds *Dataset, params map[string]interface{}) *Dataset {
 		}
 		result.Rows[i] = row
 	}
-	result.Profile = ProfileRows(objectsToRows(result.Rows, columnNames(ds)))
+	result.Profile = ProfileRows(objectsToRows(result.Rows, ColumnNames(ds)))
 	return result
 }
 
@@ -217,7 +240,7 @@ func applyDrop(ds *Dataset, params map[string]interface{}) *Dataset {
 		}
 		result.Rows[i] = row
 	}
-	result.Profile = ProfileRows(objectsToRows(result.Rows, columnNames(ds)))
+	result.Profile = ProfileRows(objectsToRows(result.Rows, ColumnNames(ds)))
 	return result
 }
 
@@ -313,7 +336,7 @@ func applyNullHandle(ds *Dataset, params map[string]interface{}) *Dataset {
 		}
 	}
 
-	result.Profile = ProfileRows(objectsToRows(result.Rows, columnNames(ds)))
+	result.Profile = ProfileRows(objectsToRows(result.Rows, ColumnNames(ds)))
 	return result
 }
 
@@ -332,7 +355,7 @@ func applyDerive(ds *Dataset, params map[string]interface{}) *Dataset {
 		val := evalSimpleExpr(row, expr)
 		row[newCol] = val
 	}
-	result.Profile = ProfileRows(objectsToRows(result.Rows, columnNames(ds)))
+	result.Profile = ProfileRows(objectsToRows(result.Rows, ColumnNames(ds)))
 	return result
 }
 
@@ -585,7 +608,7 @@ func applySort(ds *Dataset, params map[string]interface{}) *Dataset {
 	order, _ := params["order"].(string)
 	desc := order == "desc"
 
-	cols := columnNames(ds)
+	cols := ColumnNames(ds)
 	result := copyDataset(ds)
 	colIdx := -1
 	for i, c := range cols {
@@ -627,13 +650,13 @@ func applySelect(ds *Dataset, params map[string]interface{}) *Dataset {
 		}
 		result.Rows[i] = row
 	}
-	result.Profile = ProfileRows(objectsToRows(result.Rows, columnNames(ds)))
+	result.Profile = ProfileRows(objectsToRows(result.Rows, ColumnNames(ds)))
 	return result
 }
 
 // --- Helpers ---
 
-func columnNames(ds *Dataset) []string {
+func ColumnNames(ds *Dataset) []string {
 	names := make([]string, len(ds.Profile.Columns))
 	for i, c := range ds.Profile.Columns {
 		names[i] = c.Name

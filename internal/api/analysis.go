@@ -419,7 +419,7 @@ func (h *Handler) execLiveSQL(ds *data.Dataset, metricCol, catCol, dateCol *data
 		sqlQueries = append(sqlQueries, "-- Trend\n"+trendSQL)
 		rows, err := db.Query(trendSQL)
 		if err == nil {
-			trend = scanTrendRows(rows)
+			trend = scanLabelValueRows(rows)
 			rows.Close()
 		} else {
 			log.Printf("[livedb] Trend query failed: %v", err)
@@ -442,7 +442,7 @@ func (h *Handler) execLiveSQL(ds *data.Dataset, metricCol, catCol, dateCol *data
 		sqlQueries = append(sqlQueries, "-- Segments\n"+segSQL)
 		rows, err := db.Query(segSQL)
 		if err == nil {
-			segments = scanSegmentRows(rows)
+			segments = scanLabelValueRows(rows)
 			rows.Close()
 		} else {
 			log.Printf("[livedb] Segment query failed: %v", err)
@@ -487,26 +487,7 @@ func scanKPIRows(rows *sql.Rows) []map[string]string {
 	return results
 }
 
-func scanTrendRows(rows *sql.Rows) []map[string]interface{} {
-	var results []map[string]interface{}
-	for rows.Next() {
-		var label string
-		var value sql.NullFloat64
-		if err := rows.Scan(&label, &value); err != nil {
-			continue
-		}
-		r := map[string]interface{}{"label": label}
-		if value.Valid {
-			r["value"] = value.Float64
-		} else {
-			r["value"] = 0
-		}
-		results = append(results, r)
-	}
-	return results
-}
-
-func scanSegmentRows(rows *sql.Rows) []map[string]interface{} {
+func scanLabelValueRows(rows *sql.Rows) []map[string]interface{} {
 	var results []map[string]interface{}
 	for rows.Next() {
 		var label string

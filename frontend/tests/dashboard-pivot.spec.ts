@@ -1,12 +1,12 @@
 import { test, expect } from '@playwright/test';
 import {
-  guestLogin, uploadSampleCsv, runAnalysis, waitForAnalysis,
+  editorLogin, uploadSampleCsv, runAnalysis, waitForAnalysis,
   navigateToTab, setSidebarMode,
 } from './helpers';
 
 test.describe('Dashboards & Pivot Builder', () => {
   test.beforeEach(async ({ page }) => {
-    await guestLogin(page);
+    await editorLogin(page);
     await uploadSampleCsv(page);
   });
 

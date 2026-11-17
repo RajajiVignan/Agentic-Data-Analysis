@@ -76,7 +76,7 @@ type Props = {
   selectedDatasetIds: string[];
 };
 
-export function SQLQueryEditor({ datasets, selectedDatasetIds }: Props) {
+export function SQLQueryEditor({ selectedDatasetIds }: Props) {
   const [tabs, setTabs] = useState<Tab[]>(() => [
     { id: newTabId(), name: "Query 1", sql: "" },
   ]);
@@ -87,7 +87,7 @@ export function SQLQueryEditor({ datasets, selectedDatasetIds }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [showSchema, setShowSchema] = useState(true);
   const [chartType, setChartType] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
+  const [page] = useState(1);
 
   const [showSaved, setShowSaved] = useState(false);
   const [savedQueries, setSavedQueries] = useState<SavedQuery[]>([]);

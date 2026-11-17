@@ -1,11 +1,11 @@
 import { test, expect } from '@playwright/test';
 import {
-  guestLogin, uploadSampleCsv, runAnalysis, waitForAnalysis,
+  editorLogin, uploadSampleCsv, runAnalysis, waitForAnalysis,
 } from './helpers';
 
 test.describe('Chart Interactions', () => {
   test.beforeEach(async ({ page }) => {
-    await guestLogin(page);
+    await editorLogin(page);
     await uploadSampleCsv(page);
     await runAnalysis(page, 'Show revenue by month');
     await waitForAnalysis(page, 30000);

@@ -1,5 +1,5 @@
-import { useState, useRef, useCallback, useEffect, Fragment } from 'react';
-import { Pin, Info, ChevronDown, ChevronRight, Download, Loader2, Clock, Brain, Coffee, BarChart3, Activity, Image, Code, BarChart as BarChartIcon, X } from 'lucide-react';
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { Pin, Info, ChevronDown, ChevronRight, Download, Loader2, Clock, Brain, Coffee, BarChart3, Activity, X } from 'lucide-react';
 import { useDashboardFilter } from '@/components/DashboardFilterContext';
 import { ChartContextMenu } from '@/components/ChartContextMenu';
 import type { ContextMenuAction } from '@/components/ChartContextMenu';
@@ -12,7 +12,6 @@ import {
   Area,
   ScatterChart,
   Scatter,
-  ComposedChart,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -26,6 +25,16 @@ import {
   Brush,
 } from 'recharts';
 import { downloadChartPng, downloadChartJpeg } from '@/lib/export';
+
+const TOOLTIP_STYLE = {
+  background: '#fff',
+  border: '1px solid #e2e8f0',
+  borderRadius: '10px',
+  fontSize: '12px',
+  boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
+};
+const AXIS_PROPS = { tick: { fontSize: 11, fill: '#64748b' }, axisLine: false, tickLine: false };
+const GRID_PROPS = { strokeDasharray: '3 3', stroke: '#e2e8f0', strokeOpacity: 0.5 };
 
 const LOADING_QUOTES = [
   { icon: Brain, text: "Teaching the AI to read your data... it's not looking great." },
@@ -320,36 +329,6 @@ export function PythonPlot({ url, plotType, onPin }: { url?: string; plotType?: 
   );
 }
 
-export function VizTypeSelector({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const options = [
-    { id: 'matplotlib', label: 'Matplotlib', icon: Image },
-    { id: 'bokeh', label: 'Bokeh', icon: Code },
-    { id: 'plotly', label: 'Plotly', icon: BarChartIcon },
-  ];
-
-  return (
-    <div className="flex items-center gap-1.5">
-      {options.map((opt) => {
-        const active = value === opt.id;
-        return (
-          <button
-            key={opt.id}
-            onClick={() => onChange(opt.id)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
-              active
-                ? 'bg-indigo-100 text-indigo-700 shadow-sm ring-1 ring-indigo-200'
-                : 'bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-slate-700'
-            }`}
-          >
-            <opt.icon size={14} />
-            {opt.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 export function TrendChart({ data, onPin, filterColumn = "label", onChartTypeChange, onDrillDown }: {
   data: ChartPoint[];
   onPin?: () => void;
@@ -369,17 +348,11 @@ export function TrendChart({ data, onPin, filterColumn = "label", onChartTypeCha
     <ChartCard title="Interactive Trend" badge="Recharts Bar" onPin={onPin} chartType="bar" onChartTypeChange={onChartTypeChange} onDrillDown={onDrillDown} data-export-plot="Trend Chart">
       <ResponsiveContainer width="100%" height={280}>
         <BarChart data={data} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" strokeOpacity={0.5} />
-          <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+          <CartesianGrid {...GRID_PROPS} />
+          <XAxis dataKey="label" {...AXIS_PROPS} />
+          <YAxis {...AXIS_PROPS} />
           <Tooltip
-            contentStyle={{
-              background: '#fff',
-              border: '1px solid #e2e8f0',
-              borderRadius: '10px',
-              fontSize: '12px',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
-            }}
+            contentStyle={TOOLTIP_STYLE}
           />
           <Bar
             dataKey="value"
@@ -457,13 +430,7 @@ export function SegmentChart({ data, onPin, filterColumn = "label", onChartTypeC
             })}
           </Pie>
           <Tooltip
-            contentStyle={{
-              background: '#fff',
-              border: '1px solid #e2e8f0',
-              borderRadius: '10px',
-              fontSize: '12px',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
-            }}
+            contentStyle={TOOLTIP_STYLE}
           />
           <Legend wrapperStyle={{ fontSize: '11px' }} />
         </PieChart>
@@ -492,17 +459,11 @@ export function LineTrendChart({ data, onPin, filterColumn = "label", onChartTyp
     <ChartCard title="Time Series Trend" badge="Recharts Line" onPin={onPin} chartType="line" onChartTypeChange={onChartTypeChange} onDrillDown={onDrillDown} data-export-plot="Line Trend">
       <ResponsiveContainer width="100%" height={280}>
         <LineChart data={data} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" strokeOpacity={0.5} />
-          <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+          <CartesianGrid {...GRID_PROPS} />
+          <XAxis dataKey="label" {...AXIS_PROPS} />
+          <YAxis {...AXIS_PROPS} />
           <Tooltip
-            contentStyle={{
-              background: '#fff',
-              border: '1px solid #e2e8f0',
-              borderRadius: '10px',
-              fontSize: '12px',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
-            }}
+            contentStyle={TOOLTIP_STYLE}
           />
           <Line
             type="monotone"
@@ -544,17 +505,11 @@ export function AreaTrendChart({ data, onPin, filterColumn = "label", onChartTyp
     <ChartCard title="Cumulative Trend" badge="Recharts Area" onPin={onPin} chartType="area" onChartTypeChange={onChartTypeChange} onDrillDown={onDrillDown} data-export-plot="Area Trend">
       <ResponsiveContainer width="100%" height={280}>
         <AreaChart data={data} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" strokeOpacity={0.5} />
-          <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+          <CartesianGrid {...GRID_PROPS} />
+          <XAxis dataKey="label" {...AXIS_PROPS} />
+          <YAxis {...AXIS_PROPS} />
           <Tooltip
-            contentStyle={{
-              background: '#fff',
-              border: '1px solid #e2e8f0',
-              borderRadius: '10px',
-              fontSize: '12px',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
-            }}
+            contentStyle={TOOLTIP_STYLE}
           />
           <Area
             type="monotone"
@@ -601,18 +556,12 @@ export function ScatterTrendChart({ data, onPin, filterColumn = "label", onChart
     <ChartCard title="Correlation Explorer" badge="Recharts Scatter" onPin={onPin} chartType="scatter" onChartTypeChange={onChartTypeChange} onDrillDown={onDrillDown} data-export-plot="Scatter Plot">
       <ResponsiveContainer width="100%" height={280}>
       <ScatterChart margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" strokeOpacity={0.5} />
-        <XAxis dataKey="x" name="x" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
-        <YAxis dataKey="y" name="y" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+        <CartesianGrid {...GRID_PROPS} />
+        <XAxis dataKey="x" name="x" {...AXIS_PROPS} />
+        <YAxis dataKey="y" name="y" {...AXIS_PROPS} />
         <ZAxis dataKey="z" range={[60, 400]} />
         <Tooltip
-          contentStyle={{
-            background: '#fff',
-            border: '1px solid #e2e8f0',
-            borderRadius: '10px',
-            fontSize: '12px',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
-          }}
+          contentStyle={TOOLTIP_STYLE}
           cursor={{ strokeDasharray: '3 3' }}
         />
         <Scatter data={filteredData} fill={accentColor} fillOpacity={0.6} animationDuration={600} animationEasing="ease-out">
@@ -626,59 +575,7 @@ export function ScatterTrendChart({ data, onPin, filterColumn = "label", onChart
   );
 }
 
-type ComboPoint = {
-  label: string;
-  bars: number;
-  line: number;
-};
-
-export function ComboChart({ data, onPin, barKey = "bars", lineKey = "line", filterColumn = "label", onChartTypeChange, onDrillDown }: {
-  data: ComboPoint[];
-  onPin?: () => void;
-  barKey?: string;
-  lineKey?: string;
-  filterColumn?: string;
-  onChartTypeChange?: (type: string) => void;
-  onDrillDown?: () => void;
-}) {
-  const filter = useDashboardFilter();
-  if (!data || data.length === 0) return null;
-
-  const filteredData = filter.filters.length > 0
-    ? data.filter(d => !filter.filters.some(f => f.column === filterColumn && f.value && String(d.label) !== f.value))
-    : data;
-
-  return (
-    <ChartCard title="Bar + Line Combo" badge="Recharts Composed" onPin={onPin} chartType="combo" onChartTypeChange={onChartTypeChange} onDrillDown={onDrillDown} data-export-plot="Combo Chart">
-      <ResponsiveContainer width="100%" height={280}>
-        <ComposedChart data={filteredData} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" strokeOpacity={0.5} />
-          <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
-          <Tooltip
-            contentStyle={{
-              background: '#fff',
-              border: '1px solid #e2e8f0',
-              borderRadius: '10px',
-              fontSize: '12px',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
-            }}
-          />
-          <Bar dataKey={barKey} fill="var(--accent, #6366f1)" radius={[4, 4, 0, 0]} maxBarSize={32} animationDuration={600} animationEasing="ease-out" />
-          <Line type="monotone" dataKey={lineKey} stroke="#ef4444" strokeWidth={2.5} dot={{ fill: '#ef4444', r: 4, strokeWidth: 2, stroke: '#fff' }} animationDuration={600} animationEasing="ease-out" />
-        </ComposedChart>
-      </ResponsiveContainer>
-    </ChartCard>
-  );
-}
-
-type HeatmapCell = {
-  x: string;
-  y: string;
-  value: number;
-};
-
-export function SmartAutoViz({ data, chartType, onPin, title, onChartTypeChange, onDrillDown }: {
+export function SmartAutoViz({ data, chartType, onPin, onChartTypeChange, onDrillDown }: {
   data: ChartPoint[];
   chartType?: string;
   onPin?: () => void;
@@ -811,66 +708,4 @@ export function DashboardFilterBar() {
   );
 }
 
-export function HeatmapChart({ data, onPin, filterColumn = "x", onChartTypeChange, onDrillDown }: {
-  data: HeatmapCell[];
-  onPin?: () => void;
-  filterColumn?: string;
-  onChartTypeChange?: (type: string) => void;
-  onDrillDown?: () => void;
-}) {
-  const filter = useDashboardFilter();
-  if (!data || data.length === 0) return null;
-  const filteredData = filter.filters.length > 0
-    ? data.filter(d => !filter.filters.some(f => f.value && d[filterColumn as keyof HeatmapCell] !== f.value))
-    : data;
 
-  const maxVal = Math.max(...filteredData.map((d) => d.value));
-  const minVal = Math.min(...filteredData.map((d) => d.value));
-  const range = maxVal - minVal || 1;
-
-  const xLabels = [...new Set(filteredData.map((d) => d.x))];
-  const yLabels = [...new Set(filteredData.map((d) => d.y))];
-
-  const getColor = (val: number) => {
-    const intensity = (val - minVal) / range;
-    const r = Math.round(99 + (99 - 99) * intensity);
-    const g = Math.round(102 + (241 - 102) * (1 - intensity));
-    const b = Math.round(241 + (241 - 241) * intensity);
-    return `rgb(${r}, ${g}, ${b})`;
-  };
-
-  return (
-    <ChartCard title="Density Heatmap" badge="Grid" onPin={onPin} chartType="heatmap" onChartTypeChange={onChartTypeChange} onDrillDown={onDrillDown} data-export-plot="Heatmap">
-      <div className="overflow-x-auto">
-        <div className="grid gap-0.5" style={{ gridTemplateColumns: `auto repeat(${xLabels.length}, 1fr)` }}>
-          <div className="text-[10px] text-slate-400 p-1" />
-          {xLabels.map((xl) => (
-            <div key={xl} className="text-[10px] text-slate-500 font-medium p-1 text-center truncate">{xl}</div>
-          ))}
-          {yLabels.map((yl) => (
-            <Fragment key={yl}>
-              <div className="text-[10px] text-slate-500 font-medium p-1 text-right truncate">{yl}</div>
-              {xLabels.map((xl) => {
-                const cell = filteredData.find((d) => d.x === xl && d.y === yl);
-                const val = cell?.value ?? 0;
-                return (
-                  <div
-                    key={`${xl}-${yl}`}
-                    className="p-2 text-center text-[10px] font-medium rounded transition-transform hover:scale-110"
-                    style={{
-                      backgroundColor: getColor(val),
-                      color: val > (minVal + range * 0.6) ? 'white' : '#475569',
-                    }}
-                    title={`${yl} / ${xl}: ${val.toFixed(1)}`}
-                  >
-                    {val.toFixed(0)}
-                  </div>
-                );
-              })}
-            </Fragment>
-          ))}
-        </div>
-      </div>
-    </ChartCard>
-  );
-}

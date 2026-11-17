@@ -8,6 +8,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+
+	"insightpilot/internal/utils"
 	"time"
 )
 
@@ -86,7 +88,7 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no code fences, no extra text.
 		return &ValidationResult{Valid: true}, nil
 	}
 
-	content := stripMarkdownCodeFences(resp)
+	content := utils.StripCodeFences(resp)
 	slog.Info("[Validator] Response:", "truncated response", truncateStr(content, 500))
 
 	var result ValidationResult
@@ -137,7 +139,7 @@ func (v *ValidatorAgent) chatCompletion(ctx context.Context, messages []map[stri
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+normalizeBearer(v.config.APIKey))
+	httpReq.Header.Set("Authorization", "Bearer "+utils.NormalizeBearer(v.config.APIKey))
 
 	resp, err := v.client.Do(httpReq)
 	if err != nil {

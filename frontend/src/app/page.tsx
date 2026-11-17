@@ -3,10 +3,6 @@ import {
   LayoutDashboard,
   Download,
   FileDown,
-  GitMerge,
-  Terminal,
-  CalendarClock,
-  Layout,
   Sun,
   Moon,
   BarChart3,
@@ -44,7 +40,6 @@ import {
   clearSession as apiClearSession,
   regeneratePlot,
 } from "@/lib/api";
-import { JoinConfigurator } from "@/components/JoinConfigurator";
 import { SchemaDesigner } from "@/components/SchemaDesigner";
 import { SQLQueryEditor } from "@/components/SQLQueryEditor";
 import { ScheduleManager } from "@/components/ScheduleManager";
@@ -66,7 +61,6 @@ import type {
   PinnedChart,
   ConnectionConfig,
   Dashboard,
-  SharedDashboardData,
 } from "@/lib/api";
 
 type NavTab = "explore" | "dashboards" | "data" | "context" | "share" | "schema" | "query" | "reports" | "editor" | "profiler" | "glossary" | "builder";
@@ -81,7 +75,7 @@ export default function Workspace() {
   const [analyzeLoading, setAnalyzeLoading] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [conversationTurns, setConversationTurns] = useState<{prompt: string; result: AnalysisResult}[]>([]);
-  const [backendStatus, setBackendStatus] = useState<BackendStatus>("checking");
+  const [, setBackendStatus] = useState<BackendStatus>("checking");
   const [error, setError] = useState<string | null>(null);
   const [pinnedCharts, setPinnedCharts] = useState<PinnedChart[]>([]);
   const [activeNav, setActiveNav] = useState<NavTab>("explore");
@@ -126,8 +120,8 @@ export default function Workspace() {
   const [aggregation, setAggregation] = useState("sum");
   const [sidebarMode, setSidebarMode] = useState<"plots" | "pivot">("plots");
   const [pivotLoading, setPivotLoading] = useState(false);
-  const [customChartColors, setCustomChartColors] = useState<string[] | null>(null);
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc" | null>(null);
+  const [, setCustomChartColors] = useState<string[] | null>(null);
+  const [, setSortOrder] = useState<"asc" | "desc" | null>(null);
   const { addToast } = useToast();
 
   // --- Initialization ---
@@ -455,7 +449,7 @@ export default function Workspace() {
         await loadDashboards();
       }
       addToast("Chart pinned to dashboard", "success");
-    } catch (e) {
+    } catch {
       addToast("Failed to pin chart", "error");
     }
   }
@@ -469,7 +463,7 @@ export default function Workspace() {
         await loadDashboards();
       }
       addToast("Chart unpinned", "success");
-    } catch (e) {
+    } catch {
       addToast("Failed to unpin chart", "error");
     }
   }
@@ -513,7 +507,7 @@ export default function Workspace() {
       setDashboards((prev) => [...prev, d]);
       setActiveDashboardId(d.id);
       addToast("Dashboard created", "success");
-    } catch (e) {
+    } catch {
       addToast("Failed to create dashboard", "error");
     }
   }
@@ -539,7 +533,7 @@ export default function Workspace() {
     }
   }
 
-  function handleConnectionCreated(datasetId: string, filename: string) {
+  function handleConnectionCreated(datasetId: string) {
     loadDatasets();
     setSelectedDatasetIds((prev) => [...prev, datasetId]);
   }

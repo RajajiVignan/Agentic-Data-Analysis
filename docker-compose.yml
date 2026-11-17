@@ -1,0 +1,43 @@
+services:
+  insightpilot:
+    build: .
+    image: insightpilot:local
+    ports:
+      - "3000:3000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      HOST: 0.0.0.0
+      PORT: "3000"
+      STATIC_DIR: /app/frontend/out
+      UPLOAD_DIR: /app/uploads
+      # To use a local Postgres instead of Supabase, start the optional db
+      # service below and uncomment this line:
+      # DATABASE_URL: postgresql://insightpilot:insightpilot@db:5432/insightpilot?sslmode=disable
+    volumes:
+      - insightpilot_uploads:/app/uploads
+    restart: unless-stopped
+
+  # Optional local database. Enable with:
+  #   docker compose --profile local-db up -d
+  # then uncomment DATABASE_URL above.
+  db:
+    image: postgres:16-alpine
+    profiles: ["local-db"]
+    environment:
+      POSTGRES_USER: insightpilot
+      POSTGRES_PASSWORD: insightpilot
+      POSTGRES_DB: insightpilot
+    volumes:
+      - insightpilot_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U insightpilot -d insightpilot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  insightpilot_uploads:
+  insightpilot_pgdata:

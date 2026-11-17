@@ -21,19 +21,6 @@ func TestDuckDBEngineBasicQuery(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Run("ProfileCSV", func(t *testing.T) {
-		profile, err := engine.ProfileCSV(csvPath)
-		if err != nil {
-			t.Fatalf("ProfileCSV failed: %v", err)
-		}
-		if profile.RowCount != 4 {
-			t.Fatalf("row count = %d, want 4", profile.RowCount)
-		}
-		if len(profile.Columns) == 0 {
-			t.Fatal("no columns profiled")
-		}
-	})
-
 	t.Run("QueryKPIs", func(t *testing.T) {
 		results, err := engine.QueryKPIs(csvPath, "revenue")
 		if err != nil {
@@ -72,7 +59,7 @@ func TestDuckDBEngineInvalidFile(t *testing.T) {
 	dir := t.TempDir()
 	engine := NewDuckDBEngine(filepath.Join(dir, "scripts"))
 
-	_, err := engine.ProfileCSV("/nonexistent/file.csv")
+	_, err := engine.QueryKPIs("/nonexistent/file.csv", "revenue")
 	if err == nil {
 		t.Fatal("expected error for nonexistent file")
 	}

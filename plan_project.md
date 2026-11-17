@@ -250,7 +250,7 @@ semantic layer, no-code builder, caching, async jobs). The remaining risk is
 ### 7.3 Recommended execution order
 
 1. **I-1 + I-2** — enforce auth and owner-scope every resource (security blocker). **DONE** — routes split into public/read/editor groups; `owner_id` + role added across datasets, dashboards, layouts, connections, pinned charts, saved queries, reports, alerts, glossary, semantic fields; admin/editor/viewer roles enforced.
-2. **I-3** — persist share tokens and pipelines; DuckDB-backed datasets.
+2. **I-3** — persist share tokens and pipelines; DuckDB-backed datasets. **DONE (partial)** — share links, transform pipelines, and conversation sessions now persist to PostgreSQL with in-memory fallback; pipelines replay from the untouched base dataset and are reapplied after refresh/restart. Per-dataset DuckDB materialization deferred until an embedded-driver decision is made (queries still use the Python DuckDB bridge over CSV).
 3. **I-5 + I-6** — CI and migrations (prevents regressions while scaling).
 4. **I-4** — containerized Python sandbox.
 5. **I-7** — metrics/tracing and LLM cost tracking.

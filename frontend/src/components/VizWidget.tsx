@@ -1,14 +1,11 @@
 
-import { useState, useMemo } from "react";
+import { useMemo } from "react";
 import {
   BarChart3,
   LineChart,
   PieChart,
   AreaChart,
   ScatterChart,
-  Table2,
-  TrendingUp,
-  LayoutDashboard,
   Lightbulb,
   ArrowRight,
   MousePointerClick,

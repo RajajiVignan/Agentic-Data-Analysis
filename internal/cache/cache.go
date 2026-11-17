@@ -29,12 +29,12 @@ type Entry struct {
 
 // MemoryCache is an in-memory, concurrency-safe TTL cache.
 type MemoryCache struct {
-	mu           sync.RWMutex
-	items        map[string]Entry
-	defaultTTL   time.Duration
-	sweepEvery   time.Duration
-	stopCh       chan struct{}
-	stopped      bool
+	mu         sync.RWMutex
+	items      map[string]Entry
+	defaultTTL time.Duration
+	sweepEvery time.Duration
+	stopCh     chan struct{}
+	stopped    bool
 }
 
 // NewMemoryCache creates an in-memory cache. defaultTTL is applied when Set is
@@ -90,13 +90,6 @@ func (c *MemoryCache) Delete(key string) {
 	c.mu.Lock()
 	delete(c.items, key)
 	c.mu.Unlock()
-}
-
-// Len returns the number of live entries (used by tests/metrics).
-func (c *MemoryCache) Len() int {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return len(c.items)
 }
 
 // Close stops the background sweeper.

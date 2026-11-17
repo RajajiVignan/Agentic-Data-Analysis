@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"insightpilot/internal/data"
+	"insightpilot/migrations"
 
 	_ "github.com/lib/pq"
 )
@@ -78,15 +79,77 @@ type PinnedChartRecord struct {
 	URL       string    `json:"url"`
 }
 
+// runMigrations applies embedded, numbered SQL migrations exactly once and
+// records them in schema_migrations. A transaction-scoped advisory lock makes
+// concurrent server starts safe.
+func (db *DB) runMigrations() error {
+	if _, err := db.conn.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+		version TEXT PRIMARY KEY,
+		applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+	)`); err != nil {
+		return fmt.Errorf("create schema_migrations: %w", err)
+	}
+
+	names, err := migrations.Names()
+	if err != nil {
+		return fmt.Errorf("list migrations: %w", err)
+	}
+
+	for _, name := range names {
+		tx, err := db.conn.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration %s: %w", name, err)
+		}
+
+		if _, err := tx.Exec(`SELECT pg_advisory_xact_lock($1)`, int64(872341)); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("lock migration %s: %w", name, err)
+		}
+
+		var applied bool
+		if err := tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = $1)`, name).Scan(&applied); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("check migration %s: %w", name, err)
+		}
+		if applied {
+			_ = tx.Rollback()
+			continue
+		}
+
+		body, err := migrations.Read(name)
+		if err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("read migration %s: %w", name, err)
+		}
+		if _, err := tx.Exec(body); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("apply migration %s: %w", name, err)
+		}
+		if _, err := tx.Exec(`INSERT INTO schema_migrations (version) VALUES ($1)`, name); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("record migration %s: %w", name, err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
 // NewDB creates a new database connection using SUPABASE_URL and SUPABASE_KEY from env.
 // It constructs a PostgreSQL connection string from the Supabase URL.
 // If connection fails, it returns nil (graceful degradation to in-memory).
 func NewDB() *DB {
+	// DATABASE_URL takes precedence (local Postgres, compose, managed Postgres).
+	if connStr := strings.TrimSpace(os.Getenv("DATABASE_URL")); connStr != "" {
+		return openDB(connStr, "PostgreSQL (DATABASE_URL)")
+	}
+
 	supabaseURL := os.Getenv("SUPABASE_URL")
 	supabaseKey := os.Getenv("SUPABASE_KEY")
 
 	if supabaseURL == "" || supabaseKey == "" {
-		log.Println("store: SUPABASE_URL or SUPABASE_KEY not set, using in-memory storage")
+		log.Println("store: DATABASE_URL and SUPABASE_URL/SUPABASE_KEY not set, using in-memory storage")
 		return nil
 	}
 
@@ -117,9 +180,12 @@ func NewDB() *DB {
 		return nil
 	}
 
-	host := fmt.Sprintf("db.%s.supabase.co", projectRef)
-	connStr := fmt.Sprintf("postgresql://postgres:%s@%s:5432/postgres?sslmode=require", dbPassword, host)
+	return openDB(buildSupabaseConnStr(projectRef, dbPassword), "Supabase PostgreSQL")
+}
 
+// openDB connects, tunes the pool, applies migrations, and falls back to
+// in-memory storage by returning nil on any failure.
+func openDB(connStr, source string) *DB {
 	conn, err := sql.Open("postgres", connStr)
 	if err != nil {
 		log.Printf("store: failed to open database: %v, using in-memory storage", err)
@@ -130,7 +196,6 @@ func NewDB() *DB {
 	conn.SetMaxIdleConns(5)
 	conn.SetConnMaxLifetime(5 * time.Minute)
 
-	// Test the connection
 	if err := conn.Ping(); err != nil {
 		log.Printf("store: failed to ping database: %v, using in-memory storage", err)
 		conn.Close()
@@ -138,13 +203,13 @@ func NewDB() *DB {
 	}
 
 	db := &DB{conn: conn}
-	if err := db.initSchema(); err != nil {
-		log.Printf("store: failed to initialize schema: %v, using in-memory storage", err)
+	if err := db.runMigrations(); err != nil {
+		log.Printf("store: failed to apply migrations: %v, using in-memory storage", err)
 		conn.Close()
 		return nil
 	}
 
-	log.Println("store: connected to Supabase PostgreSQL")
+	log.Printf("store: connected to %s", source)
 	return db
 }
 
@@ -170,123 +235,6 @@ func extractProjectRef(url string) string {
 func buildSupabaseConnStr(projectRef, dbPassword string) string {
 	host := fmt.Sprintf("db.%s.supabase.co", projectRef)
 	return fmt.Sprintf("postgresql://postgres:%s@%s:5432/postgres?sslmode=require", dbPassword, host)
-}
-
-func pinnedChartsSchemaSQL() string {
-	return `
-		CREATE TABLE IF NOT EXISTS pinned_charts (
-			id TEXT PRIMARY KEY,
-			owner_id TEXT NOT NULL DEFAULT '',
-			created_at TIMESTAMPTZ DEFAULT now(),
-			chart_type TEXT NOT NULL,
-			label TEXT,
-			data JSONB,
-			url TEXT
-		)
-	`
-}
-
-func (db *DB) initSchema() error {
-	if _, err := db.conn.Exec(pinnedChartsSchemaSQL()); err != nil {
-		return err
-	}
-	_, _ = db.conn.Exec(`ALTER TABLE pinned_charts ADD COLUMN IF NOT EXISTS owner_id TEXT NOT NULL DEFAULT ''`)
-	if err := db.initDashboardsTable(); err != nil {
-		return err
-	}
-	if err := db.InitDatasetsTable(); err != nil {
-		return err
-	}
-	if err := db.initReportsTable(); err != nil {
-		return err
-	}
-	if err := db.initAlertsTable(); err != nil {
-		return err
-	}
-	if err := db.initDashboardLayoutsTable(); err != nil {
-		return err
-	}
-	if err := db.initGlossaryTable(); err != nil {
-		return err
-	}
-	if err := db.initDatasetFieldsTable(); err != nil {
-		return err
-	}
-	if err := db.initSavedQueriesTable(); err != nil {
-		return err
-	}
-	return db.initUsersTable()
-}
-
-func (db *DB) initReportsTable() error {
-	_, err := db.conn.Exec(`
-		CREATE TABLE IF NOT EXISTS scheduled_reports (
-			id TEXT PRIMARY KEY,
-			owner_id TEXT NOT NULL DEFAULT '',
-			name TEXT NOT NULL,
-			dataset_ids TEXT NOT NULL DEFAULT '[]',
-			frequency TEXT NOT NULL DEFAULT 'daily',
-			day_of_week INTEGER NOT NULL DEFAULT 0,
-			day_of_month INTEGER NOT NULL DEFAULT 1,
-			hour INTEGER NOT NULL DEFAULT 9,
-			emails TEXT NOT NULL DEFAULT '[]',
-			slack_webhook TEXT DEFAULT '',
-			teams_webhook TEXT DEFAULT '',
-			last_sent TEXT DEFAULT '',
-			next_run TEXT DEFAULT '',
-			enabled BOOLEAN NOT NULL DEFAULT true,
-			created_at TEXT NOT NULL DEFAULT ''
-		)
-	`)
-	if err != nil {
-		return err
-	}
-	_, _ = db.conn.Exec(`ALTER TABLE scheduled_reports ADD COLUMN IF NOT EXISTS owner_id TEXT NOT NULL DEFAULT ''`)
-	return nil
-}
-
-func (db *DB) initAlertsTable() error {
-	_, err := db.conn.Exec(`
-		CREATE TABLE IF NOT EXISTS alert_rules (
-			id TEXT PRIMARY KEY,
-			owner_id TEXT NOT NULL DEFAULT '',
-			name TEXT NOT NULL,
-			dataset_id TEXT NOT NULL,
-			metric_col TEXT NOT NULL,
-			condition TEXT NOT NULL DEFAULT 'drop',
-			threshold DOUBLE PRECISION NOT NULL DEFAULT 10,
-			period TEXT DEFAULT '',
-			emails TEXT NOT NULL DEFAULT '[]',
-			slack_hook TEXT DEFAULT '',
-			enabled BOOLEAN NOT NULL DEFAULT true,
-			last_checked TEXT DEFAULT '',
-			created_at TEXT NOT NULL DEFAULT ''
-		)
-	`)
-	if err != nil {
-		return err
-	}
-	_, _ = db.conn.Exec(`ALTER TABLE alert_rules ADD COLUMN IF NOT EXISTS owner_id TEXT NOT NULL DEFAULT ''`)
-	return nil
-}
-
-func (db *DB) initDashboardLayoutsTable() error {
-	_, err := db.conn.Exec(`
-		CREATE TABLE IF NOT EXISTS dashboard_layouts (
-			id TEXT PRIMARY KEY,
-			owner_id TEXT NOT NULL DEFAULT '',
-			name TEXT NOT NULL,
-			is_default BOOLEAN NOT NULL DEFAULT false,
-			tiles JSONB NOT NULL DEFAULT '[]'::jsonb,
-			created_at TEXT NOT NULL DEFAULT '',
-			updated_at TEXT NOT NULL DEFAULT ''
-		)
-	`)
-	if err != nil {
-		return err
-	}
-	_, _ = db.conn.Exec(`ALTER TABLE dashboard_layouts ADD COLUMN IF NOT EXISTS owner_id TEXT NOT NULL DEFAULT ''`)
-	return nil
 }
 
 // Close closes the database connection.
@@ -378,47 +326,6 @@ type UserRecord struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
-func (db *DB) initGlossaryTable() error {
-	_, err := db.conn.Exec(`
-		CREATE TABLE IF NOT EXISTS glossary_defs (
-			id TEXT PRIMARY KEY,
-			owner_id TEXT NOT NULL DEFAULT '',
-			name TEXT NOT NULL,
-			expression TEXT DEFAULT '',
-			description TEXT DEFAULT '',
-			dataset_id TEXT DEFAULT '',
-			return_type TEXT DEFAULT 'number',
-			created_at TEXT DEFAULT '',
-			updated_at TEXT DEFAULT ''
-		)
-	`)
-	if err != nil {
-		return err
-	}
-	_, _ = db.conn.Exec(`ALTER TABLE glossary_defs ADD COLUMN IF NOT EXISTS owner_id TEXT NOT NULL DEFAULT ''`)
-	return nil
-}
-
-func (db *DB) initDatasetFieldsTable() error {
-	_, err := db.conn.Exec(`
-		CREATE TABLE IF NOT EXISTS dataset_fields (
-			id TEXT PRIMARY KEY,
-			owner_id TEXT NOT NULL DEFAULT '',
-			dataset_id TEXT NOT NULL DEFAULT '',
-			name TEXT NOT NULL,
-			kind TEXT NOT NULL DEFAULT 'metric',
-			config JSONB NOT NULL DEFAULT '{}'::jsonb,
-			created_at TEXT DEFAULT '',
-			updated_at TEXT DEFAULT ''
-		)
-	`)
-	if err != nil {
-		return err
-	}
-	_, _ = db.conn.Exec(`ALTER TABLE dataset_fields ADD COLUMN IF NOT EXISTS owner_id TEXT NOT NULL DEFAULT ''`)
-	return nil
-}
-
 // SaveDatasetField inserts or updates a semantic field.
 func (db *DB) SaveDatasetField(f *data.SemanticField) error {
 	_, err := db.conn.Exec(
@@ -479,25 +386,6 @@ func (db *DB) DeleteDatasetField(id, ownerID string) error {
 
 // --- Saved Queries (SQL Lab) ---
 
-func (db *DB) initSavedQueriesTable() error {
-	_, err := db.conn.Exec(`
-		CREATE TABLE IF NOT EXISTS saved_queries (
-			id TEXT PRIMARY KEY,
-			owner_id TEXT NOT NULL DEFAULT '',
-			name TEXT NOT NULL,
-			dataset_ids TEXT NOT NULL DEFAULT '[]',
-			sql TEXT NOT NULL,
-			created_at TEXT DEFAULT '',
-			updated_at TEXT DEFAULT ''
-		)
-	`)
-	if err != nil {
-		return err
-	}
-	_, _ = db.conn.Exec(`ALTER TABLE saved_queries ADD COLUMN IF NOT EXISTS owner_id TEXT NOT NULL DEFAULT ''`)
-	return nil
-}
-
 // SaveSavedQuery inserts or updates a saved query.
 func (db *DB) SaveSavedQuery(id, ownerID, name, datasetIDs, sql, createdAt, updatedAt string) error {
 	_, err := db.conn.Exec(
@@ -553,30 +441,6 @@ type SavedQueryRecord struct {
 	SQL        string `json:"sql"`
 	CreatedAt  string `json:"created_at"`
 	UpdatedAt  string `json:"updated_at"`
-}
-
-func (db *DB) initUsersTable() error {
-	_, err := db.conn.Exec(`
-		CREATE TABLE IF NOT EXISTS users (
-			id TEXT PRIMARY KEY,
-			email TEXT NOT NULL UNIQUE,
-			name TEXT NOT NULL,
-			password_hash TEXT NOT NULL,
-			role TEXT NOT NULL DEFAULT 'editor',
-			created_at TIMESTAMPTZ DEFAULT now()
-		)
-	`)
-	if err != nil {
-		return err
-	}
-	_, _ = db.conn.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'editor'`)
-	_, err = db.conn.Exec(`
-		CREATE TABLE IF NOT EXISTS app_config (
-			key TEXT PRIMARY KEY,
-			value TEXT NOT NULL
-		)
-	`)
-	return err
 }
 
 // SaveUser persists a user to the database.
@@ -706,25 +570,6 @@ func (db *DB) DeleteDataset(id string) error {
 }
 
 // InitDatasetsTable creates the datasets table if it doesn't exist.
-func (db *DB) InitDatasetsTable() error {
-	_, err := db.conn.Exec(`
-		CREATE TABLE IF NOT EXISTS datasets (
-			id TEXT PRIMARY KEY,
-			filename TEXT NOT NULL,
-			file_path TEXT,
-			owner_id TEXT DEFAULT '',
-			profile JSONB,
-			rows_data JSONB DEFAULT '[]'::jsonb,
-			created_at TIMESTAMPTZ DEFAULT now()
-		)
-	`)
-	if err != nil {
-		return err
-	}
-	// Add owner_id column for existing tables (best-effort, ignore if already exists)
-	_, _ = db.conn.Exec(`ALTER TABLE datasets ADD COLUMN IF NOT EXISTS owner_id TEXT DEFAULT ''`)
-	return nil
-}
 
 // --- Dashboards ---
 
@@ -735,23 +580,6 @@ type DashboardRecord struct {
 	Name      string    `json:"name"`
 	ChartIDs  []string  `json:"chart_ids"`
 	CreatedAt time.Time `json:"created_at"`
-}
-
-func (db *DB) initDashboardsTable() error {
-	_, err := db.conn.Exec(`
-		CREATE TABLE IF NOT EXISTS dashboards (
-			id TEXT PRIMARY KEY,
-			owner_id TEXT NOT NULL DEFAULT '',
-			name TEXT NOT NULL,
-			chart_ids JSONB DEFAULT '[]'::jsonb,
-			created_at TIMESTAMPTZ DEFAULT now()
-		)
-	`)
-	if err != nil {
-		return err
-	}
-	_, _ = db.conn.Exec(`ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS owner_id TEXT NOT NULL DEFAULT ''`)
-	return nil
 }
 
 // SaveDashboard inserts or updates a dashboard.
@@ -998,4 +826,161 @@ func (db *DB) DeleteGlossaryDef(id, ownerID string) error {
 	}
 	_, err := db.conn.Exec(`DELETE FROM glossary_defs WHERE id = $1 AND owner_id = $2`, id, ownerID)
 	return err
+}
+
+// --- Shared dashboards (share tokens) ---
+
+// ShareRecord represents a persisted share link.
+type ShareRecord struct {
+	Token     string
+	OwnerID   string
+	CreatedAt time.Time
+	ExpiresAt time.Time
+	Charts    []byte
+	URL       string
+}
+
+// SaveShare inserts or replaces a share token.
+func (db *DB) SaveShare(token, ownerID string, createdAt, expiresAt time.Time, charts []byte, url string) error {
+	_, err := db.conn.Exec(
+		`INSERT INTO shared_dashboards (token, owner_id, created_at, expires_at, charts, url) VALUES ($1,$2,$3,$4,$5,$6)
+		 ON CONFLICT (token) DO UPDATE SET owner_id=$2, expires_at=$4, charts=$5, url=$6`,
+		token, ownerID, createdAt, expiresAt, charts, url,
+	)
+	return err
+}
+
+// GetShare returns a share token, or nil when it does not exist.
+func (db *DB) GetShare(token string) (*ShareRecord, error) {
+	var rec ShareRecord
+	err := db.conn.QueryRow(
+		`SELECT token, COALESCE(owner_id,''), created_at, expires_at, charts, COALESCE(url,'') FROM shared_dashboards WHERE token = $1`,
+		token,
+	).Scan(&rec.Token, &rec.OwnerID, &rec.CreatedAt, &rec.ExpiresAt, &rec.Charts, &rec.URL)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get share: %w", err)
+	}
+	return &rec, nil
+}
+
+// DeleteExpiredShares removes expired share links.
+func (db *DB) DeleteExpiredShares(now time.Time) (int64, error) {
+	res, err := db.conn.Exec(`DELETE FROM shared_dashboards WHERE expires_at <= $1`, now)
+	if err != nil {
+		return 0, fmt.Errorf("delete expired shares: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
+// --- Transform pipelines ---
+
+// TransformPipelineRecord represents persisted ETL steps for a dataset.
+type TransformPipelineRecord struct {
+	DatasetID string
+	OwnerID   string
+	Steps     []byte
+	Undone    []byte
+	UpdatedAt time.Time
+}
+
+// SaveTransformPipeline upserts the steps for a dataset.
+func (db *DB) SaveTransformPipeline(datasetID, ownerID string, steps, undone []byte) error {
+	_, err := db.conn.Exec(
+		`INSERT INTO transform_pipelines (dataset_id, owner_id, steps, undone, updated_at) VALUES ($1,$2,$3,$4,now())
+		 ON CONFLICT (dataset_id) DO UPDATE SET owner_id=$2, steps=$3, undone=$4, updated_at=now()`,
+		datasetID, ownerID, steps, undone,
+	)
+	return err
+}
+
+// LoadTransformPipelines returns all persisted pipelines.
+func (db *DB) LoadTransformPipelines() ([]TransformPipelineRecord, error) {
+	rows, err := db.conn.Query(`SELECT dataset_id, COALESCE(owner_id,''), steps, undone, updated_at FROM transform_pipelines`)
+	if err != nil {
+		return nil, fmt.Errorf("query transform pipelines: %w", err)
+	}
+	defer rows.Close()
+
+	var records []TransformPipelineRecord
+	for rows.Next() {
+		var rec TransformPipelineRecord
+		if err := rows.Scan(&rec.DatasetID, &rec.OwnerID, &rec.Steps, &rec.Undone, &rec.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan transform pipeline: %w", err)
+		}
+		records = append(records, rec)
+	}
+	return records, rows.Err()
+}
+
+// DeleteTransformPipeline removes a dataset pipeline.
+func (db *DB) DeleteTransformPipeline(datasetID, ownerID string) error {
+	if ownerID == "" {
+		_, err := db.conn.Exec(`DELETE FROM transform_pipelines WHERE dataset_id = $1`, datasetID)
+		return err
+	}
+	_, err := db.conn.Exec(`DELETE FROM transform_pipelines WHERE dataset_id = $1 AND owner_id = $2`, datasetID, ownerID)
+	return err
+}
+
+// --- Conversation sessions ---
+
+// SessionRecord represents a persisted conversation session.
+type SessionRecord struct {
+	ID            string
+	OwnerID       string
+	DatasetIDs    []byte
+	History       []byte
+	ActiveContext []byte
+	CreatedAt     time.Time
+	LastActiveAt  time.Time
+}
+
+// SaveConversationSession upserts a conversation session.
+func (db *DB) SaveConversationSession(id, ownerID string, datasetIDs, history, activeContext []byte, createdAt, lastActiveAt time.Time) error {
+	_, err := db.conn.Exec(
+		`INSERT INTO conversation_sessions (id, owner_id, dataset_ids, history, active_context, created_at, last_active_at) VALUES ($1,$2,$3,$4,$5,$6,$7)
+		 ON CONFLICT (id) DO UPDATE SET owner_id=$2, dataset_ids=$3, history=$4, active_context=$5, last_active_at=$7`,
+		id, ownerID, datasetIDs, history, activeContext, createdAt, lastActiveAt,
+	)
+	return err
+}
+
+// LoadConversationSession returns a session by ID, or nil when absent.
+func (db *DB) LoadConversationSession(id string) (*SessionRecord, error) {
+	var rec SessionRecord
+	err := db.conn.QueryRow(
+		`SELECT id, COALESCE(owner_id,''), dataset_ids, history, active_context, created_at, last_active_at FROM conversation_sessions WHERE id = $1`,
+		id,
+	).Scan(&rec.ID, &rec.OwnerID, &rec.DatasetIDs, &rec.History, &rec.ActiveContext, &rec.CreatedAt, &rec.LastActiveAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load conversation session: %w", err)
+	}
+	return &rec, nil
+}
+
+// DeleteConversationSession removes a session, scoped to owner when provided.
+func (db *DB) DeleteConversationSession(id, ownerID string) error {
+	if ownerID == "" {
+		_, err := db.conn.Exec(`DELETE FROM conversation_sessions WHERE id = $1`, id)
+		return err
+	}
+	_, err := db.conn.Exec(`DELETE FROM conversation_sessions WHERE id = $1 AND owner_id = $2`, id, ownerID)
+	return err
+}
+
+// DeleteStaleConversationSessions prunes sessions inactive before the cutoff.
+func (db *DB) DeleteStaleConversationSessions(before time.Time) (int64, error) {
+	res, err := db.conn.Exec(`DELETE FROM conversation_sessions WHERE last_active_at < $1`, before)
+	if err != nil {
+		return 0, fmt.Errorf("delete stale sessions: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }

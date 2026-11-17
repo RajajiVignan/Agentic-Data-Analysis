@@ -157,65 +157,6 @@ except Exception as e:
 	return results, nil
 }
 
-func (e *DuckDBEngine) ProfileCSV(csvPath string) (Profile, error) {
-	sql := `SELECT 
-		column_name,
-		CASE 
-			WHEN column_type IN ('BIGINT', 'DOUBLE', 'INTEGER', 'FLOAT', 'DECIMAL', 'HUGEINT', 'SMALLINT', 'TINYINT') THEN 'number'
-			WHEN column_type IN ('DATE', 'TIMESTAMP', 'TIMESTAMP WITH TIME ZONE', 'TIMESTAMP WITHOUT TIME ZONE') THEN 'date'
-			ELSE 'text'
-		END as col_type
-	FROM (DESCRIBE data)`
-	rows, err := e.executeSQL(csvPath, sql)
-	if err != nil {
-		return Profile{}, err
-	}
-
-	var cols []Column
-	for _, row := range rows {
-		colName := row["column_name"]
-		colType := row["col_type"]
-		if colType == "" {
-			colType = "text"
-		}
-		qCol := utils.QuoteIdent(colName)
-
-		countSQL := fmt.Sprintf(`SELECT COUNT(*) as non_empty FROM data WHERE %s IS NOT NULL AND CAST(%s AS VARCHAR) != ''`, qCol, qCol)
-		countRows, err := e.executeSQL(csvPath, countSQL)
-		var nonEmpty int
-		if err == nil && len(countRows) > 0 {
-			_, _ = fmt.Sscanf(countRows[0]["non_empty"], "%d", &nonEmpty)
-		}
-
-		sampleSQL := fmt.Sprintf(`SELECT DISTINCT %s as val FROM data WHERE %s IS NOT NULL AND CAST(%s AS VARCHAR) != '' LIMIT 5`, qCol, qCol, qCol)
-		sampleRows, err := e.executeSQL(csvPath, sampleSQL)
-		var samples []string
-		if err == nil {
-			for _, sr := range sampleRows {
-				if sr["val"] != "" {
-					samples = append(samples, sr["val"])
-				}
-			}
-		}
-
-		cols = append(cols, Column{
-			Name:     colName,
-			Type:     colType,
-			NonEmpty: nonEmpty,
-			Sample:   samples,
-		})
-	}
-
-	rowCountSQL := `SELECT COUNT(*) as cnt FROM data`
-	countRows, err := e.executeSQL(csvPath, rowCountSQL)
-	rowCount := 0
-	if err == nil && len(countRows) > 0 {
-		_, _ = fmt.Sscanf(countRows[0]["cnt"], "%d", &rowCount)
-	}
-
-	return Profile{RowCount: rowCount, Columns: cols}, nil
-}
-
 func (e *DuckDBEngine) QueryKPIs(csvPath, metricCol string) ([]map[string]string, error) {
 	q := utils.QuoteIdent(metricCol)
 	sql := fmt.Sprintf(`SELECT 
@@ -255,14 +196,6 @@ func (e *DuckDBEngine) QuerySegments(csvPath, catCol, metricCol string) ([]map[s
 	ORDER BY value DESC
 	LIMIT 10`, qCat, qMetric, qMetric, qCat, qCat, qCat)
 	return e.executeSQL(csvPath, sql)
-}
-
-// ExecuteQuery runs an arbitrary SQL query against one or more CSV files using DuckDB.
-// Each CSV is registered as a table named after its filename (with non-alphanumeric chars replaced by _).
-// Supports pagination via LIMIT/OFFSET.
-// Uses a configurable timeout (QUERY_TIMEOUT_SEC env var, default 30s).
-func (e *DuckDBEngine) ExecuteQuery(csvPaths []string, sql string, page, pageSize int) ([]map[string]string, []string, error) {
-	return e.ExecuteQueryWithContext(context.Background(), csvPaths, sql, page, pageSize)
 }
 
 // ExecuteQueryWithContext runs an arbitrary SQL query with a configurable timeout.

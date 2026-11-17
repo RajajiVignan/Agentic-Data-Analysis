@@ -19,24 +19,22 @@ import {
   saveDashboardLayout,
   deleteDashboardLayout,
   addTileToLayout,
-  updateTileInLayout,
   removeTileFromLayout,
   fetchPinnedCharts,
 } from "@/lib/api";
 import type { DashboardLayout, DashboardTile, PinnedChart } from "@/lib/api";
 import type { Layout } from "react-grid-layout";
-import { MetricTile, TrendChart, SegmentChart, PythonPlot, LineTrendChart, AreaTrendChart } from "@/components/Charts";
+import { MetricTile, TrendChart, SegmentChart, PythonPlot } from "@/components/Charts";
 
 type Props = {
   onRefreshCharts: () => void;
 };
 
-export function DashboardEditor({ onRefreshCharts }: Props) {
+export function DashboardEditor(_props: Props) {
   const [layouts, setLayouts] = useState<DashboardLayout[]>([]);
   const [activeLayoutId, setActiveLayoutId] = useState<string | null>(null);
   const [pinnedCharts, setPinnedCharts] = useState<PinnedChart[]>([]);
   const [editing, setEditing] = useState(false);
-  const [showAddMenu, setShowAddMenu] = useState(false);
 
   useEffect(() => {
     loadLayouts();
